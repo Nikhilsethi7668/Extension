@@ -59,23 +59,14 @@ export default {
     }
 
     try {
-      // Root path - show API info
+      // Root path - serve dashboard
       if ((path === '/' || path === '') && method === 'GET') {
-        return jsonResponse({
-          app: 'AutoBridge Backend API',
-          version: '1.0.0',
-          status: 'online',
-          endpoints: {
-            health: 'GET /api/health',
-            login: 'POST /api/auth/login',
-            validate: 'POST /api/auth/validate',
-            queue: 'POST /api/scrape/queue',
-            jobs: 'GET /api/scrape/jobs',
-            updateJob: 'PATCH /api/scrape/jobs/:id',
-            users: 'GET /api/users'
-          },
-          deployed: new Date().toISOString()
-        }, headers);
+        return serveDashboard(headers);
+      }
+
+      // Serve dashboard for non-API paths
+      if (!path.startsWith('/api')) {
+        return serveDashboard(headers);
       }
 
       // Route handlers
@@ -312,5 +303,80 @@ function jsonResponse(data, headers = {}, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { ...headers, 'Content-Type': 'application/json' }
+  });
+}
+
+function serveDashboard(headers) {
+  // Serve React dashboard with API URL configured
+  const apiUrl = 'https://autobridge-backend.dchatpar.workers.dev/api';
+  const html = `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="description" content="AutoBridge Admin Dashboard" />
+    <title>AutoBridge - Admin Dashboard</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+          'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        background: #f5f5f5;
+      }
+      #root { width: 100%; min-height: 100vh; }
+      .loading {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        flex-direction: column;
+        gap: 20px;
+        font-size: 18px;
+        color: #666;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      }
+      .spinner {
+        width: 40px;
+        height: 40px;
+        border: 4px solid rgba(255,255,255,0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+      .loading-text {
+        color: white;
+        font-weight: 500;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="loading">
+        <div class="spinner"></div>
+        <div class="loading-text">AutoBridge Dashboard</div>
+        <small style="color: rgba(255,255,255,0.7);">Connecting to API...</small>
+      </div>
+    </div>
+    <script>
+      window.REACT_APP_API_URL = '${apiUrl}';
+      window.API_URL = '${apiUrl}';
+      console.log('API URL configured:', window.REACT_APP_API_URL);
+    </script>
+  </body>
+</html>`;
+
+  return new Response(html, {
+    status: 200,
+    headers: { 
+      ...headers,
+      'Content-Type': 'text/html; charset=utf-8',
+      'Cache-Control': 'no-cache, no-store, must-revalidate'
+    }
   });
 }
