@@ -59,6 +59,25 @@ export default {
     }
 
     try {
+      // Root path - show API info
+      if ((path === '/' || path === '') && method === 'GET') {
+        return jsonResponse({
+          app: 'AutoBridge Backend API',
+          version: '1.0.0',
+          status: 'online',
+          endpoints: {
+            health: 'GET /api/health',
+            login: 'POST /api/auth/login',
+            validate: 'POST /api/auth/validate',
+            queue: 'POST /api/scrape/queue',
+            jobs: 'GET /api/scrape/jobs',
+            updateJob: 'PATCH /api/scrape/jobs/:id',
+            users: 'GET /api/users'
+          },
+          deployed: new Date().toISOString()
+        }, headers);
+      }
+
       // Route handlers
       if (path === '/api/health' && method === 'GET') {
         return jsonResponse({ status: 'ok', message: 'Cloudflare Workers API running' }, headers);
