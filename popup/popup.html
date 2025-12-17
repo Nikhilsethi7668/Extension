@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shifty Auto Lister</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header Section -->
+    <div class="header">
+      <h1>🚗 Shifty Auto Lister</h1>
+    </div>
+
+    <!-- Login Section (shown by default) -->
+    <div id="loginSection">
+      <div class="login-form">
+        <h3>🔐 Account Login</h3>
+        <div class="form-group">
+          <label>User ID:</label>
+          <input type="text" id="userId" placeholder="Enter your User ID" />
+        </div>
+        <div class="form-group">
+          <label>Password:</label>
+          <input type="password" id="password" placeholder="Enter your password" />
+        </div>
+        <button class="btn btn-primary" id="loginBtn">Login</button>
+        <p class="hint" style="margin-top: 10px; font-size: 12px; color: #666;">Demo: demo / demo</p>
+      </div>
+    </div>
+
+    <!-- Main Controls (Hidden until logged in) -->
+    <div id="mainControls" style="display: none;">
+      
+      <!-- Account Status Header -->
+      <div class="account-header">
+        <span id="statusText">Logged In</span>
+        <button class="btn btn-secondary btn-small" id="logoutBtn">Logout</button>
+      </div>
+
+      <!-- Connection Test -->
+      <div class="config-section">
+        <button class="btn btn-primary" id="testConnectionBtn">🔌 Test Backend Connection</button>
+        <div id="connectionStatus" style="margin-top: 8px; font-size: 12px; text-align: center;"></div>
+      </div>
+
+      <!-- Vehicle Category Selection Row -->
+      <div class="config-row">
+        <div class="config-item">
+          <label>Vehicle Category</label>
+          <select id="vehicleCategory">
+            <option value="car">🚗 Car</option>
+            <option value="truck">🚙 Truck</option>
+            <option value="suv">🚐 SUV</option>
+            <option value="van">🚚 Van</option>
+            <option value="motorcycle">🏍️ Motorcycle</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="config-item">
+          <label>Emoji</label>
+          <select id="emojiStyle">
+            <option value="none">None</option>
+            <option value="sparkle">✨ Sparkle</option>
+            <option value="fire">🔥 Fire</option>
+            <option value="star">⭐ Star</option>
+          </select>
+        </div>
+        <div class="config-item">
+          <label>Distance</label>
+          <select id="distance">
+            <option value="20">20 Miles</option>
+            <option value="40">40 Miles</option>
+            <option value="60">60 Miles</option>
+            <option value="100">100 Miles</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Where to Post -->
+      <div class="config-section">
+        <label>Where to Post</label>
+        <select id="whereToPost">
+          <option value="marketplace">FB Marketplace</option>
+          <option value="marketplace_groups">Marketplace + Groups</option>
+          <option value="groups">Groups Only</option>
+        </select>
+      </div>
+
+      <!-- AI Instructions -->
+      <div class="config-section">
+        <label>Add A.I. Instructions</label>
+        <div class="checkbox-group">
+          <label>
+            <input type="checkbox" id="aiWrittenDesc" checked />
+            A.I. Written description
+          </label>
+          <label>
+            <input type="checkbox" id="addMileage" checked />
+            Add mileage
+          </label>
+          <label>
+            <input type="checkbox" id="addDealerInfo" />
+            Add dealership info
+          </label>
+        </div>
+        <textarea id="aiInstructions" rows="2" placeholder="Custom AI instructions..."></textarea>
+      </div>
+
+      <!-- Stock Number -->
+      <div class="config-section">
+        <label>
+          <input type="checkbox" id="addStockNumber" />
+          Add Stock Number
+        </label>
+        <input type="text" id="stockNumber" placeholder="Stock #" style="display: none; margin-top: 5px;" />
+      </div>
+
+      <!-- API Key -->
+      <div class="config-section">
+        <label>Enter your API Key</label>
+        <input type="password" id="apiKey" placeholder="API Key" />
+      </div>
+
+      <!-- Sales Consultant Name -->
+      <div class="config-section">
+        <label>Sales Consultant Name</label>
+        <input type="text" id="consultantName" placeholder="Shifty-Ai" />
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="button-group">
+        <button class="btn btn-primary" id="loadVehiclesBtn">Load Vehicles</button>
+        <button class="btn btn-secondary" id="postedVehiclesBtn">Posted Vehicles</button>
+      </div>
+
+      <!-- Queue Section -->
+      <div class="queue-section">
+        <h3>📝 Queue (<span id="queueCount">0</span>)</h3>
+        <div id="queueList" class="queue-list"></div>
+      </div>
+
+      <!-- Activity Log -->
+      <div class="log-section">
+        <h3>📊 Activity</h3>
+        <div id="activityLog" class="activity-log"></div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>Version 1.0.0</p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

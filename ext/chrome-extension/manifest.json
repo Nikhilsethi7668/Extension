@@ -1,0 +1,80 @@
+{
+  "manifest_version": 3,
+  "name": "Shifty Auto Lister",
+  "version": "1.0.0",
+  "description": "Scrape vehicle data and auto-post to Facebook Marketplace",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs",
+    "cookies",
+    "notifications",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://www.autotrader.com/*",
+    "https://www.cars.com/*",
+    "https://www.cargurus.com/*",
+    "https://www.facebook.com/*",
+    "https://marketplace.facebook.com/*"
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Shifty Auto Lister"
+  },
+  "side_panel": {
+    "default_path": "popup/popup.html"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.autotrader.com/cars-for-sale/vehicledetails.xhtml*",
+        "https://www.autotrader.com/vehicledetails/*"
+      ],
+      "js": ["content/scrapers/autotrader-scraper.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.cars.com/vehicledetail/*"
+      ],
+      "js": ["content/scrapers/cars-scraper.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.cargurus.com/Cars/inventorylisting/viewDetailsFilterViewInventoryListing.action*"
+      ],
+      "js": ["content/scrapers/cargurus-scraper.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.facebook.com/marketplace/create/vehicle*",
+        "https://www.facebook.com/marketplace/create/*"
+      ],
+      "js": ["content/facebook-autofill.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    },
+    {
+      "matches": [
+        "https://www.facebook.com/*"
+      ],
+      "js": ["content/facebook-profile-extractor.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "content/injected-script.js"
+      ],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
