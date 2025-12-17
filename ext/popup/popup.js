@@ -1,7 +1,9 @@
 // popup.js - Main popup controller
+// Prioritize Cloudflare Workers (live), with local fallbacks for development
 const API_CANDIDATES = [
-  'http://localhost:3001/api',
-  'http://localhost:3000/api'
+  'https://autobridge-backend.workers.dev/api',  // Live Cloudflare API (primary)
+  'http://localhost:3001/api',                   // Local dev (fallback)
+  'http://localhost:3000/api'                    // Alternative local (fallback)
 ];
 
 const API_CONFIG = {
