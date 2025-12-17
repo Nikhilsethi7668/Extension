@@ -4,23 +4,8 @@ compatibility_date = "2024-12-17"
 compatibility_flags = ["nodejs_compat"]
 send_metrics = true
 
-# Automatically deploy on save (for local development, if needed)
-[env.production]
-name = "autobridge-backend-prod"
-route = "api.autobridge.workers.dev/*"
-
-# KV Namespace bindings (replace with your actual IDs)
-[[kv_namespaces]]
-binding = "DB"
-id = "YOUR_KV_NAMESPACE_ID_PROD"
-preview_id = "YOUR_KV_PREVIEW_ID"
-
-# Environment variables for production
-[env.production.vars]
-ENVIRONMENT = "production"
-JWT_SECRET = "change-in-secrets"
-GEMINI_API_KEY = "set-in-secrets"
-
-# Triggers (scheduled tasks)
-[[triggers.crons]]
-cron = "0 */12 * * *"
+# KV Namespace bindings (optional - uncomment when namespace is created)
+# [[kv_namespaces]]
+# binding = "DB"
+# id = "YOUR_KV_NAMESPACE_ID_PROD"
+# preview_id = "YOUR_KV_PREVIEW_ID"
