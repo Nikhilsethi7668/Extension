@@ -466,6 +466,145 @@ Return as JSON array matching input order with enhanced data.`;
         }
       }
 
+      // Phase 6: AI Image Enhancement with Gemini 2.5 Flash Image (Nano Banana)
+      if (path === '/api/ai/enhance-image' && method === 'POST') {
+        if (!decoded) return res({ success: false, message: 'No token' }, headers, 401);
+        
+        try {
+          const { imageUrl, enhancementType } = await request.json();
+          if (!imageUrl) return res({ success: false, message: 'imageUrl required' }, headers, 400);
+          
+          const prompt = enhancementType === 'background' 
+            ? 'Remove the background from this vehicle image, keeping only the car. Replace with a clean white or gradient background suitable for a professional car dealership listing.'
+            : enhancementType === 'lighting'
+            ? 'Enhance the lighting and colors of this vehicle image. Make it bright, vibrant, and professional-looking for a car dealership listing. Adjust exposure and contrast optimally.'
+            : enhancementType === 'watermark'
+            ? 'Add a subtle, professional watermark to the bottom-right corner of this image. Make it semi-transparent and non-intrusive.'
+            : 'Enhance this vehicle image for professional listing: improve lighting, adjust colors, sharpen details, and make it look dealership-quality.';
+          
+          // Use Gemini 2.5 Flash for image processing
+          const GEMINI_KEY = env.GEMINI_API_KEY || '';
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                parts: [
+                  { text: prompt },
+                  { 
+                    inlineData: {
+                      mimeType: 'image/jpeg',
+                      data: imageUrl.startsWith('data:') ? imageUrl.split(',')[1] : imageUrl
+                    }
+                  }
+                ]
+              }]
+            })
+          });
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error('Gemini Image API error: ' + response.status);
+          }
+          
+          const aiResult = await response.json();
+          activityLogs.push({ 
+            userId: decoded.userId, 
+            action: 'ai_enhance_image', 
+            timestamp: new Date().toISOString(), 
+            metadata: { type: enhancementType || 'general' } 
+          });
+          
+          return res({ 
+            success: true, 
+            enhancedImage: aiResult.candidates[0]?.content?.parts[0]?.text || 'Image processed',
+            analysis: aiResult.candidates[0]?.content?.parts[0]?.text 
+          }, headers);
+        } catch (e) {
+          return res({ success: false, message: 'Image enhancement failed: ' + e.message }, headers, 500);
+        }
+      }
+
+      // New: Batch Image Processing
+      if (path === '/api/ai/batch-process-images' && method === 'POST') {
+        if (!decoded) return res({ success: false, message: 'No token' }, headers, 401);
+        
+        try {
+          const { images, operations } = await request.json();
+          if (!images || !Array.isArray(images)) {
+            return res({ success: false, message: 'images array required' }, headers, 400);
+          }
+          
+          const results = [];
+          for (const imageUrl of images) {
+            const prompt = `Process this vehicle image with these operations: ${operations.join(', ')}. Return enhanced image data.`;
+            const aiResult = await geminiCall(prompt + '\nImage URL: ' + imageUrl, env);
+            results.push({ original: imageUrl, enhanced: aiResult.text });
+          }
+          
+          activityLogs.push({ 
+            userId: decoded.userId, 
+            action: 'ai_batch_process_images', 
+            timestamp: new Date().toISOString(), 
+            metadata: { count: images.length } 
+          });
+          
+          return res({ success: true, results }, headers);
+        } catch (e) {
+          return res({ success: false, message: 'Batch processing failed: ' + e.message }, headers, 500);
+        }
+      }
+
+      // New: Get Vehicles endpoint for extension
+      if (path === '/api/vehicles' && method === 'GET') {
+        if (!decoded) return res({ success: false, message: 'No token' }, headers, 401);
+        
+        const url = new URL(request.url);
+        const status = url.searchParams.get('status');
+        
+        // Filter mock vehicles (in production, this would query Supabase)
+        let vehicles = [
+          {
+            id: '1',
+            vin: '1HGCM82633A123456',
+            year: 2022,
+            make: 'Honda',
+            model: 'Civic',
+            price: 24500,
+            mileage: 35000,
+            images: ['https://via.placeholder.com/400x300?text=Honda+Civic'],
+            aiDescription: 'Well-maintained 2022 Honda Civic with low mileage. Clean title, excellent condition. Perfect for daily commuting with great fuel economy.',
+            aiTitle: '2022 Honda Civic - Low Miles, Excellent Condition',
+            status: 'ready'
+          },
+          {
+            id: '2',
+            vin: '5FNRL6H74MB123789',
+            year: 2021,
+            make: 'Honda',
+            model: 'Odyssey',
+            price: 32900,
+            mileage: 28000,
+            images: ['https://via.placeholder.com/400x300?text=Honda+Odyssey'],
+            aiDescription: 'Spacious 2021 Honda Odyssey minivan. Perfect for families! Features include leather seats, entertainment system, and exceptional safety ratings.',
+            aiTitle: '2021 Honda Odyssey - Family-Ready, Low Mileage',
+            status: 'ready'
+          }
+        ];
+        
+        if (status) {
+          vehicles = vehicles.filter(v => v.status === status);
+        }
+        
+        activityLogs.push({ 
+          userId: decoded.userId, 
+          action: 'get_vehicles', 
+          timestamp: new Date().toISOString() 
+        });
+        
+        return res({ success: true, vehicles }, headers);
+      }
+
       return res({ success: false, message: 'Not found' }, headers, 404);
 
     } catch (error) {
@@ -550,12 +689,27 @@ function serveDashboard(headers) {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     
     :root {
-      --primary: #6366f1;
-      --primary-dark: #4f46e5;
-      --secondary: #ec4899;
+      /* Enhanced Material Design 3.0 Color System */
+      --primary: #667eea;
+      --primary-light: #a5b4fc;
+      --primary-dark: #4c63d2;
+      --secondary: #764ba2;
+      --secondary-light: #9d7bb8;
+      --secondary-dark: #5a3a7d;
       --success: #10b981;
+      --success-light: #34d399;
+      --success-dark: #059669;
       --warning: #f59e0b;
+      --warning-light: #fbbf24;
+      --warning-dark: #d97706;
       --danger: #ef4444;
+      --danger-light: #f87171;
+      --danger-dark: #dc2626;
+      --info: #3b82f6;
+      --info-light: #60a5fa;
+      --info-dark: #2563eb;
+      
+      /* Neutral Colors - Enhanced Contrast */
       --dark: #0f172a;
       --gray-50: #f8fafc;
       --gray-100: #f1f5f9;
@@ -567,20 +721,49 @@ function serveDashboard(headers) {
       --gray-700: #334155;
       --gray-800: #1e293b;
       --gray-900: #0f172a;
+      
+      /* Text Colors - High Contrast */
+      --text-primary: #1e293b;
+      --text-secondary: #64748b;
+      --text-tertiary: #94a3b8;
+      --text-inverse: #ffffff;
+      
+      /* Background Colors */
+      --bg-primary: #ffffff;
+      --bg-secondary: #f8fafc;
+      --bg-tertiary: #f1f5f9;
+      
+      /* Elevation Shadows */
       --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
       --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
       --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
       --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
       --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+      
+      /* Border Radius */
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 24px;
     }
     
     body { 
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: var(--gray-50);
-      color: var(--gray-900);
+      background: var(--bg-secondary);
+      color: var(--text-primary);
       min-height: 100vh;
       line-height: 1.6;
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
+    
+    /* High Contrast Text Classes */
+    .text-primary { color: var(--text-primary) !important; }
+    .text-secondary { color: var(--text-secondary) !important; }
+    .text-inverse { color: var(--text-inverse) !important; }
 
     /* Modern Scrollbar */
     ::-webkit-scrollbar { width: 8px; height: 8px; }
