@@ -2027,137 +2027,118 @@ function serveDashboard(headers) {
 
       <!-- Users Page - COMPREHENSIVE USER MANAGEMENT -->
       <div id="users" class="page-content">
-        <div class="page-header">
-          <h1>👥 User Management</h1>
-          <p>Complete user administration and permission control</p>
-        </div>
-
-        <!-- Quick Stats -->
-        <div class="stats-grid">
-          <div class="stat-card">
-            <div class="stat-label">Total Users</div>
-            <div class="stat-value" id="userStatsTotal">0</div>
-            <div class="stat-change positive"><i class="fas fa-arrow-up"></i> 12% this month</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Active Users</div>
-            <div class="stat-value" id="userStatsActive">0</div>
-            <div class="stat-change positive"><i class="fas fa-check-circle"></i> Online now</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Admin Users</div>
-            <div class="stat-value" id="userStatsAdmin">0</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">Pending Approval</div>
-            <div class="stat-value" id="userStatsPending">0</div>
-          </div>
-        </div>
-
-        <!-- Create New User - Enhanced -->
-        <div class="card">
-          <h2><i class="fas fa-user-plus"></i> Create New User</h2>
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;margin-bottom:20px;">
-            <div class="form-group">
-              <label><i class="fas fa-user"></i> User ID *</label>
-              <input type="text" id="newUserId" placeholder="johndoe" required>
+        <!-- Modern Enterprise User Management -->
+        <div class="enterprise-header" style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:40px;border-radius:16px;color:white;margin-bottom:30px;box-shadow:0 10px 40px rgba(102,126,234,0.3);">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <h1 style="margin:0;font-size:32px;font-weight:700;"><i class="fas fa-users-cog"></i> User Management</h1>
+              <p style="margin:8px 0 0 0;opacity:0.9;font-size:16px;">Enterprise-grade user administration and access control</p>
             </div>
-            <div class="form-group">
-              <label><i class="fas fa-envelope"></i> Email Address *</label>
-              <input type="email" id="newUserEmail" placeholder="john@example.com" required>
-            </div>
-            <div class="form-group">
-              <label><i class="fas fa-lock"></i> Password *</label>
-              <input type="password" id="newUserPassword" placeholder="••••••••" required>
-            </div>
-            <div class="form-group">
-              <label><i class="fas fa-shield-alt"></i> Role</label>
-              <select id="newUserRole" class="choices-select">
-                <option value="user">User - Standard Access</option>
-                <option value="admin">Admin - Full Control</option>
-                <option value="agent">Agent - Limited Access</option>
-                <option value="viewer">Viewer - Read Only</option>
-              </select>
-            </div>
-          </div>
-          
-          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;margin-bottom:20px;">
-            <div class="form-group">
-              <label><i class="fas fa-building"></i> Department</label>
-              <input type="text" id="newUserDept" placeholder="Sales, Marketing, etc.">
-            </div>
-            <div class="form-group">
-              <label><i class="fas fa-phone"></i> Phone Number</label>
-              <input type="tel" id="newUserPhone" placeholder="+1 (555) 123-4567">
-            </div>
-            <div class="form-group">
-              <label><i class="fas fa-toggle-on"></i> Status</label>
-              <select id="newUserStatus">
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="pending">Pending</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label><i class="fas fa-calendar"></i> Expiry Date</label>
-              <input type="text" id="newUserExpiry" class="flatpickr" placeholder="Select date">
-            </div>
-          </div>
-
-          <div class="form-group">
-            <label><i class="fas fa-sticky-note"></i> Notes</label>
-            <textarea id="newUserNotes" rows="2" placeholder="Additional notes about this user..."></textarea>
-          </div>
-
-          <div style="display:flex;gap:12px;">
-            <button class="btn" onclick="createUserEnhanced()" style="width:auto;">
-              <i class="fas fa-user-plus"></i> Create User
-            </button>
-            <button class="btn-secondary" onclick="clearUserForm()" style="padding:12px 24px;width:auto;">
-              <i class="fas fa-times"></i> Clear
-            </button>
-            <button class="btn-secondary" onclick="importUsersCSV()" style="padding:12px 24px;width:auto;">
-              <i class="fas fa-file-import"></i> Import CSV
-            </button>
-          </div>
-        </div>
-
-        <!-- User List with Advanced DataTable -->
-        <div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
-            <h2><i class="fas fa-users"></i> All Users (<span id="usersTableCount">0</span>)</h2>
             <div style="display:flex;gap:12px;">
-              <button class="btn-secondary" onclick="exportUsersCSV()" style="padding:10px 20px;">
-                <i class="fas fa-download"></i> Export CSV
+              <button class="btn" onclick="openBulkUserUpload()" style="background:white;color:#667eea;border:none;box-shadow:0 4px 15px rgba(0,0,0,0.2);">
+                <i class="fas fa-file-import"></i> Bulk Import
               </button>
-              <button class="btn-secondary" onclick="refreshUserTable()" style="padding:10px 20px;">
-                <i class="fas fa-sync"></i> Refresh
+              <button class="btn" onclick="openUserModal('create')" style="background:rgba(255,255,255,0.2);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.3);">
+                <i class="fas fa-user-plus"></i> Add User
               </button>
             </div>
           </div>
+        </div>
 
-          <!-- Advanced Filters -->
-          <div class="filter-bar" style="margin-bottom:20px;">
-            <input type="text" id="userSearchInput" class="filter-input" placeholder="🔍 Search users...">
-            <select id="userRoleFilter" class="filter-select">
-              <option value="">All Roles</option>
-              <option value="admin">Admin</option>
-              <option value="user">User</option>
-              <option value="agent">Agent</option>
-              <option value="viewer">Viewer</option>
-            </select>
-            <select id="userStatusFilter" class="filter-select">
-              <option value="">All Status</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="pending">Pending</option>
-            </select>
-            <button class="btn-secondary" onclick="resetUserFilters()" style="padding:10px 20px;">
-              <i class="fas fa-filter-circle-xmark"></i> Reset
-            </button>
+        <!-- Real-Time Analytics Dashboard -->
+        <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;margin-bottom:30px;">
+          <div class="stat-card-modern" style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:white;border:none;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+              <div>
+                <div style="font-size:14px;opacity:0.9;margin-bottom:8px;">Total Users</div>
+                <div style="font-size:36px;font-weight:700;" id="userStatsTotal">0</div>
+                <div style="font-size:12px;margin-top:8px;opacity:0.8;"><i class="fas fa-arrow-up"></i> 12% vs last month</div>
+              </div>
+              <div style="width:60px;height:60px;background:rgba(255,255,255,0.2);border-radius:12px;display:flex;align-items:center;justify-content:center;">
+                <i class="fas fa-users" style="font-size:28px;"></i>
+              </div>
+            </div>
           </div>
 
-          <div id="usersList" class="data-table-container">
+          <div class="stat-card-modern" style="background:linear-gradient(135deg,#f093fb 0%,#f5576c 100%);color:white;border:none;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+              <div>
+                <div style="font-size:14px;opacity:0.9;margin-bottom:8px;">Active Now</div>
+                <div style="font-size:36px;font-weight:700;" id="userStatsActive">0</div>
+                <div style="font-size:12px;margin-top:8px;opacity:0.8;"><i class="fas fa-circle" style="color:#4ade80;"></i> Online</div>
+              </div>
+              <div style="width:60px;height:60px;background:rgba(255,255,255,0.2);border-radius:12px;display:flex;align-items:center;justify-content:center;">
+                <i class="fas fa-circle-dot" style="font-size:28px;"></i>
+              </div>
+            </div>
+          </div>
+
+          <div class="stat-card-modern" style="background:linear-gradient(135deg,#4facfe 0%,#00f2fe 100%);color:white;border:none;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+              <div>
+                <div style="font-size:14px;opacity:0.9;margin-bottom:8px;">Administrators</div>
+                <div style="font-size:36px;font-weight:700;" id="userStatsAdmin">0</div>
+                <div style="font-size:12px;margin-top:8px;opacity:0.8;"><i class="fas fa-shield-halved"></i> Full access</div>
+              </div>
+              <div style="width:60px;height:60px;background:rgba(255,255,255,0.2);border-radius:12px;display:flex;align-items:center;justify-content:center;">
+                <i class="fas fa-user-shield" style="font-size:28px;"></i>
+              </div>
+            </div>
+          </div>
+
+          <div class="stat-card-modern" style="background:linear-gradient(135deg,#fa709a 0%,#fee140 100%);color:white;border:none;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+              <div>
+                <div style="font-size:14px;opacity:0.9;margin-bottom:8px;">Pending Approval</div>
+                <div style="font-size:36px;font-weight:700;" id="userStatsPending">0</div>
+                <div style="font-size:12px;margin-top:8px;opacity:0.8;"><i class="fas fa-clock"></i> Needs review</div>
+              </div>
+              <div style="width:60px;height:60px;background:rgba(255,255,255,0.2);border-radius:12px;display:flex;align-items:center;justify-content:center;">
+                <i class="fas fa-hourglass-half" style="font-size:28px;"></i>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Advanced Filtering & Search -->
+        <div class="card" style="margin-bottom:24px;padding:24px;">
+          <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap;">
+            <div style="flex:1;min-width:300px;position:relative;">
+              <i class="fas fa-search" style="position:absolute;left:16px;top:50%;transform:translateY(-50%);color:#94a3b8;"></i>
+              <input type="text" id="userSearchInput" placeholder="Search by name, email, department..." 
+                style="width:100%;padding:14px 14px 14px 48px;border:2px solid #e2e8f0;border-radius:12px;font-size:15px;transition:all 0.3s;"
+                oninput="debounceUserSearch(this.value)">
+            </div>
+            
+            <select id="userRoleFilter" onchange="filterUsersTable()" 
+              style="padding:14px 40px 14px 16px;border:2px solid #e2e8f0;border-radius:12px;background:white;cursor:pointer;font-size:15px;">
+              <option value="">All Roles</option>
+              <option value="super_admin">🔴 Super Admin</option>
+              <option value="dealer_admin">🟠 Dealer Admin</option>
+              <option value="sales_agent">🟢 Sales Agent</option>
+              <option value="viewer">🔵 Viewer</option>
+            </select>
+
+            <select id="userStatusFilter" onchange="filterUsersTable()" 
+              style="padding:14px 40px 14px 16px;border:2px solid #e2e8f0;border-radius:12px;background:white;cursor:pointer;font-size:15px;">
+              <option value="">All Status</option>
+              <option value="active">✅ Active</option>
+              <option value="inactive">⏸️ Inactive</option>
+              <option value="pending">⏳ Pending</option>
+            </select>
+
+            <button onclick="exportUsersCSV()" class="btn-secondary" style="padding:14px 24px;border-radius:12px;">
+              <i class="fas fa-download"></i> Export
+            </button>
+            
+            <button onclick="refreshUserTable()" class="btn-secondary" style="padding:14px 24px;border-radius:12px;">
+              <i class="fas fa-sync"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- User Cards Grid (Modern Layout) -->
+        <div id="usersList" class="user-cards-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:20px;">
             <table id="usersDataTable" class="display" style="width:100%">
               <thead>
                 <tr>
@@ -3285,10 +3266,212 @@ function serveDashboard(headers) {
     new ApexCharts(document.getElementById('makesChart'), options).render();
   }
 
+  // Enhanced User Management Functions
+  let allUsers = [];
+  let filteredUsers = [];
+  let userSearchDebounce = null;
+
+  async function loadUsersEnhanced() {
+    try {
+      const res = await call('/users');
+      allUsers = res.users || [];
+      filteredUsers = [...allUsers];
+      
+      // Update stats
+      document.getElementById('userStatsTotal').textContent = allUsers.length;
+      document.getElementById('userStatsActive').textContent = allUsers.filter(u => u.status === 'active').length;
+      document.getElementById('userStatsAdmin').textContent = allUsers.filter(u => u.role === 'admin' || u.role === 'super_admin').length;
+      document.getElementById('userStatsPending').textContent = allUsers.filter(u => u.status === 'pending').length;
+      
+      renderUserCards();
+    } catch (e) {
+      showToast('Failed to load users: ' + e.message, 'error');
+    }
+  }
+
+  function renderUserCards() {
+    const container = document.getElementById('usersList');
+    if (!container) return;
+
+    if (filteredUsers.length === 0) {
+      container.innerHTML = '<div class="empty-state" style="text-align:center;padding:60px 20px;"><i class="fas fa-users" style="font-size:64px;color:#cbd5e1;margin-bottom:16px;"></i><h3 style="color:#64748b;">No users found</h3><p style="color:#94a3b8;">Try adjusting your filters</p></div>';
+      return;
+    }
+
+    container.innerHTML = filteredUsers.map(user => {
+      const roleColors = {
+        super_admin: '#ef4444',
+        dealer_admin: '#f97316',
+        admin: '#f97316',
+        sales_agent: '#10b981',
+        agent: '#10b981',
+        viewer: '#3b82f6',
+        user: '#3b82f6'
+      };
+      
+      const roleColor = roleColors[user.role] || '#6b7280';
+      const statusColors = { active: '#10b981', inactive: '#ef4444', pending: '#f59e0b' };
+      const statusColor = statusColors[user.status || 'active'] || '#6b7280';
+      
+      const lastLoginText = user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Never';
+      
+      return \`
+        <div class="card" style="padding:0;overflow:hidden;border:2px solid #e2e8f0;transition:all 0.3s;cursor:pointer;" onmouseenter="this.style.borderColor='#667eea';this.style.transform='translateY(-4px)';this.style.boxShadow='0 12px 40px rgba(102,126,234,0.2)';" onmouseleave="this.style.borderColor='#e2e8f0';this.style.transform='translateY(0)';this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)';">
+          <!-- Header with gradient -->
+          <div style="background:linear-gradient(135deg,\${roleColor} 0%,\${roleColor}dd 100%);padding:20px;color:white;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+              <div style="display:flex;align-items:center;gap:12px;">
+                <div style="width:50px;height:50px;border-radius:50%;background:rgba(255,255,255,0.2);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;">
+                  \${user.userId.substring(0, 2).toUpperCase()}
+                </div>
+                <div>
+                  <h3 style="margin:0;font-size:18px;font-weight:600;">\${user.userId}</h3>
+                  <p style="margin:4px 0 0 0;opacity:0.9;font-size:13px;">\${user.email || 'No email'}</p>
+                </div>
+              </div>
+              <div style="text-align:right;">
+                <span style="background:rgba(255,255,255,0.2);padding:4px 12px;border-radius:20px;font-size:11px;font-weight:600;backdrop-filter:blur(10px);">
+                  \${user.role.replace('_', ' ').toUpperCase()}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Content -->
+          <div style="padding:20px;">
+            <div style="display:flex;gap:16px;margin-bottom:16px;flex-wrap:wrap;">
+              <div style="flex:1;min-width:140px;">
+                <div style="font-size:12px;color:#64748b;margin-bottom:4px;">Department</div>
+                <div style="font-size:14px;font-weight:600;color:#1e293b;">\${user.department || 'N/A'}</div>
+              </div>
+              <div style="flex:1;min-width:140px;">
+                <div style="font-size:12px;color:#64748b;margin-bottom:4px;">Phone</div>
+                <div style="font-size:14px;font-weight:600;color:#1e293b;">\${user.phone || 'N/A'}</div>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:16px;margin-bottom:16px;">
+              <div style="flex:1;">
+                <div style="font-size:12px;color:#64748b;margin-bottom:4px;">Status</div>
+                <div style="display:flex;align-items:center;gap:6px;">
+                  <span style="width:8px;height:8px;border-radius:50%;background:\${statusColor};"></span>
+                  <span style="font-size:14px;font-weight:600;color:#1e293b;">\${(user.status || 'active').charAt(0).toUpperCase() + (user.status || 'active').slice(1)}</span>
+                </div>
+              </div>
+              <div style="flex:1;">
+                <div style="font-size:12px;color:#64748b;margin-bottom:4px;">Last Login</div>
+                <div style="font-size:14px;font-weight:600;color:#1e293b;">\${lastLoginText}</div>
+              </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div style="display:flex;gap:8px;padding-top:16px;border-top:1px solid #e2e8f0;">
+              <button onclick="openUserModal('edit', '\${user.userId}')" class="btn-secondary" style="flex:1;padding:10px;border-radius:8px;font-size:13px;">
+                <i class="fas fa-edit"></i> Edit
+              </button>
+              <button onclick="viewUserActivity('\${user.userId}')" class="btn-secondary" style="flex:1;padding:10px;border-radius:8px;font-size:13px;">
+                <i class="fas fa-chart-line"></i> Activity
+              </button>
+              <button onclick="confirmDeleteUser('\${user.userId}')" class="btn-secondary" style="padding:10px 16px;border-radius:8px;font-size:13px;color:#ef4444;">
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      \`;
+    }).join('');
+  }
+
+  function debounceUserSearch(query) {
+    clearTimeout(userSearchDebounce);
+    userSearchDebounce = setTimeout(() => filterUsersTable(), 300);
+  }
+
+  function filterUsersTable() {
+    const searchQuery = document.getElementById('userSearchInput')?.value.toLowerCase() || '';
+    const roleFilter = document.getElementById('userRoleFilter')?.value || '';
+    const statusFilter = document.getElementById('userStatusFilter')?.value || '';
+
+    filteredUsers = allUsers.filter(user => {
+      const matchesSearch = user.userId.toLowerCase().includes(searchQuery) ||
+                           (user.email || '').toLowerCase().includes(searchQuery) ||
+                           (user.department || '').toLowerCase().includes(searchQuery);
+      const matchesRole = !roleFilter || user.role === roleFilter;
+      const matchesStatus = !statusFilter || (user.status || 'active') === statusFilter;
+      
+      return matchesSearch && matchesRole && matchesStatus;
+    });
+
+    renderUserCards();
+  }
+
+  function openUserModal(mode, userId = null) {
+    if (mode === 'create') {
+      // Show create modal
+      showToast('Create user modal - implement with proper form', 'info');
+    } else if (mode === 'edit' && userId) {
+      // Show edit modal
+      showToast('Edit user modal for: ' + userId, 'info');
+    }
+  }
+
+  async function confirmDeleteUser(userId) {
+    if (!confirm(\`Are you sure you want to delete user "\${userId}"? This action cannot be undone.\`)) {
+      return;
+    }
+
+    try {
+      await call(\`/users/\${userId}\`, 'DELETE');
+      showToast('User deleted successfully', 'success');
+      loadUsersEnhanced();
+    } catch (e) {
+      showToast('Failed to delete user: ' + e.message, 'error');
+    }
+  }
+
+  async function viewUserActivity(userId) {
+    try {
+      const res = await call('/logs/activity?userId=' + userId);
+      showToast(\`Found \${res.logs.length} activity records\`, 'success');
+      // Show activity modal
+    } catch (e) {
+      showToast('Failed to load activity: ' + e.message, 'error');
+    }
+  }
+
+  async function exportUsersCSV() {
+    const csv = [
+      'User ID,Email,Role,Department,Phone,Status,Last Login',
+      ...allUsers.map(u => \`\${u.userId},\${u.email || ''},\${u.role},\${u.department || ''},\${u.phone || ''},\${u.status || 'active'},\${u.lastLogin || 'Never'}\`)
+    ].join('\\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = \`users_export_\${new Date().toISOString().split('T')[0]}.csv\`;
+    a.click();
+    
+    showToast('CSV exported successfully', 'success');
+  }
+
+  function refreshUserTable() {
+    showToast('Refreshing users...', 'info');
+    loadUsersEnhanced();
+  }
+
+  function openBulkUserUpload() {
+    showToast('Bulk upload feature - implement CSV parser', 'info');
+  }
+
   // Page switch handler enhancement
   const originalSwitchPage = switchPage;
   switchPage = function(page) {
     originalSwitchPage(page);
+    
+    if (page === 'users') {
+      loadUsersEnhanced();
+    }
     
     if (page === 'inventory') {
       renderInventoryTable();
