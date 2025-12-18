@@ -505,16 +505,622 @@ function serveDashboard(headers) {
   <title>AutoBridge Dashboard</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  
+  <!-- BEST-IN-CLASS Third Party Libraries -->
+  <!-- Charts & Visualizations -->
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts@3.45.1"></script>
+  
+  <!-- Notifications & Alerts -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+  
+  <!-- Data Tables -->
+  <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/jquery.dataTables.min.css">
+  <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.4.2/js/dataTables.buttons.min.js"></script>
+  <script src="https://cdn.datatables.net/buttons/2.4.2/js/buttons.html5.min.js"></script>
+  
+  <!-- Date Picker -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+  
+  <!-- Advanced Selects -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/choices.js/public/assets/styles/choices.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/choices.js/public/assets/scripts/choices.min.js"></script>
+  
+  <!-- Drag & Drop -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.1/Sortable.min.js"></script>
+  
+  <!-- Utilities -->
+  <script src="https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/moment@2.29.4/moment.min.js"></script>
+  
+  <!-- Sweet Alert for beautiful modals -->
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  
+  <!-- Animate.css for animations -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
+  
+  <!-- Progress Bar -->
+  <script src="https://cdn.jsdelivr.net/npm/progressbar.js@1.1.0/dist/progressbar.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    :root {
+      --primary: #6366f1;
+      --primary-dark: #4f46e5;
+      --secondary: #ec4899;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --danger: #ef4444;
+      --dark: #0f172a;
+      --gray-50: #f8fafc;
+      --gray-100: #f1f5f9;
+      --gray-200: #e2e8f0;
+      --gray-300: #cbd5e1;
+      --gray-400: #94a3b8;
+      --gray-500: #64748b;
+      --gray-600: #475569;
+      --gray-700: #334155;
+      --gray-800: #1e293b;
+      --gray-900: #0f172a;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+      --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+    }
+    
     body { 
-      font-family: 'Manrope', sans-serif; 
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: #2c3e50;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: var(--gray-50);
+      color: var(--gray-900);
       min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    /* Modern Scrollbar */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--gray-100); }
+    ::-webkit-scrollbar-thumb { background: var(--gray-400); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--gray-500); }
+
+    /* Auth Container - Modern Design */
+    #authContainer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+    }
+
+    .auth-card {
+      background: white;
+      border-radius: 24px;
+      box-shadow: var(--shadow-2xl);
+      width: 100%;
+      max-width: 480px;
+      overflow: hidden;
+      animation: slideUp 0.5s ease;
+    }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(40px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .auth-hero {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+      color: white;
+      padding: 48px 32px;
+      text-align: center;
+    }
+
+    .auth-hero h1 {
+      font-size: 36px;
+      font-weight: 800;
+      margin-bottom: 12px;
+      letter-spacing: -0.02em;
+    }
+
+    .auth-hero p {
+      font-size: 16px;
+      opacity: 0.95;
+      font-weight: 400;
+    }
+
+    .auth-tabs {
+      display: flex;
+      border-bottom: 2px solid var(--gray-200);
+      background: var(--gray-50);
+    }
+
+    .auth-tab {
+      flex: 1;
+      padding: 20px;
+      text-align: center;
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--gray-600);
+      transition: all 0.3s;
+      border-bottom: 3px solid transparent;
+      font-size: 15px;
+    }
+
+    .auth-tab.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+      background: white;
+    }
+
+    .auth-form {
+      padding: 40px 32px;
+      display: none;
+    }
+
+    .auth-form.active {
+      display: block;
+      animation: fadeIn 0.3s;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+
+    .form-group {
+      margin-bottom: 24px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 10px;
+      font-weight: 600;
+      color: var(--gray-700);
+      font-size: 14px;
+    }
+
+    .form-group input, .form-group select, .form-group textarea {
+      width: 100%;
+      padding: 14px 16px;
+      border: 2px solid var(--gray-200);
+      border-radius: 12px;
+      font-size: 15px;
+      font-family: 'Inter', sans-serif;
+      transition: all 0.3s;
+      background: white;
+    }
+
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.1);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 16px 24px;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark) 100%);
+      color: white;
+      border: none;
+      border-radius: 12px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+      font-family: 'Inter', sans-serif;
+      box-shadow: var(--shadow-md);
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      padding: 10px 20px;
+      border-radius: 8px;
+      display: inline-block;
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-dark);
+    }
+
+    .alert {
+      padding: 16px 20px;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      display: none;
+    }
+
+    .alert.error {
+      background: #fef2f2;
+      color: var(--danger);
+      border: 1px solid #fecaca;
+    }
+
+    .alert.success {
+      background: #f0fdf4;
+      color: var(--success);
+      border: 1px solid #bbf7d0;
+    }
+
+    /* Modern App Layout */
+    #appContainer {
+      display: none;
+      min-height: 100vh;
+      background: var(--gray-50);
+    }
+
+    .app-grid {
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      min-height: 100vh;
+    }
+
+    /* Modern Sidebar */
+    .sidebar {
+      background: white;
+      border-right: 1px solid var(--gray-200);
+      padding: 24px 0;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    .sidebar-header {
+      padding: 0 24px 24px;
+      border-bottom: 1px solid var(--gray-200);
+    }
+
+    .sidebar-header h2 {
+      font-size: 24px;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 4px;
+    }
+
+    .sidebar-header p {
+      font-size: 13px;
+      color: var(--gray-500);
+      font-weight: 500;
+    }
+
+    .sidebar-menu {
+      list-style: none;
+      padding: 16px 12px;
+    }
+
+    .menu-item {
+      padding: 12px 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 600;
+      border-radius: 10px;
+      margin-bottom: 4px;
+      color: var(--gray-700);
+      font-size: 14px;
+    }
+
+    .menu-item:hover {
+      background: var(--gray-100);
+      color: var(--primary);
+    }
+
+    .menu-item.active {
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      color: white;
+      box-shadow: var(--shadow-md);
+    }
+
+    .menu-item i {
+      width: 20px;
+      text-align: center;
+      font-size: 16px;
+    }
+
+    .sidebar-footer {
+      padding: 20px 24px;
+      border-top: 1px solid var(--gray-200);
+      margin-top: auto;
+    }
+
+    .user-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      padding: 12px;
+      background: var(--gray-50);
+      border-radius: 12px;
+    }
+
+    .user-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--primary), var(--secondary));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 18px;
+      color: white;
+      box-shadow: var(--shadow-md);
+    }
+
+    .user-details {
+      flex: 1;
+    }
+
+    .user-details .name {
+      font-weight: 700;
+      font-size: 14px;
+      color: var(--gray-900);
+    }
+
+    .user-details .role {
+      font-size: 12px;
+      color: var(--gray-500);
+      text-transform: capitalize;
+    }
+
+    .logout-btn {
+      width: 100%;
+      padding: 12px;
+      background: var(--gray-100);
+      border: 1px solid var(--gray-200);
+      color: var(--gray-700);
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+      font-size: 14px;
+    }
+
+    .logout-btn:hover {
+      background: var(--gray-200);
+      color: var(--danger);
+    }
+
+    /* Main Content Area */
+    .main-content {
+      background: var(--gray-50);
+      padding: 32px;
+      overflow-y: auto;
+      max-height: 100vh;
+    }
+
+    .page-content {
+      display: none;
+    }
+
+    .page-content.active {
+      display: block;
+      animation: fadeIn 0.4s;
+    }
+
+    .page-header {
+      margin-bottom: 32px;
+    }
+
+    .page-header h1 {
+      font-size: 32px;
+      font-weight: 800;
+      color: var(--gray-900);
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+
+    .page-header p {
+      color: var(--gray-600);
+      font-size: 16px;
+      font-weight: 500;
+    }
+
+    .card {
+      background: white;
+      border-radius: 16px;
+      padding: 28px;
+      box-shadow: var(--shadow);
+      margin-bottom: 24px;
+      border: 1px solid var(--gray-200);
+    }
+
+    .card h2 {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--gray-900);
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .card h2 i {
+      color: var(--primary);
+    }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 20px;
+      margin-bottom: 32px;
+    }
+
+    .stat-card {
+      background: white;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--gray-200);
+      transition: all 0.3s;
+    }
+
+    .stat-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-lg);
+    }
+
+    .stat-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--gray-600);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stat-value {
+      font-size: 36px;
+      font-weight: 800;
+      color: var(--gray-900);
+      line-height: 1;
+    }
+
+    .stat-change {
+      font-size: 14px;
+      font-weight: 600;
+      margin-top: 8px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .stat-change.positive {
+      color: var(--success);
+    }
+
+    .stat-change.negative {
+      color: var(--danger);
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-block;
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .badge-success {
+      background: #d1fae5;
+      color: #065f46;
+    }
+
+    .badge-warning {
+      background: #fed7aa;
+      color: #92400e;
+    }
+
+    .badge-error, .badge-danger {
+      background: #fecaca;
+      color: #991b1b;
+    }
+
+    .badge-info {
+      background: #dbeafe;
+      color: #1e40af;
+    }
+
+    .badge-primary {
+      background: #e0e7ff;
+      color: #3730a3;
+    }
+
+    /* Tables - Modern Style */
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 14px;
+    }
+
+    table thead {
+      background: var(--gray-50);
+    }
+
+    table th {
+      padding: 14px 16px;
+      text-align: left;
+      font-weight: 700;
+      color: var(--gray-700);
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 2px solid var(--gray-200);
+    }
+
+    table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--gray-200);
+      color: var(--gray-700);
+    }
+
+    table tbody tr {
+      transition: all 0.2s;
+    }
+
+    table tbody tr:hover {
+      background: var(--gray-50);
+    }
+
+    .btn-danger {
+      background: var(--danger);
+      padding: 8px 16px;
+      border-radius: 8px;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+      font-size: 13px;
+    }
+
+    .btn-danger:hover {
+      background: #dc2626;
+      transform: translateY(-2px);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 80px 20px;
+      color: var(--gray-400);
+    }
+
+    .empty-state i {
+      font-size: 72px;
+      margin-bottom: 24px;
+      opacity: 0.3;
+    }
+
+    .empty-state p {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--gray-600);
     }
 
     /* Auth Container */
@@ -676,9 +1282,23 @@ function serveDashboard(headers) {
 
     /* Sidebar */
     .sidebar {
-      background: #1e293b;
+      background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
       color: white;
       padding: 30px 0;
+      box-shadow: 4px 0 24px rgba(0,0,0,0.12);
+      position: relative;
+      z-index: 10;
+    }
+    
+    .sidebar::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 200px;
+      background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+      opacity: 0.1;
     }
 
     .sidebar-header {
@@ -702,21 +1322,46 @@ function serveDashboard(headers) {
 
     .menu-item {
       padding: 14px 25px;
+      margin: 4px 12px;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       display: flex;
       align-items: center;
       gap: 12px;
       font-weight: 500;
+      border-radius: 12px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .menu-item::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 4px;
+      background: var(--primary);
+      transform: scaleY(0);
+      transition: transform 0.3s;
     }
 
     .menu-item:hover {
-      background: rgba(255,255,255,0.05);
+      background: rgba(99, 102, 241, 0.1);
+      transform: translateX(4px);
+    }
+
+    .menu-item:hover::before {
+      transform: scaleY(1);
     }
 
     .menu-item.active {
-      background: linear-gradient(90deg, #667eea, #764ba2);
-      border-left: 4px solid white;
+      background: linear-gradient(90deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2));
+      box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+    }
+    
+    .menu-item.active::before {
+      transform: scaleY(1);
     }
 
     .menu-item i {
@@ -930,6 +1575,274 @@ function serveDashboard(headers) {
       font-size: 18px;
       font-weight: 600;
     }
+
+    /* Advanced Data Table Styles */
+    .data-table-container {
+      margin-top: 20px;
+      overflow-x: auto;
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: white;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    .data-table thead {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .data-table th {
+      padding: 16px;
+      text-align: left;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .data-table th:hover {
+      background: rgba(255,255,255,0.1);
+    }
+
+    .data-table th i {
+      margin-left: 8px;
+      font-size: 12px;
+    }
+
+    .data-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .data-table tbody tr:hover {
+      background: #f8f9ff;
+    }
+
+    /* Filter Controls */
+    .filter-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .filter-input {
+      padding: 10px 16px;
+      border: 2px solid #e0e6ed;
+      border-radius: 8px;
+      font-size: 14px;
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .filter-select {
+      padding: 10px 16px;
+      border: 2px solid #e0e6ed;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      background: white;
+    }
+
+    /* File Upload Dropzone */
+    .dropzone {
+      border: 3px dashed #e0e6ed;
+      border-radius: 12px;
+      padding: 40px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.3s;
+      background: #f8fafc;
+    }
+
+    .dropzone:hover {
+      border-color: #667eea;
+      background: #f0f4ff;
+    }
+
+    .dropzone.dragover {
+      border-color: #667eea;
+      background: #e8f0ff;
+      transform: scale(1.02);
+    }
+
+    .dropzone i {
+      font-size: 48px;
+      color: #667eea;
+      margin-bottom: 16px;
+    }
+
+    /* Image Preview Grid */
+    .image-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 12px;
+      margin-top: 20px;
+    }
+
+    .image-item {
+      position: relative;
+      aspect-ratio: 1;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .image-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .image-item .remove-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: rgba(239, 68, 68, 0.9);
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+
+    .image-item:hover .remove-btn {
+      opacity: 1;
+    }
+
+    /* Progress Bar */
+    .progress-bar {
+      height: 8px;
+      background: #e0e6ed;
+      border-radius: 4px;
+      overflow: hidden;
+      margin-top: 12px;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #667eea, #764ba2);
+      transition: width 0.3s ease;
+    }
+
+    /* Loading Spinner */
+    .spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #667eea;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 0.8s linear infinite;
+      margin: 20px auto;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    /* Charts Container */
+    .chart-container {
+      margin: 20px 0;
+      padding: 20px;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+
+    /* Export Button */
+    .btn-export {
+      background: #10b981;
+      padding: 10px 20px;
+      border-radius: 8px;
+      color: white;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.3s;
+    }
+
+    .btn-export:hover {
+      background: #059669;
+      transform: translateY(-2px);
+    }
+
+    /* Pagination */
+    .pagination {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      margin-top: 24px;
+      align-items: center;
+    }
+
+    .pagination button {
+      padding: 8px 16px;
+      border: 1px solid #e0e6ed;
+      background: white;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .pagination button:hover:not(:disabled) {
+      background: #667eea;
+      color: white;
+      border-color: #667eea;
+    }
+
+    .pagination button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .pagination button.active {
+      background: #667eea;
+      color: white;
+      border-color: #667eea;
+    }
+
+    /* Tooltips */
+    .tooltip {
+      position: relative;
+      display: inline-block;
+    }
+
+    .tooltip .tooltiptext {
+      visibility: hidden;
+      background-color: #1e293b;
+      color: white;
+      text-align: center;
+      border-radius: 6px;
+      padding: 8px 12px;
+      position: absolute;
+      z-index: 1;
+      bottom: 125%;
+      left: 50%;
+      transform: translateX(-50%);
+      opacity: 0;
+      transition: opacity 0.3s;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .tooltip:hover .tooltiptext {
+      visibility: visible;
+      opacity: 1;
+    }
   </style>
 </head>
 <body>
@@ -1018,6 +1931,14 @@ function serveDashboard(headers) {
           <i class="fas fa-car"></i>
           <span>Vehicle Analysis</span>
         </li>
+        <li class="menu-item" onclick="switchPage('inventory')">
+          <i class="fas fa-warehouse"></i>
+          <span>Inventory Manager</span>
+        </li>
+        <li class="menu-item" onclick="switchPage('analytics')">
+          <i class="fas fa-chart-bar"></i>
+          <span>Analytics</span>
+        </li>
         <li class="menu-item" onclick="switchPage('users')" id="usersMenuItem" style="display:none;">
           <i class="fas fa-users"></i>
           <span>Users</span>
@@ -1104,43 +2025,159 @@ function serveDashboard(headers) {
         </div>
       </div>
 
-      <!-- Users Page -->
+      <!-- Users Page - COMPREHENSIVE USER MANAGEMENT -->
       <div id="users" class="page-content">
         <div class="page-header">
-          <h1>User Management</h1>
-          <p>Manage system users</p>
+          <h1>👥 User Management</h1>
+          <p>Complete user administration and permission control</p>
         </div>
 
+        <!-- Quick Stats -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Users</div>
+            <div class="stat-value" id="userStatsTotal">0</div>
+            <div class="stat-change positive"><i class="fas fa-arrow-up"></i> 12% this month</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Active Users</div>
+            <div class="stat-value" id="userStatsActive">0</div>
+            <div class="stat-change positive"><i class="fas fa-check-circle"></i> Online now</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Admin Users</div>
+            <div class="stat-value" id="userStatsAdmin">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Pending Approval</div>
+            <div class="stat-value" id="userStatsPending">0</div>
+          </div>
+        </div>
+
+        <!-- Create New User - Enhanced -->
         <div class="card">
-          <h2>Create New User</h2>
-          <div class="form-group">
-            <label>User ID</label>
-            <input type="text" id="newUserId">
+          <h2><i class="fas fa-user-plus"></i> Create New User</h2>
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;margin-bottom:20px;">
+            <div class="form-group">
+              <label><i class="fas fa-user"></i> User ID *</label>
+              <input type="text" id="newUserId" placeholder="johndoe" required>
+            </div>
+            <div class="form-group">
+              <label><i class="fas fa-envelope"></i> Email Address *</label>
+              <input type="email" id="newUserEmail" placeholder="john@example.com" required>
+            </div>
+            <div class="form-group">
+              <label><i class="fas fa-lock"></i> Password *</label>
+              <input type="password" id="newUserPassword" placeholder="••••••••" required>
+            </div>
+            <div class="form-group">
+              <label><i class="fas fa-shield-alt"></i> Role</label>
+              <select id="newUserRole" class="choices-select">
+                <option value="user">User - Standard Access</option>
+                <option value="admin">Admin - Full Control</option>
+                <option value="agent">Agent - Limited Access</option>
+                <option value="viewer">Viewer - Read Only</option>
+              </select>
+            </div>
           </div>
-          <div class="form-group">
-            <label>Email</label>
-            <input type="email" id="newUserEmail">
+          
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:20px;margin-bottom:20px;">
+            <div class="form-group">
+              <label><i class="fas fa-building"></i> Department</label>
+              <input type="text" id="newUserDept" placeholder="Sales, Marketing, etc.">
+            </div>
+            <div class="form-group">
+              <label><i class="fas fa-phone"></i> Phone Number</label>
+              <input type="tel" id="newUserPhone" placeholder="+1 (555) 123-4567">
+            </div>
+            <div class="form-group">
+              <label><i class="fas fa-toggle-on"></i> Status</label>
+              <select id="newUserStatus">
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+                <option value="pending">Pending</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label><i class="fas fa-calendar"></i> Expiry Date</label>
+              <input type="text" id="newUserExpiry" class="flatpickr" placeholder="Select date">
+            </div>
           </div>
+
           <div class="form-group">
-            <label>Password</label>
-            <input type="password" id="newUserPassword">
+            <label><i class="fas fa-sticky-note"></i> Notes</label>
+            <textarea id="newUserNotes" rows="2" placeholder="Additional notes about this user..."></textarea>
           </div>
-          <div class="form-group">
-            <label>Role</label>
-            <select id="newUserRole" style="width:100%;padding:12px;border:2px solid #e0e6ed;border-radius:10px;">
-              <option value="user">User</option>
+
+          <div style="display:flex;gap:12px;">
+            <button class="btn" onclick="createUserEnhanced()" style="width:auto;">
+              <i class="fas fa-user-plus"></i> Create User
+            </button>
+            <button class="btn-secondary" onclick="clearUserForm()" style="padding:12px 24px;width:auto;">
+              <i class="fas fa-times"></i> Clear
+            </button>
+            <button class="btn-secondary" onclick="importUsersCSV()" style="padding:12px 24px;width:auto;">
+              <i class="fas fa-file-import"></i> Import CSV
+            </button>
+          </div>
+        </div>
+
+        <!-- User List with Advanced DataTable -->
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+            <h2><i class="fas fa-users"></i> All Users (<span id="usersTableCount">0</span>)</h2>
+            <div style="display:flex;gap:12px;">
+              <button class="btn-secondary" onclick="exportUsersCSV()" style="padding:10px 20px;">
+                <i class="fas fa-download"></i> Export CSV
+              </button>
+              <button class="btn-secondary" onclick="refreshUserTable()" style="padding:10px 20px;">
+                <i class="fas fa-sync"></i> Refresh
+              </button>
+            </div>
+          </div>
+
+          <!-- Advanced Filters -->
+          <div class="filter-bar" style="margin-bottom:20px;">
+            <input type="text" id="userSearchInput" class="filter-input" placeholder="🔍 Search users...">
+            <select id="userRoleFilter" class="filter-select">
+              <option value="">All Roles</option>
               <option value="admin">Admin</option>
+              <option value="user">User</option>
+              <option value="agent">Agent</option>
+              <option value="viewer">Viewer</option>
             </select>
+            <select id="userStatusFilter" class="filter-select">
+              <option value="">All Status</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="pending">Pending</option>
+            </select>
+            <button class="btn-secondary" onclick="resetUserFilters()" style="padding:10px 20px;">
+              <i class="fas fa-filter-circle-xmark"></i> Reset
+            </button>
           </div>
-          <button class="btn" onclick="createUser()">
-            <i class="fas fa-user-plus"></i> Create User
-          </button>
+
+          <div id="usersList" class="data-table-container">
+            <table id="usersDataTable" class="display" style="width:100%">
+              <thead>
+                <tr>
+                  <th>User ID</th>
+                  <th>Email</th>
+                  <th>Role</th>
+                  <th>Status</th>
+                  <th>Department</th>
+                  <th>Created</th>
+                  <th>Last Login</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
 
-        <div class="card">
-          <h2>All Users</h2>
-          <div id="usersList"></div>
-        </div>
+        <!-- User Details Modal (Will be created dynamically) -->
+        <div id="userDetailsModal" style="display:none;"></div>
       </div>
 
       <!-- Logs Page -->
@@ -1267,6 +2304,176 @@ function serveDashboard(headers) {
             <i class="fas fa-eye"></i> Analyze Image
           </button>
           <div id="imageResult" style="margin-top:20px;display:none;"></div>
+        </div>
+      </div>
+
+      <!-- Inventory Manager Page -->
+      <div id="inventory" class="page-content">
+        <div class="page-header">
+          <h1>📦 Inventory Manager</h1>
+          <p>Manage your vehicle inventory with advanced tools</p>
+        </div>
+
+        <!-- Filters and Search -->
+        <div class="card">
+          <div class="filter-bar">
+            <input type="text" id="inventorySearch" class="filter-input" placeholder="🔍 Search by make, model, VIN...">
+            <select id="statusFilter" class="filter-select">
+              <option value="">All Status</option>
+              <option value="available">Available</option>
+              <option value="pending">Pending</option>
+              <option value="sold">Sold</option>
+            </select>
+            <select id="makeFilter" class="filter-select">
+              <option value="">All Makes</option>
+            </select>
+            <button class="btn-export" onclick="exportInventory()">
+              <i class="fas fa-download"></i> Export CSV
+            </button>
+          </div>
+        </div>
+
+        <!-- Add Vehicle -->
+        <div class="card">
+          <h2><i class="fas fa-plus-circle"></i> Add New Vehicle</h2>
+          
+          <!-- Image Upload Dropzone -->
+          <div class="dropzone" id="vehicleDropzone" onclick="document.getElementById('vehicleImages').click()">
+            <i class="fas fa-cloud-upload-alt"></i>
+            <h3>Drag & Drop Images Here</h3>
+            <p>or click to browse (max 20 images)</p>
+            <input type="file" id="vehicleImages" multiple accept="image/*" style="display:none;" onchange="handleVehicleImages(this.files)">
+          </div>
+          
+          <div class="image-grid" id="imagePreviewGrid"></div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-top:20px;">
+            <div class="form-group">
+              <label>Year</label>
+              <input type="number" id="invYear" placeholder="2023">
+            </div>
+            <div class="form-group">
+              <label>Make</label>
+              <input type="text" id="invMake" placeholder="Honda">
+            </div>
+            <div class="form-group">
+              <label>Model</label>
+              <input type="text" id="invModel" placeholder="Civic">
+            </div>
+            <div class="form-group">
+              <label>VIN</label>
+              <input type="text" id="invVin" placeholder="1HGBH41JXMN109186">
+            </div>
+            <div class="form-group">
+              <label>Price</label>
+              <input type="number" id="invPrice" placeholder="18500">
+            </div>
+            <div class="form-group">
+              <label>Mileage</label>
+              <input type="number" id="invMileage" placeholder="45000">
+            </div>
+            <div class="form-group">
+              <label>Color</label>
+              <input type="text" id="invColor" placeholder="Silver">
+            </div>
+            <div class="form-group">
+              <label>Status</label>
+              <select id="invStatus" style="width:100%;padding:14px;border:2px solid #e0e6ed;border-radius:10px;">
+                <option value="available">Available</option>
+                <option value="pending">Pending</option>
+                <option value="sold">Sold</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label>Description</label>
+            <textarea id="invDescription" rows="3" style="width:100%;padding:12px;border:2px solid #e0e6ed;border-radius:10px;"></textarea>
+          </div>
+
+          <button class="btn" onclick="addVehicleToInventory()">
+            <i class="fas fa-save"></i> Add Vehicle
+          </button>
+        </div>
+
+        <!-- Inventory Table -->
+        <div class="card">
+          <h2>Current Inventory (<span id="inventoryCount">0</span> vehicles)</h2>
+          <div class="data-table-container">
+            <table class="data-table" id="inventoryTable">
+              <thead>
+                <tr>
+                  <th onclick="sortInventory('year')">Year <i class="fas fa-sort"></i></th>
+                  <th onclick="sortInventory('make')">Make <i class="fas fa-sort"></i></th>
+                  <th onclick="sortInventory('model')">Model <i class="fas fa-sort"></i></th>
+                  <th onclick="sortInventory('price')">Price <i class="fas fa-sort"></i></th>
+                  <th onclick="sortInventory('mileage')">Mileage <i class="fas fa-sort"></i></th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="inventoryTableBody">
+                <tr>
+                  <td colspan="7" style="text-align:center;padding:40px;color:#94a3b8;">
+                    No vehicles in inventory. Add one above!
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="pagination" id="inventoryPagination"></div>
+        </div>
+      </div>
+
+      <!-- Analytics Page -->
+      <div id="analytics" class="page-content">
+        <div class="page-header">
+          <h1>📊 Analytics Dashboard</h1>
+          <p>Insights and performance metrics</p>
+        </div>
+
+        <!-- Key Metrics -->
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Total Revenue</div>
+            <div class="stat-value" id="totalRevenue">$0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Avg. Sale Price</div>
+            <div class="stat-value" id="avgSalePrice">$0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Avg. Days to Sell</div>
+            <div class="stat-value" id="avgDaysToSell">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Conversion Rate</div>
+            <div class="stat-value" id="conversionRate">0%</div>
+          </div>
+        </div>
+
+        <!-- Charts -->
+        <div class="card">
+          <h2><i class="fas fa-chart-line"></i> Activity Trends</h2>
+          <div id="activityChart" class="chart-container"></div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:20px;">
+          <div class="card">
+            <h2><i class="fas fa-pie-chart"></i> Jobs by Status</h2>
+            <div id="statusChart" class="chart-container"></div>
+          </div>
+          
+          <div class="card">
+            <h2><i class="fas fa-chart-bar"></i> Top Vehicle Makes</h2>
+            <div id="makesChart" class="chart-container"></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2><i class="fas fa-fire"></i> Hot Listings</h2>
+          <p style="color:#64748b;margin-bottom:20px;">Most viewed and fastest-selling vehicles</p>
+          <div id="hotListings"></div>
         </div>
       </div>
     </div>
@@ -1723,6 +2930,382 @@ function serveDashboard(headers) {
       resultDiv.innerHTML = '<p style="color:#ef4444;">Error: ' + e.message + '</p>';
     }
   }
+
+  // Inventory Management
+  let inventory = JSON.parse(localStorage.getItem('inventory') || '[]');
+  let uploadedImages = [];
+  let sortColumn = '';
+  let sortDirection = 'asc';
+  let currentPage = 1;
+  const itemsPerPage = 10;
+
+  function showToast(message, type = 'success') {
+    Toastify({
+      text: message,
+      duration: 3000,
+      gravity: "top",
+      position: "right",
+      backgroundColor: type === 'success' ? '#10b981' : '#ef4444',
+      stopOnFocus: true
+    }).showToast();
+  }
+
+  function handleVehicleImages(files) {
+    const arr = Array.from(files);
+    const remaining = 20 - uploadedImages.length;
+    const toAdd = arr.slice(0, remaining);
+    
+    toAdd.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        uploadedImages.push({ url: e.target.result, file });
+        renderImagePreviews();
+      };
+      reader.readAsDataURL(file);
+    });
+
+    showToast(\`Added \${toAdd.length} image(s)\`);
+  }
+
+  function renderImagePreviews() {
+    const grid = document.getElementById('imagePreviewGrid');
+    grid.innerHTML = uploadedImages.map((img, idx) => \`
+      <div class="image-item">
+        <img src="\${img.url}" alt="Vehicle \${idx + 1}">
+        <button class="remove-btn" onclick="removeImage(\${idx})">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+    \`).join('');
+  }
+
+  function removeImage(idx) {
+    uploadedImages.splice(idx, 1);
+    renderImagePreviews();
+    showToast('Image removed');
+  }
+
+  // Dropzone handlers
+  const dropzone = document.getElementById('vehicleDropzone');
+  if (dropzone) {
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      dropzone.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults(e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+      dropzone.addEventListener(eventName, () => dropzone.classList.add('dragover'));
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      dropzone.addEventListener(eventName, () => dropzone.classList.remove('dragover'));
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      const dt = e.dataTransfer;
+      const files = dt.files;
+      handleVehicleImages(files);
+    });
+  }
+
+  async function addVehicleToInventory() {
+    const vehicle = {
+      id: Date.now(),
+      year: document.getElementById('invYear').value,
+      make: document.getElementById('invMake').value,
+      model: document.getElementById('invModel').value,
+      vin: document.getElementById('invVin').value,
+      price: parseFloat(document.getElementById('invPrice').value) || 0,
+      mileage: parseInt(document.getElementById('invMileage').value) || 0,
+      color: document.getElementById('invColor').value,
+      status: document.getElementById('invStatus').value,
+      description: document.getElementById('invDescription').value,
+      images: uploadedImages.map(img => img.url),
+      createdAt: new Date().toISOString()
+    };
+
+    if (!vehicle.year || !vehicle.make || !vehicle.model) {
+      showToast('Please fill year, make, and model', 'error');
+      return;
+    }
+
+    inventory.push(vehicle);
+    localStorage.setItem('inventory', JSON.stringify(inventory));
+    
+    // Clear form
+    ['invYear', 'invMake', 'invModel', 'invVin', 'invPrice', 'invMileage', 'invColor', 'invDescription'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    uploadedImages = [];
+    renderImagePreviews();
+
+    showToast('Vehicle added to inventory!');
+    renderInventoryTable();
+    updateMakeFilter();
+  }
+
+  function renderInventoryTable() {
+    const tbody = document.getElementById('inventoryTableBody');
+    const filteredInventory = filterInventory();
+    
+    document.getElementById('inventoryCount').textContent = filteredInventory.length;
+
+    if (filteredInventory.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:#94a3b8;">No vehicles match your filters</td></tr>';
+      return;
+    }
+
+    const start = (currentPage - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    const pageItems = filteredInventory.slice(start, end);
+
+    tbody.innerHTML = pageItems.map(v => \`
+      <tr>
+        <td>\${v.year}</td>
+        <td>\${v.make}</td>
+        <td>\${v.model}</td>
+        <td>$\${v.price.toLocaleString()}</td>
+        <td>\${v.mileage.toLocaleString()} mi</td>
+        <td><span class="badge badge-\${v.status === 'available' ? 'success' : v.status === 'pending' ? 'warning' : 'info'}">\${v.status}</span></td>
+        <td>
+          <button class="btn-primary" style="padding:6px 12px;margin-right:4px;" onclick="editVehicle(\${v.id})">
+            <i class="fas fa-edit"></i>
+          </button>
+          <button class="btn-danger" style="padding:6px 12px;" onclick="deleteVehicle(\${v.id})">
+            <i class="fas fa-trash"></i>
+          </button>
+        </td>
+      </tr>
+    \`).join('');
+
+    renderPagination(filteredInventory.length);
+  }
+
+  function filterInventory() {
+    const search = document.getElementById('inventorySearch')?.value.toLowerCase() || '';
+    const statusFilter = document.getElementById('statusFilter')?.value || '';
+    const makeFilter = document.getElementById('makeFilter')?.value || '';
+
+    let filtered = inventory.filter(v => {
+      const matchSearch = !search || 
+        v.make.toLowerCase().includes(search) ||
+        v.model.toLowerCase().includes(search) ||
+        v.vin.toLowerCase().includes(search);
+      const matchStatus = !statusFilter || v.status === statusFilter;
+      const matchMake = !makeFilter || v.make === makeFilter;
+      return matchSearch && matchStatus && matchMake;
+    });
+
+    // Apply sorting
+    if (sortColumn) {
+      filtered.sort((a, b) => {
+        let aVal = a[sortColumn];
+        let bVal = b[sortColumn];
+        if (typeof aVal === 'string') {
+          aVal = aVal.toLowerCase();
+          bVal = bVal.toLowerCase();
+        }
+        if (sortDirection === 'asc') {
+          return aVal > bVal ? 1 : -1;
+        } else {
+          return aVal < bVal ? 1 : -1;
+        }
+      });
+    }
+
+    return filtered;
+  }
+
+  function sortInventory(column) {
+    if (sortColumn === column) {
+      sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+    } else {
+      sortColumn = column;
+      sortDirection = 'asc';
+    }
+    renderInventoryTable();
+  }
+
+  function renderPagination(totalItems) {
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+    const pagination = document.getElementById('inventoryPagination');
+    
+    if (totalPages <= 1) {
+      pagination.innerHTML = '';
+      return;
+    }
+
+    let html = \`
+      <button onclick="changePage(\${currentPage - 1})" \${currentPage === 1 ? 'disabled' : ''}>
+        <i class="fas fa-chevron-left"></i>
+      </button>
+    \`;
+
+    for (let i = 1; i <= totalPages; i++) {
+      if (i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {
+        html += \`<button class="\${i === currentPage ? 'active' : ''}" onclick="changePage(\${i})">\${i}</button>\`;
+      } else if (i === currentPage - 2 || i === currentPage + 2) {
+        html += '<button disabled>...</button>';
+      }
+    }
+
+    html += \`
+      <button onclick="changePage(\${currentPage + 1})" \${currentPage === totalPages ? 'disabled' : ''}>
+        <i class="fas fa-chevron-right"></i>
+      </button>
+    \`;
+
+    pagination.innerHTML = html;
+  }
+
+  function changePage(page) {
+    currentPage = page;
+    renderInventoryTable();
+  }
+
+  function updateMakeFilter() {
+    const makes = [...new Set(inventory.map(v => v.make))].sort();
+    const select = document.getElementById('makeFilter');
+    if (select) {
+      select.innerHTML = '<option value="">All Makes</option>' + makes.map(m => \`<option value="\${m}">\${m}</option>\`).join('');
+    }
+  }
+
+  function deleteVehicle(id) {
+    if (confirm('Delete this vehicle from inventory?')) {
+      inventory = inventory.filter(v => v.id !== id);
+      localStorage.setItem('inventory', JSON.stringify(inventory));
+      showToast('Vehicle deleted');
+      renderInventoryTable();
+      updateMakeFilter();
+    }
+  }
+
+  function exportInventory() {
+    const csv = [
+      ['Year', 'Make', 'Model', 'VIN', 'Price', 'Mileage', 'Color', 'Status', 'Description'].join(','),
+      ...inventory.map(v => [
+        v.year, v.make, v.model, v.vin, v.price, v.mileage, v.color, v.status, \`"\${v.description}"\`
+      ].join(','))
+    ].join('\\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = \`inventory_\${new Date().toISOString().split('T')[0]}.csv\`;
+    a.click();
+    showToast('Inventory exported!');
+  }
+
+  // Analytics Functions
+  function renderAnalytics() {
+    // Calculate metrics
+    const soldVehicles = inventory.filter(v => v.status === 'sold');
+    const totalRevenue = soldVehicles.reduce((sum, v) => sum + v.price, 0);
+    const avgPrice = soldVehicles.length > 0 ? totalRevenue / soldVehicles.length : 0;
+
+    document.getElementById('totalRevenue').textContent = '$' + totalRevenue.toLocaleString();
+    document.getElementById('avgSalePrice').textContent = '$' + Math.round(avgPrice).toLocaleString();
+    document.getElementById('conversionRate').textContent = 
+      inventory.length > 0 ? Math.round((soldVehicles.length / inventory.length) * 100) + '%' : '0%';
+
+    // Activity Chart
+    renderActivityChart();
+    
+    // Status Chart
+    renderStatusChart();
+    
+    // Makes Chart
+    renderMakesChart();
+  }
+
+  function renderActivityChart() {
+    const last7Days = [...Array(7)].map((_, i) => {
+      const date = new Date();
+      date.setDate(date.getDate() - (6 - i));
+      return {
+        date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        count: Math.floor(Math.random() * 10) + 5 // Demo data
+      };
+    });
+
+    const options = {
+      chart: { type: 'area', height: 300, toolbar: { show: false } },
+      series: [{ name: 'Activity', data: last7Days.map(d => d.count) }],
+      xaxis: { categories: last7Days.map(d => d.date) },
+      colors: ['#667eea'],
+      fill: { type: 'gradient', gradient: { shade: 'light', type: 'vertical', opacityFrom: 0.7, opacityTo: 0.3 } },
+      dataLabels: { enabled: false },
+      stroke: { curve: 'smooth', width: 3 }
+    };
+
+    new ApexCharts(document.getElementById('activityChart'), options).render();
+  }
+
+  function renderStatusChart() {
+    const statusCounts = {
+      available: inventory.filter(v => v.status === 'available').length,
+      pending: inventory.filter(v => v.status === 'pending').length,
+      sold: inventory.filter(v => v.status === 'sold').length
+    };
+
+    const options = {
+      chart: { type: 'donut', height: 300 },
+      series: Object.values(statusCounts),
+      labels: ['Available', 'Pending', 'Sold'],
+      colors: ['#10b981', '#f59e0b', '#667eea'],
+      legend: { position: 'bottom' }
+    };
+
+    new ApexCharts(document.getElementById('statusChart'), options).render();
+  }
+
+  function renderMakesChart() {
+    const makeCounts = inventory.reduce((acc, v) => {
+      acc[v.make] = (acc[v.make] || 0) + 1;
+      return acc;
+    }, {});
+
+    const sorted = Object.entries(makeCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+    const options = {
+      chart: { type: 'bar', height: 300, toolbar: { show: false } },
+      series: [{ name: 'Vehicles', data: sorted.map(([, count]) => count) }],
+      xaxis: { categories: sorted.map(([make]) => make) },
+      colors: ['#764ba2'],
+      plotOptions: { bar: { borderRadius: 4, horizontal: false } },
+      dataLabels: { enabled: false }
+    };
+
+    new ApexCharts(document.getElementById('makesChart'), options).render();
+  }
+
+  // Page switch handler enhancement
+  const originalSwitchPage = switchPage;
+  switchPage = function(page) {
+    originalSwitchPage(page);
+    
+    if (page === 'inventory') {
+      renderInventoryTable();
+      updateMakeFilter();
+      
+      // Setup event listeners
+      setTimeout(() => {
+        document.getElementById('inventorySearch')?.addEventListener('input', _.debounce(renderInventoryTable, 300));
+        document.getElementById('statusFilter')?.addEventListener('change', renderInventoryTable);
+        document.getElementById('makeFilter')?.addEventListener('change', renderInventoryTable);
+      }, 100);
+    }
+    
+    if (page === 'analytics') {
+      renderAnalytics();
+    }
+  };
 
   // Initialize
   window.onload = () => {
