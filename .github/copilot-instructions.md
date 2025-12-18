@@ -285,10 +285,288 @@ curl https://autobridge-backend.dchatpar.workers.dev/api/stats/dashboard \
 6. **Alerts:** Use `showAlert(msg, 'success'|'error')` for user feedback
 7. **API Calls:** Use `call(endpoint, method, body)` helper function in dashboard
 
+## Chrome Extension Patterns
+
+### Architecture (MV3 - Manifest V3)
+Located in `chrome-extension/`:
+- **manifest.json** - Permissions, content scripts, background worker
+- **popup/** - Side panel UI for user interaction
+- **content/** - Scripts injected into target websites (autotrader, cars.com, cargurus)
+- **background/service-worker.js** - Message routing and API communication
+- **utils/** - Shared utilities (browser metadata, image editor)
+
+### Key Message Patterns
+```javascript
+// Content script → Background
+chrome.runtime.sendMessage({ action: 'scrapePage', url: 'https://...' }, response => {
+  console.log('Scraped:', response.data);
+});
+
+// Background → Content script
+chrome.tabs.sendMessage(tabId, { action: 'fillForm', data: vehicleData }, response => {
+  console.log('Filled:', response.success);
+});
+```
+
+### Scraper Implementation
+- **Robust Selectors**: Use multiple fallback selectors for resilience
+- **Anti-Bot Mitigation**: Random delays, user-agent rotation
+- **Error Recovery**: Retry with exponential backoff
+- **Data Normalization**: Map raw scraped data to standard Vehicle JSON schema
+
+```javascript
+// Standard vehicle object from all scrapers
+const vehicle = {
+  make: 'Honda',
+  model: 'Civic',
+  year: 2022,
+  vin: '1HGBH41JXMN109186',
+  price: 18500,
+  mileage: 45000,
+  title: 'Clean',
+  images: ['img1.jpg', 'img2.jpg'],
+  source: 'autotrader'
+};
+```
+
+## Admin Dashboard Patterns
+
+### Tech Stack
+- **Framework**: React + Material-UI (or vanilla JS in Cloudflare setup)
+- **Location**: `admin-dashboard/` or embedded in worker.js
+- **Authentication**: JWT tokens from backend
+- **Data**: Real-time polling (currently 15s intervals) or WebSocket
+
+### Dashboard Pages Structure
+```
+Admin Dashboard
+├── Overview/Stats (read-only metrics)
+├── Vehicles (CRUD - review, edit, approve)
+├── Job Queue (monitor scraping jobs)
+├── Users (manage agents, roles)
+├── Activity Logs (audit trail)
+├── Settings (configuration)
+└── Analytics (charts, reports)
+```
+
+### Role-Based Access Pattern
+```javascript
+// In component
+if (user.role !== 'admin') return <AccessDenied />;
+
+// In backend
+if (decoded.role !== 'admin') return res({ error: 'Admin required' }, 403);
+```
+
+### Real-time Data Updates
+```javascript
+// Current: Polling every 15s
+setInterval(loadData, 15000);
+
+// Future: WebSocket for live updates
+const ws = new WebSocket('wss://autobridge.example.com/ws');
+ws.onmessage = (event) => updateDashboard(JSON.parse(event.data));
+```
+
+## Advanced AI Integration Patterns
+
+### 1. Vehicle Market Analysis
+```javascript
+if (path === '/api/ai/market-analysis' && method === 'POST') {
+  const { vehicleData } = await request.json();
+  const prompt = `Analyze this vehicle for market value:
+    Make: ${vehicleData.make}
+    Model: ${vehicleData.model}
+    Year: ${vehicleData.year}
+    Mileage: ${vehicleData.mileage}
+    Condition: ${vehicleData.condition}
+    
+    Provide: estimated market price, demand level (high/medium/low), selling time estimate`;
+    
+  const response = await geminiCall(prompt);
+  return res({ success: true, analysis: response.text }, headers);
+}
+```
+
+### 2. Condition Scoring
+```javascript
+if (path === '/api/ai/condition-score' && method === 'POST') {
+  const { imageUrls, description } = await request.json();
+  
+  // Analyze images + description for overall condition
+  const prompt = `Score vehicle condition 1-10. Images analyzed: ${imageUrls.length}. ${description}`;
+  const score = await geminiCall(prompt);
+  
+  return res({ success: true, score, reasoning: score.reasoning }, headers);
+}
+```
+
+### 3. Description Generation
+```javascript
+if (path === '/api/ai/generate-description' && method === 'POST') {
+  const { vehicleData } = await request.json();
+  
+  const prompt = `Generate a compelling Facebook Marketplace listing description:
+    ${JSON.stringify(vehicleData, null, 2)}
+    
+    Make it engaging, highlight key features, mention condition. Max 500 chars.`;
+    
+  const description = await geminiCall(prompt);
+  return res({ success: true, description: description.text }, headers);
+}
+```
+
+### 4. Image Enhancement Recommendations
+```javascript
+if (path === '/api/ai/image-analysis' && method === 'POST') {
+  const { imageUrl } = await request.json();
+  
+  const prompt = `Analyze this vehicle image and suggest enhancements:
+    - Lighting improvements
+    - Background cleanup
+    - Angle optimization
+    - Details to emphasize
+    
+    URL: ${imageUrl}`;
+    
+  const recommendations = await geminiCall(prompt);
+  return res({ success: true, recommendations }, headers);
+}
+```
+
+### Gemini API Helper Function
+```javascript
+async function geminiCall(prompt, env) {
+  const GEMINI_KEY = env.GEMINI_API_KEY;
+  const response = await fetch('https://generativelanguage.googleapis.com/v1/models/gemini-1.5-pro:generateContent?key=' + GEMINI_KEY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{ text: prompt }]
+      }]
+    })
+  });
+  
+  if (!response.ok) throw new Error('Gemini API error: ' + response.status);
+  const data = await response.json();
+  return data.candidates[0].content.parts[0];
+}
+```
+
+## Performance Guidelines & Caching
+
+### Cloudflare Cache Strategy
+```javascript
+// Cache successful responses for 1 hour
+if (status === 200) {
+  headers['Cache-Control'] = 'public, max-age=3600';
+}
+
+// Don't cache auth endpoints
+if (path.includes('/auth/')) {
+  headers['Cache-Control'] = 'no-cache, no-store';
+}
+```
+
+### Frontend Caching Patterns
+```javascript
+// Cache token in localStorage (expires when tab closes)
+localStorage.setItem('token', token);
+
+// Cache static data with versioning
+const cachedData = JSON.parse(localStorage.getItem('vehiclesV2'));
+if (cachedData && Date.now() - cachedData.timestamp < 300000) {
+  return cachedData.data; // Use 5min old cache
+}
+```
+
+### Database Query Optimization (Future)
+- Index on `userId`, `status`, `createdAt` for job queries
+- Pagination: `LIMIT 50 OFFSET page*50` for large lists
+- Materialized views for dashboard stats
+
+### API Rate Limiting Pattern
+```javascript
+const rateLimitMap = {}; // userId -> { count, resetTime }
+
+function checkRateLimit(userId) {
+  if (!rateLimitMap[userId]) rateLimitMap[userId] = { count: 0, resetTime: Date.now() + 60000 };
+  
+  if (Date.now() > rateLimitMap[userId].resetTime) {
+    rateLimitMap[userId] = { count: 0, resetTime: Date.now() + 60000 };
+  }
+  
+  if (++rateLimitMap[userId].count > 100) {
+    throw new Error('Rate limit exceeded: 100 requests/minute');
+  }
+}
+```
+
+## Troubleshooting & Common Issues
+
+### Issue: Dashboard Stuck on "Connecting to API..."
+**Root Cause**: Token missing or API unreachable  
+**Solution**:
+1. Check browser console for CORS errors
+2. Verify token exists: `localStorage.getItem('token')`
+3. Test API directly: `curl https://autobridge-backend.dchatpar.workers.dev/api/health`
+4. Clear browser cache and retry
+
+### Issue: AI Endpoints Returning 500 Errors
+**Root Cause**: GEMINI_API_KEY missing or quota exceeded  
+**Solution**:
+1. Verify `GEMINI_API_KEY` in Cloudflare dashboard → Settings → Environment Variables
+2. Check Google AI Studio dashboard for quota limits
+3. Verify prompt format matches Gemini API spec
+4. Test with simpler prompt first: `"What is 2+2?"`
+
+### Issue: Jobs Not Appearing After Queue
+**Root Cause**: In-memory array cleared (redeployment) or filtering issue  
+**Solution**:
+1. Check filter params: `/api/scrape/jobs?status=queued`
+2. Verify job creation returned success
+3. Confirm token has correct role permissions
+4. Check activity logs: `/api/logs/activity`
+
+### Issue: Login Fails Despite Correct Credentials
+**Root Cause**: User not found or password mismatch  
+**Solution**:
+1. Verify user exists: `GET /api/users` (as admin)
+2. Create test user: `POST /api/auth/register`
+3. Check localStorage for previous token conflicts
+4. Inspect network tab: verify POST request body format
+
+### Issue: Sidebar Menu Items Not Visible
+**Root Cause**: CSS not loaded or role-based hiding  
+**Solution**:
+1. Inspect element in DevTools - check `display: none` or `visibility: hidden`
+2. Verify user role: check JS console `localStorage.getItem('role')`
+3. For admin items: only show if `role === 'admin'`
+4. Force refresh: Ctrl+Shift+R (hard refresh)
+
+### Issue: Slow Dashboard Load Times
+**Root Cause**: Large data fetches or no caching  
+**Solution**:
+1. Implement pagination: fetch 50 items at a time
+2. Add caching: `setInterval` to 30s instead of 15s
+3. Use Cloudflare cache headers on successful responses
+4. Minimize DOM operations: batch updates
+
+### Issue: Extensions Not Communicating with Backend
+**Root Cause**: CORS, missing auth headers, or wrong URL  
+**Solution**:
+1. Verify `api.example.com` matches backend URL in extension config
+2. Include auth header: `Authorization: Bearer ${token}`
+3. Check Content-Type: `application/json`
+4. Test with curl first, then enable in extension
+
 ## Next Steps for Feature Development
 
 1. **AI-Powered Vehicle Analysis** - Integrate Gemini for market value, condition scoring, recommendation engine
-2. **Wider Layouts** - Update CSS grid to use `grid-template-columns: repeat(auto-fit, minmax(350px, 1fr))` for larger cards
+2. **Wider Layouts** - Update CSS grid to use `grid-template-columns: repeat(auto-fit, minmax(400px, 1fr))` for larger cards
 3. **Real-time Updates** - Replace 15s polling with WebSocket subscriptions
 4. **Persistent Storage** - Migrate from in-memory to Supabase + Auth
 5. **Batch Operations** - Add bulk job queueing and analysis
+6. **Image Pipeline** - Integrate Sharp for server-side image optimization
+7. **Job Scheduling** - Use BullMQ for delayed and recurring scrape jobs
