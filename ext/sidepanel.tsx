@@ -42,7 +42,10 @@ import {
 } from "@mui/icons-material"
 import axios from "axios"
 
-const API_URL = process.env.PLASMO_PUBLIC_API_URL || "https://autobridge-backend.dchatpar.workers.dev/api"
+// API URL - hardcoded for reliability in extension context
+const API_URL = "https://autobridge-backend.dchatpar.workers.dev/api"
+
+console.log("AutoBridge Sidepanel - API URL:", API_URL)
 
 // Material Design Theme with better colors
 const theme = createTheme({
@@ -160,19 +163,34 @@ function IndexSidepanel() {
   const handleLogin = async () => {
     try {
       setLoading(true)
+      console.log("Attempting login to:", `${API_URL}/auth/login`)
+      console.log("User ID:", userId)
+      
       const response = await axios.post(`${API_URL}/auth/login`, {
         userId,
         password
+      }, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
       })
 
-      const { token: authToken } = response.data
-      setToken(authToken)
-      chrome.storage.local.set({ authToken })
-      setIsAuthenticated(true)
-      showSnackbar("Login successful!", "success")
-      loadVehicles(authToken)
-    } catch (error) {
-      showSnackbar("Login failed: " + error.message, "error")
+      console.log("Login response:", response.data)
+
+      if (response.data.success && response.data.token) {
+        const authToken = response.data.token
+        setToken(authToken)
+        await chrome.storage.local.set({ authToken })
+        setIsAuthenticated(true)
+        showSnackbar("Login successful!", "success")
+        loadVehicles(authToken)
+      } else {
+        throw new Error(response.data.message || "Login failed - no token received")
+      }
+    } catch (error: any) {
+      console.error("Login error:", error)
+      const errorMsg = error.response?.data?.message || error.message || "Login failed - check console"
+      showSnackbar("Login failed: " + errorMsg, "error")
     } finally {
       setLoading(false)
     }

@@ -5,7 +5,10 @@
 
 import type { PlasmoMessaging } from "@plasmohq/messaging"
 
-const API_URL = process.env.PLASMO_PUBLIC_API_URL || "https://autobridge-backend.dchatpar.workers.dev/api"
+// API URL - hardcoded for reliability
+const API_URL = "https://autobridge-backend.dchatpar.workers.dev/api"
+
+console.log("AutoBridge Background - API URL:", API_URL)
 
 // Handle side panel opening
 chrome.sidePanel
