@@ -2,7 +2,8 @@
 
 # Environment variables
 .env
-.env.local
+# .env.local (Uncomment if needed for build)
+# .env.local
 .env.production
 
 # Dependencies

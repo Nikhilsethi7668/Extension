@@ -1,0 +1,116 @@
+# FacebookMark: System Design & Working Document
+
+**Version:** 1.0.0
+**Date:** 2025-12-18
+**Stack:** MERN (MongoDB, Express, React, Node.js) + Chrome Extension (MV3)
+
+---
+
+## 1. Executive Summary
+The **FacebookMark Auto-Lister** is a semi-automated vehicle listing system designed for dealerships and sales consultants. It centralizes inventory management and uses AI to generate human-like, high-quality listings for Facebook Marketplace. The system leverages a Chrome Extension to interact directly with the user's browser session, ensuring safe and "human" behavioral patterns while automating repetitive data entry.
+
+## 2. System Architecture
+
+The system is composed of three distinct but integrated components:
+
+### A. Backend API (`api/`)
+- **Port:** 5001
+- **Tech:** Node.js, Express, Mongoose.
+- **Database:** MongoDB (Multi-tenant structure: Organizations, Users, Vehicles).
+- **Core Services:**
+    - **Authentication:** Dual-strategy (JWT for Dashboard, API Keys for Extension).
+    - **AI Engine:** Google Gemini Pro integration for content generation.
+    - **Scraper:** Cheerio-based scraping engine with dedicated strategies for Autotrader and Cars.com.
+
+### B. Admin Dashboard (`dashboard/`)
+- **Port:** 5173
+- **Tech:** React, Vite, Material UI (v5).
+- **Function:**
+    - **Super Admin:** Manage organizations and global AI settings.
+    - **Org Admin:** Manage agents (users), view activity logs, and oversee inventory.
+    - **Inventory:** centralized view to add vehicles via URL import.
+
+### C. Chrome Extension (`extension/`)
+- **Tech:** Manifest V3, Vanilla JS.
+- **Function:**
+    - **Authentication:** Maps browser session to Backend User via API Key.
+    - **Popup UI:** Displays assigned inventory (Load/Posted tabs).
+    - **Content Script:** Injects data into Facebook Marketplace DOM.
+    - **Image Handling:** Fetches remote images as blobs and simulates drag-and-drop actions.
+
+---
+
+## 3. Core Workflows
+
+### 3.1. Inventory Ingestion
+1.  Admin/Agent pastes a vehicle URL (e.g., from Autotrader) into the Dashboard.
+2.  Backend [scraper.service.js](file:///Users/nikhi/Downloads/facebookmark/api/src/services/scraper.service.js) fetches the HTML.
+3.  Metadata (Year, Make, Model, VIN, Price, Images) is extracted and normalized.
+4.  Vehicle is saved to MongoDB with status `available`.
+
+### 3.2. AI Content Generation
+1.  Agent opens the Extension on their browser.
+2.  Agent inputs instructions (e.g., "Urgent sale") and selects sentiment.
+3.  Request sent to Backend.
+4.  Backend prompts Google Gemini: _"Write a Facebook Marketplace listing for [Vehicle Details] with [Sentiment] tone..."_
+5.  AI returns a structured Title and Description.
+
+### 3.3. Posting to Facebook
+1.  Extension receives vehicle data + AI content.
+2.  Extension opens a new tab to `facebook.com/marketplace/create/vehicle`.
+3.  **Autofill Script ([facebook-autofill.js](file:///Users/nikhi/Downloads/facebookmark/extension/content/facebook-autofill.js))**:
+    - Fills Title, Price, Description fields.
+    - Fetches image URLs -> Converts to Blobs -> Creates `DataTransfer` object -> Dispatches `drop` event on Facebook's file input.
+4.  Agent reviews the draft and manually clicks "Post".
+
+---
+
+## 4. Setup & Usage Guide
+
+### Technical Pre-requisites
+- **Node.js** v18+
+- **MongoDB** (Local or AtlasURI)
+- **Google Gemini API Key**
+
+### Installation Steps
+
+1.  **Configure Environment**
+    - [api/.env](file:///Users/nikhi/Downloads/facebookmark/api/.env): Set `PORT=5001`, `MONGO_URI`, and `GEMINI_API_KEY`.
+    
+2.  **Start Backend**
+    ```bash
+    cd api && npm start
+    ```
+
+3.  **Start Dashboard**
+    ```bash
+    cd dashboard && npm run dev
+    ```
+    - Visit `http://localhost:5173/setup` to create the initial Super Admin account.
+
+4.  **Install Extension**
+    - Go to `chrome://extensions`.
+    - Enable **Developer Mode**.
+    - **Load Unpacked** -> Select `extension/` folder.
+
+### User Guide for Agents
+
+1.  **Login**: Click the extension icon. Enter your **API Key** (provided by your Admin) and Name.
+2.  **Load Inventory**: Click the **Load Vehicles** tab.
+3.  **Post**: Select a vehicle -> **Prepare & Post**.
+4.  **Review**: Watch the form fill up on Facebook, verify images, and submit.
+
+---
+
+## 5. Security & Compliance
+- **No Password Sharing**: Agents use their own Facebook accounts.
+- **No Automated Posting**: The final "Post" click is always manual (Human-in-the-loop).
+- **Data Isolation**: Multi-tenant database design ensures Organizations cannot see each other's data.
+- **Audit Logging**: All actions (Scrape, AI Gen, Post Attempt) are logged in the backend.
+
+---
+
+## 6. Future Roadmap
+- [ ] **Image Watermarking**: Add dealer logo overlay via Sharp before upload.
+- [ ] **CRM Integration**: Webhooks to push leads from Facebook Messages (via Messenger scraping or API) back to CRM.
+- [ ] **Mobile App**: React Native app for taking photos and uploading directly to inventory.
