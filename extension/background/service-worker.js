@@ -94,14 +94,24 @@ function showNotification(title, message) {
 async function logToBackend(logData) {
   try {
     const stored = await chrome.storage.local.get(['userSession']);
-    if (!stored.userSession || !stored.userSession.token) return;
+    if (!stored.userSession) return;
+
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+
+    // Use API key if available, otherwise use JWT token
+    if (stored.userSession.apiKey) {
+      headers['x-api-key'] = stored.userSession.apiKey;
+    } else if (stored.userSession.token) {
+      headers['Authorization'] = `Bearer ${stored.userSession.token}`;
+    } else {
+      return; // No authentication available
+    }
 
     await fetch(`${BACKEND_URL}/logs/activity`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${stored.userSession.token}`
-      },
+      headers: headers,
       body: JSON.stringify(logData)
     });
   } catch (error) {
@@ -115,19 +125,17 @@ chrome.alarms.create('validateSession', { periodInMinutes: 30 });
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'validateSession') {
     const stored = await chrome.storage.local.get(['userSession']);
-    if (stored.userSession && stored.userSession.token) {
+    if (stored.userSession && stored.userSession.apiKey) {
       try {
-        const response = await fetch(`${BACKEND_URL}/auth/validate`, {
-          method: 'POST',
+        const response = await fetch(`${BACKEND_URL}/auth/validate-key`, {
+          method: 'GET',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${stored.userSession.token}`
+            'x-api-key': stored.userSession.apiKey
           }
         });
 
-        const data = await response.json();
-
-        if (!data.valid) {
+        if (!response.ok) {
           await chrome.storage.local.remove('userSession');
           showNotification('Session Expired', 'Please log in again');
         }

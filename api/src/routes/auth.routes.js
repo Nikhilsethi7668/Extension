@@ -18,11 +18,77 @@ const generateToken = (id) => {
 // @route   POST /api/auth/login
 // @access  Public
 router.post('/login', async (req, res) => {
-    const { email, password } = req.body;
+    try {
+        const { email, password } = req.body;
 
-    const user = await User.findOne({ email }).populate('organization');
+        if (!email || !password) {
+            res.status(400);
+            throw new Error('Email and password are required');
+        }
 
-    if (user && (await user.matchPassword(password))) {
+        const user = await User.findOne({ email }).populate('organization');
+
+        if (user && (await user.matchPassword(password))) {
+            res.json({
+                _id: user._id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                organization: user.organization,
+                token: generateToken(user._id),
+            });
+        } else {
+            res.status(401);
+            throw new Error('Invalid email or password');
+        }
+    } catch (error) {
+        res.status(res.statusCode || 500).json({
+            message: error.message,
+        });
+    }
+});
+
+// @desc    Agent login with token only
+// @route   POST /api/auth/agent-login
+// @access  Public
+router.post('/agent-login', async (req, res) => {
+    try {
+        const { token } = req.body;
+
+        if (!token) {
+            res.status(400);
+            throw new Error('Token is required');
+        }
+
+        const user = await User.findOne({ apiKey: token }).populate('organization');
+
+        if (!user) {
+            res.status(401);
+            throw new Error('Invalid token');
+        }
+
+        // Verify user is an agent
+        if (user.role !== 'agent') {
+            res.status(403);
+            throw new Error('This endpoint is only for agents');
+        }
+
+        // Check if user is active
+        if (user.status !== 'active') {
+            res.status(403);
+            throw new Error('Your account is inactive');
+        }
+
+        // Check if organization is active
+        if (user.organization && user.organization.status !== 'active') {
+            res.status(403);
+            throw new Error('Your organization is inactive');
+        }
+
+        // Update last login
+        user.lastLogin = new Date();
+        await user.save();
+
         res.json({
             _id: user._id,
             name: user.name,
@@ -31,9 +97,10 @@ router.post('/login', async (req, res) => {
             organization: user.organization,
             token: generateToken(user._id),
         });
-    } else {
-        res.status(401);
-        throw new Error('Invalid email or password');
+    } catch (error) {
+        res.status(res.statusCode || 500).json({
+            message: error.message,
+        });
     }
 });
 

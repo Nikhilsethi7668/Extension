@@ -5,7 +5,7 @@ import {
     DialogContent, TextField, DialogActions, Chip
 } from '@mui/material';
 import { Plus } from 'lucide-react';
-import axios from 'axios';
+import apiClient from '../config/axios';
 import Layout from '../components/Layout';
 
 const Inventory = () => {
@@ -17,7 +17,7 @@ const Inventory = () => {
     const [detailOpen, setDetailOpen] = useState(false);
 
     const fetchVehicles = async () => {
-        const { data } = await axios.get('/api/vehicles');
+        const { data } = await apiClient.get('/api/vehicles');
         setVehicles(data);
     };
 
@@ -32,7 +32,7 @@ const Inventory = () => {
 
             if (urls.length === 0) return;
 
-            const { data } = await axios.post('/api/vehicles/scrape-bulk', { urls });
+            const { data } = await apiClient.post('/api/vehicles/scrape-bulk', { urls });
 
             if (data.failed > 0) {
                 const errors = data.items.filter(i => i.status === 'failed').map(i => i.url + ': ' + i.error).join('\n');

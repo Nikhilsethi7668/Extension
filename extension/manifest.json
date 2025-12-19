@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "Shifty Auto Lister",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "Scrape vehicle data and auto-post to Facebook Marketplace",
     "permissions": [
         "storage",
@@ -21,6 +21,7 @@
         "https://www.facebook.com/*",
         "https://marketplace.facebook.com/*",
         "https://autobridge-backend.dchatpar.workers.dev/*",
+        "http://localhost:5001/*",
         "http://localhost:5001/*"
     ],
     "action": {

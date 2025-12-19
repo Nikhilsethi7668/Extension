@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Box, TextField, Button, Typography, Paper, Container, Alert, Stepper, Step, StepLabel } from '@mui/material';
-import axios from 'axios';
+import apiClient from '../config/axios';
 import { useNavigate } from 'react-router-dom';
 
 const Setup = () => {
@@ -16,7 +16,7 @@ const Setup = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
-            await axios.post('/api/auth/setup', formData);
+            await apiClient.post('/api/auth/setup', formData);
             navigate('/login');
         } catch (err) {
             setError(err.response?.data?.message || 'Setup failed');

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Grid, Card, CardContent, Typography, LinearProgress } from '@mui/material';
-import axios from 'axios';
+import apiClient from '../config/axios';
 import Layout from '../components/Layout';
 
 const Dashboard = () => {

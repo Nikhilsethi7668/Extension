@@ -2,9 +2,8 @@
 const API_CONFIG = {
   baseUrl: 'http://localhost:5001/api',
   endpoints: {
-    login: '/auth/login',
-    logout: '/auth/logout',
-    validateSession: '/auth/validate',
+    agentLogin: '/auth/agent-login',
+    validateKey: '/auth/validate-key',
     logActivity: '/logs/activity',
     editImage: '/images/edit',
     generateDescription: '/openai/generate-description'
@@ -50,53 +49,51 @@ async function loadUserSession() {
   }
 }
 
-// Login function
+// Login function - Token-based for agents
 async function login() {
-  const userId = document.getElementById('userId').value.trim();
-  const password = document.getElementById('password').value.trim();
+  const apiToken = document.getElementById('apiToken').value.trim();
+  const loginBtn = document.getElementById('loginBtn');
 
-  if (!userId || !password) {
-    showNotification('Please enter both User ID and Password', 'error');
+  if (!apiToken) {
+    showNotification('Please enter your API token', 'error');
     return;
   }
 
-  // DEMO MODE
-  if (userId === 'demo' && password === 'demo') {
-    currentUser = {
-      userId: 'demo',
-      token: 'demo-token',
-      role: 'user'
-    };
-    await chrome.storage.local.set({ userSession: currentUser });
-    showMainControls();
-    showNotification('Demo mode activated!', 'success');
-    return;
-  }
+  // Show loading state
+  loginBtn.classList.add('loading');
+  loginBtn.disabled = true;
 
   try {
-    const response = await fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.login, {
+    const response = await fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.agentLogin, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId, password })
+      body: JSON.stringify({ token: apiToken })
     });
 
     const data = await response.json();
 
     if (response.ok && data.token) {
       currentUser = {
-        userId: data.userId || userId,
-        token: data.token,
-        role: data.role || 'user'
+        _id: data._id,
+        name: data.name,
+        email: data.email,
+        role: data.role,
+        apiKey: apiToken, // Store the API key
+        token: data.token, // Store the JWT token
+        organization: data.organization
       };
       await chrome.storage.local.set({ userSession: currentUser });
       showMainControls();
-      showNotification('Logged in!', 'success');
+      showNotification('Logged in successfully!', 'success');
     } else {
       showNotification(data.message || 'Login failed', 'error');
     }
   } catch (error) {
     console.error('Login error:', error);
-    showNotification('Backend unavailable. Try demo/demo', 'error');
+    showNotification('Failed to connect to backend. Please check your connection.', 'error');
+  } finally {
+    loginBtn.classList.remove('loading');
+    loginBtn.disabled = false;
   }
 }
 
@@ -105,25 +102,39 @@ async function logout() {
   currentUser = null;
   await chrome.storage.local.remove('userSession');
   showLoginSection();
-  document.getElementById('userId').value = '';
-  document.getElementById('password').value = '';
+  document.getElementById('apiToken').value = '';
   showNotification('Logged out', 'success');
 }
 
-// Validate session
+// Validate session using API key
 async function validateSession(session) {
   try {
-    if (!session || !session.token) return false;
-    const response = await fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.validateSession, {
-      method: 'POST',
+    if (!session || !session.apiKey) return false;
+    
+    // Use the validate-key endpoint with API key in header
+    const response = await fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.validateKey, {
+      method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.token}`
+        'x-api-key': session.apiKey
       }
     });
-    const data = await response.json();
-    return response.ok && data.success === true;
+    
+    if (response.ok) {
+      const data = await response.json();
+      // Update user info if needed
+      if (data._id) {
+        currentUser = {
+          ...session,
+          ...data
+        };
+        await chrome.storage.local.set({ userSession: currentUser });
+      }
+      return true;
+    }
+    return false;
   } catch (error) {
+    console.error('Session validation error:', error);
     return false;
   }
 }
@@ -142,21 +153,52 @@ function showMainControls() {
 
 function updateStatusText() {
   if (currentUser) {
-    document.getElementById('statusText').textContent = `Logged in as: ${currentUser.userId}`;
+    document.getElementById('statusText').textContent = `Logged in as: ${currentUser.name || currentUser.email}`;
   }
 }
 
-function showNotification(message, type) {
+function showNotification(message, type = 'info') {
   console.log(`[${type.toUpperCase()}] ${message}`);
-  // Could add toast notifications here
+  
+  // Create toast notification
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  
+  // Add to body or create notification container
+  let container = document.getElementById('notification-host');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'notification-host';
+    document.body.appendChild(container);
+  }
+  
+  container.appendChild(toast);
+  
+  // Remove after 3 seconds
+  setTimeout(() => {
+    toast.style.animation = 'slideIn 0.3s ease-out reverse';
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
+  
+  // Also show Chrome notification for important messages
+  if (type === 'error' || type === 'success') {
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: chrome.runtime.getURL('icons/icon128.png') || '',
+      title: 'Shifty Auto Lister',
+      message: message
+    }).catch(() => {
+      // Ignore if notifications permission not granted
+    });
+  }
 }
 
 // Event listeners
 function attachEventListeners() {
   const loginBtn = document.getElementById('loginBtn');
   const logoutBtn = document.getElementById('logoutBtn');
-  const userIdInput = document.getElementById('userId');
-  const passwordInput = document.getElementById('password');
+  const apiTokenInput = document.getElementById('apiToken');
   const testConnectionBtn = document.getElementById('testConnectionBtn');
 
   if (loginBtn) {
@@ -172,11 +214,8 @@ function attachEventListeners() {
   }
 
   // Enter key to login
-  if (userIdInput && passwordInput) {
-    userIdInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') login();
-    });
-    passwordInput.addEventListener('keypress', (e) => {
+  if (apiTokenInput) {
+    apiTokenInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') login();
     });
   }
@@ -210,8 +249,12 @@ function attachEventListeners() {
 // Test backend connection
 async function testConnection() {
   const statusDiv = document.getElementById('connectionStatus');
+  const testBtn = document.getElementById('testConnectionBtn');
+  
+  statusDiv.className = 'info';
   statusDiv.innerHTML = '⏳ Testing connection...';
-  statusDiv.style.color = '#666';
+  testBtn.disabled = true;
+  testBtn.classList.add('loading');
 
   try {
     const response = await fetch(API_CONFIG.baseUrl + '/health', {
@@ -222,17 +265,20 @@ async function testConnection() {
     const data = await response.json();
 
     if (response.ok && data.status === 'ok') {
+      statusDiv.className = 'success';
       statusDiv.innerHTML = '✅ Backend connected successfully!';
-      statusDiv.style.color = '#28a745';
       showNotification('Backend connection successful', 'success');
     } else {
+      statusDiv.className = 'warning';
       statusDiv.innerHTML = '⚠️ Backend responded but status unclear';
-      statusDiv.style.color = '#ffc107';
     }
   } catch (error) {
-    statusDiv.innerHTML = '❌ Cannot connect to backend';
-    statusDiv.style.color = '#dc3545';
-    showNotification('Backend connection failed. Make sure server is running on http://localhost:5001', 'error');
+    statusDiv.className = 'error';
+    statusDiv.innerHTML = '❌ Cannot connect to backend. Make sure server is running on http://localhost:5001';
+    showNotification('Backend connection failed', 'error');
+  } finally {
+    testBtn.disabled = false;
+    testBtn.classList.remove('loading');
   }
 }
 
@@ -457,7 +503,6 @@ async function editSingleImage(index) {
         'Authorization': `Bearer ${currentUser.token}`
       },
       body: JSON.stringify({
-        userId: currentUser.userId,
         imageUrl: imageUrl,
         prompt: prompt,
         resolution: '4K',
@@ -832,7 +877,7 @@ async function logActivity(action, details) {
     let payload;
     if (typeof BrowserMetadata !== 'undefined') {
       payload = await BrowserMetadata.createLoggingPayload(
-        currentUser?.userId || 'anonymous',
+        currentUser?._id || currentUser?.email || 'anonymous',
         action,
         scrapedData || {},
         {
@@ -845,7 +890,7 @@ async function logActivity(action, details) {
     } else {
       // Fallback if utility not loaded
       payload = {
-        userId: currentUser?.userId || 'anonymous',
+        userId: currentUser?._id || currentUser?.email || 'anonymous',
         action,
         details,
         timestamp: new Date().toISOString(),
@@ -853,13 +898,21 @@ async function logActivity(action, details) {
       };
     }
 
-    // Send to backend
+    // Send to backend using API key
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    
+    // Use API key if available, otherwise use JWT token
+    if (currentUser?.apiKey) {
+      headers['x-api-key'] = currentUser.apiKey;
+    } else if (currentUser?.token) {
+      headers['Authorization'] = `Bearer ${currentUser.token}`;
+    }
+
     const response = await fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.logActivity, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': currentUser ? `Bearer ${currentUser.token}` : ''
-      },
+      headers: headers,
       body: JSON.stringify(payload)
     });
 
@@ -930,18 +983,7 @@ async function updateActivityLog() {
 }
 
 // ============ Notification System ============
-
-function showNotification(message, type = 'info') {
-  chrome.notifications.create({
-    type: 'basic',
-    iconUrl: '../icons/icon128.png',
-    title: 'Vehicle Auto-Lister',
-    message: message
-  });
-
-  // Also log to console
-  console.log(`[${type.toUpperCase()}] ${message}`);
-}
+// Note: showNotification is already defined above with toast UI
 
 // ============ Event Listeners ============
 
@@ -972,9 +1014,12 @@ function attachEventListeners() {
   });
 
   // Enter key for login
-  document.getElementById('password').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') login();
-  });
+  const apiTokenInput = document.getElementById('apiToken');
+  if (apiTokenInput) {
+    apiTokenInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') login();
+    });
+  }
 }
 
 // ============ Utility Functions ============
