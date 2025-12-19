@@ -1,7 +1,7 @@
 // service-worker.js - Background Service Worker
 console.log('Service Worker Loaded');
 
-const BACKEND_URL = 'https://autobridge-backend.dchatpar.workers.dev/api';
+const BACKEND_URL = 'http://localhost:5001/api';
 
 // Enable side panel behavior: open side panel when the extension icon is clicked
 chrome.sidePanel

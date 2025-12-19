@@ -10,7 +10,9 @@
         "tabs",
         "cookies",
         "notifications",
-        "sidePanel"
+        "sidePanel",
+        "contextMenus",
+        "alarms"
     ],
     "host_permissions": [
         "https://www.autotrader.com/*",
@@ -18,7 +20,8 @@
         "https://www.cargurus.com/*",
         "https://www.facebook.com/*",
         "https://marketplace.facebook.com/*",
-        "https://autobridge-backend.dchatpar.workers.dev/*"
+        "https://autobridge-backend.dchatpar.workers.dev/*",
+        "http://localhost:5001/*"
     ],
     "action": {
         "default_title": "Shifty Auto Lister"

@@ -1,16 +1,21 @@
 // popup.js - Main popup controller
 const API_CONFIG = {
-  baseUrl: 'http://localhost:3001/api',
+  baseUrl: 'http://localhost:5001/api',
   endpoints: {
     login: '/auth/login',
     logout: '/auth/logout',
     validateSession: '/auth/validate',
-    logActivity: '/logs/activity'
+    logActivity: '/logs/activity',
+    editImage: '/images/edit',
+    generateDescription: '/openai/generate-description'
   }
 };
 
 let currentUser = null;
 let sessionId = generateSessionId();
+let scrapedData = null;
+let postingQueue = [];
+let imageEditQueue = {};
 
 function generateSessionId() {
   return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -227,9 +232,80 @@ async function testConnection() {
   } catch (error) {
     statusDiv.innerHTML = '❌ Cannot connect to backend';
     statusDiv.style.color = '#dc3545';
-    showNotification('Backend connection failed. Make sure server is running on http://localhost:3001', 'error');
+    showNotification('Backend connection failed. Make sure server is running on http://localhost:5001', 'error');
   }
 }
+
+// Scrape current page
+async function scrapeCurrentPage() {
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+    if (!tab) {
+      showNotification('No active tab found', 'error');
+      return;
+    }
+
+    let scraperType = null;
+    if (tab.url.includes('autotrader.com')) scraperType = 'autotrader';
+    else if (tab.url.includes('cars.com')) scraperType = 'cars';
+    else if (tab.url.includes('cargurus.com')) scraperType = 'cargurus';
+    else {
+      showNotification('Not a supported vehicle site (Autotrader, Cars.com, CarGurus)', 'error');
+      return;
+    }
+
+    showNotification(`Scraping from ${scraperType}...`, 'info');
+    document.getElementById('vehiclePreview').style.display = 'none';
+
+    // Inject scraper if needed (usually handled by manifest, but safe to try)
+    // Send message to content script
+    try {
+      const response = await chrome.tabs.sendMessage(tab.id, {
+        action: 'scrape',
+        scraper: scraperType
+      });
+
+      if (response && response.success) {
+        scrapedData = response.data;
+        displayScrapedData(scrapedData);
+        showNotification('Vehicle scraped successfully!', 'success');
+
+        // Notify background to save state if needed
+        chrome.runtime.sendMessage({
+          action: 'scrape_complete',
+          data: scrapedData
+        });
+      } else {
+        throw new Error(response?.error || 'Unknown scraping error');
+      }
+    } catch (msgError) {
+      console.error('Message error:', msgError);
+
+      // If message fails, script might not be loaded. Try injecting.
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: [`content/scrapers/${scraperType}-scraper.js`]
+      });
+
+      // Retry message
+      setTimeout(async () => {
+        const retryResponse = await chrome.tabs.sendMessage(tab.id, {
+          action: 'scrape',
+          scraper: scraperType
+        });
+
+        if (retryResponse && retryResponse.success) {
+          scrapedData = retryResponse.data;
+          displayScrapedData(scrapedData);
+          showNotification('Vehicle scraped successfully!', 'success');
+        } else {
+          showNotification('Failed to scrape page. Refresh and try again.', 'error');
+        }
+      }, 500);
+    }
+
+  } catch (error) {
     console.error('Scraping error:', error);
     showNotification('Error scraping data: ' + error.message, 'error');
   }
@@ -238,18 +314,18 @@ async function testConnection() {
 function displayScrapedData(data) {
   const preview = document.getElementById('vehiclePreview');
   preview.style.display = 'block';
-  
+
   document.getElementById('previewYear').textContent = data.year || '-';
   document.getElementById('previewMake').textContent = data.make || '-';
   document.getElementById('previewModel').textContent = data.model || '-';
   document.getElementById('previewPrice').textContent = data.price || '-';
   document.getElementById('previewMileage').textContent = data.mileage || '-';
   document.getElementById('previewVin').textContent = data.vin || '-';
-  
+
   // Display images
   const gallery = document.getElementById('imageGallery');
   gallery.innerHTML = '';
-  
+
   if (data.images && data.images.length > 0) {
     data.images.forEach((imgUrl, index) => {
       const img = document.createElement('img');
@@ -258,7 +334,7 @@ function displayScrapedData(data) {
       img.title = 'Click to view full size';
       gallery.appendChild(img);
     });
-    
+
     // Show image editing interface
     showImageEditingInterface(data.images);
   }
@@ -269,16 +345,16 @@ function displayScrapedData(data) {
 function showImageEditingInterface(images) {
   const container = document.getElementById('imageEditingContainer');
   const editList = document.getElementById('imageEditList');
-  
+
   container.style.display = 'block';
   editList.innerHTML = '';
   imageEditQueue = {};
-  
+
   images.forEach((imageUrl, index) => {
     const editItem = createImageEditItem(imageUrl, index);
     editList.appendChild(editItem);
   });
-  
+
   // Enable batch edit button
   document.getElementById('batchEditBtn').disabled = false;
 }
@@ -287,7 +363,7 @@ function createImageEditItem(imageUrl, index) {
   const div = document.createElement('div');
   div.className = 'image-edit-item';
   div.id = `image-edit-${index}`;
-  
+
   div.innerHTML = `
     <div class="image-preview-container">
       <div class="image-preview-box">
@@ -327,7 +403,7 @@ function createImageEditItem(imageUrl, index) {
       <div class="edit-status" id="status-${index}" style="display: none;"></div>
     </div>
   `;
-  
+
   // Attach event listeners
   const suggestions = div.querySelectorAll('.suggestion-chip');
   suggestions.forEach(chip => {
@@ -336,13 +412,13 @@ function createImageEditItem(imageUrl, index) {
       div.querySelector(`#prompt-${index}`).value = prompt;
     });
   });
-  
+
   const editBtn = div.querySelector('.btn-edit-image');
   editBtn.addEventListener('click', () => editSingleImage(index));
-  
+
   const clearBtn = div.querySelector('.btn-clear-edit');
   clearBtn.addEventListener('click', () => clearImageEdit(index));
-  
+
   return div;
 }
 
@@ -351,20 +427,20 @@ async function editSingleImage(index) {
     showNotification('Image not found', 'error');
     return;
   }
-  
+
   const imageUrl = scrapedData.images[index];
   const promptInput = document.getElementById(`prompt-${index}`);
   const prompt = promptInput.value.trim();
-  
+
   if (!prompt) {
     showNotification('Please enter editing instructions', 'error');
     return;
   }
-  
+
   const statusDiv = document.getElementById(`status-${index}`);
   const editBtn = document.querySelector(`.btn-edit-image[data-index="${index}"]`);
   const editItem = document.getElementById(`image-edit-${index}`);
-  
+
   try {
     // Update UI to show processing
     editItem.classList.add('editing');
@@ -372,7 +448,7 @@ async function editSingleImage(index) {
     statusDiv.className = 'edit-status processing';
     statusDiv.innerHTML = '<span class="editing-spinner"></span> Processing with AI...';
     editBtn.disabled = true;
-    
+
     // Call image editing API
     const response = await fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.editImage, {
       method: 'POST',
@@ -388,9 +464,9 @@ async function editSingleImage(index) {
         format: 'jpeg'
       })
     });
-    
+
     const data = await response.json();
-    
+
     if (response.ok && data.success) {
       // Store edited image
       imageEditQueue[index] = {
@@ -399,44 +475,44 @@ async function editSingleImage(index) {
         prompt: prompt,
         timestamp: new Date().toISOString()
       };
-      
+
       // Update UI with edited image
       const editedPreview = document.getElementById(`edited-preview-${index}`);
       editedPreview.style.display = 'block';
       editedPreview.querySelector('img').src = data.editedImageUrl;
-      
+
       editItem.classList.remove('editing');
       editItem.classList.add('edited');
-      
+
       statusDiv.className = 'edit-status success';
       statusDiv.textContent = '✓ Image edited successfully!';
-      
+
       // Show clear button
       document.querySelector(`.btn-clear-edit[data-index="${index}"]`).style.display = 'block';
-      
+
       // Enable clear edits button
       document.getElementById('clearEditsBtn').disabled = false;
-      
+
       showNotification('Image edited successfully!', 'success');
-      
+
       // Log activity
       await logActivity('image_edited', {
         imageIndex: index,
         prompt: prompt,
         success: true
       });
-      
+
     } else {
       throw new Error(data.message || 'Image editing failed');
     }
-    
+
   } catch (error) {
     console.error('Image editing error:', error);
-    
+
     editItem.classList.remove('editing');
     statusDiv.className = 'edit-status error';
     statusDiv.textContent = '✗ Error: ' + error.message;
-    
+
     showNotification('Image editing failed: ' + error.message, 'error');
   } finally {
     editBtn.disabled = false;
@@ -446,24 +522,24 @@ async function editSingleImage(index) {
 function clearImageEdit(index) {
   if (imageEditQueue[index]) {
     delete imageEditQueue[index];
-    
+
     const editItem = document.getElementById(`image-edit-${index}`);
     editItem.classList.remove('edited');
-    
+
     const editedPreview = document.getElementById(`edited-preview-${index}`);
     editedPreview.style.display = 'none';
-    
+
     const statusDiv = document.getElementById(`status-${index}`);
     statusDiv.style.display = 'none';
-    
+
     document.querySelector(`.btn-clear-edit[data-index="${index}"]`).style.display = 'none';
     document.getElementById(`prompt-${index}`).value = '';
-    
+
     // Disable clear all if no edits left
     if (Object.keys(imageEditQueue).length === 0) {
       document.getElementById('clearEditsBtn').disabled = true;
     }
-    
+
     showNotification('Edit cleared', 'info');
   }
 }
@@ -473,7 +549,7 @@ async function batchEditImages() {
     showNotification('No images to edit', 'error');
     return;
   }
-  
+
   // Collect all prompts
   const editJobs = [];
   scrapedData.images.forEach((imageUrl, index) => {
@@ -482,30 +558,30 @@ async function batchEditImages() {
       editJobs.push({ index, imageUrl, prompt });
     }
   });
-  
+
   if (editJobs.length === 0) {
     showNotification('Please enter editing instructions for at least one image', 'error');
     return;
   }
-  
+
   if (!confirm(`Edit ${editJobs.length} images with AI? This may take a few minutes.`)) {
     return;
   }
-  
+
   const batchBtn = document.getElementById('batchEditBtn');
   batchBtn.disabled = true;
   batchBtn.innerHTML = '<span class="editing-spinner"></span> Processing...';
-  
+
   // Process each image
   for (const job of editJobs) {
     await editSingleImage(job.index);
     // Small delay between edits
     await sleep(500);
   }
-  
+
   batchBtn.disabled = false;
   batchBtn.innerHTML = '<span class="btn-icon">✨</span> AI Edit All Images';
-  
+
   showNotification(`Batch editing complete! ${editJobs.length} images processed.`, 'success');
 }
 
@@ -513,14 +589,14 @@ function clearAllEdits() {
   if (!confirm('Clear all image edits?')) {
     return;
   }
-  
+
   Object.keys(imageEditQueue).forEach(index => {
     clearImageEdit(parseInt(index));
   });
-  
+
   imageEditQueue = {};
   document.getElementById('clearEditsBtn').disabled = true;
-  
+
   showNotification('All edits cleared', 'info');
 }
 
@@ -538,7 +614,7 @@ async function generateDescription() {
 
   try {
     showNotification('Generating AI description...', 'info');
-    
+
     const response = await fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.generateDescription, {
       method: 'POST',
       headers: {
@@ -556,7 +632,7 @@ async function generateDescription() {
     });
 
     const data = await response.json();
-    
+
     if (response.ok && data.success) {
       document.getElementById('generatedDesc').value = data.description;
       showNotification('Description generated successfully!', 'success');
@@ -596,7 +672,7 @@ async function addToQueue() {
   await saveQueue();
   updateQueueDisplay();
   showNotification('Added to queue', 'success');
-  
+
   // Clear current data
   scrapedData = null;
   document.getElementById('vehiclePreview').style.display = 'none';
@@ -619,18 +695,18 @@ async function loadQueue() {
 function updateQueueDisplay() {
   const queueList = document.getElementById('queueList');
   const queueCount = document.getElementById('queueCount');
-  
+
   queueCount.textContent = postingQueue.length;
   queueList.innerHTML = '';
-  
+
   if (postingQueue.length === 0) {
     queueList.innerHTML = '<p style="text-align: center; color: #999; padding: 20px;">Queue is empty</p>';
     document.getElementById('postAllBtn').disabled = true;
     return;
   }
-  
+
   document.getElementById('postAllBtn').disabled = false;
-  
+
   postingQueue.forEach((item, index) => {
     const div = document.createElement('div');
     div.className = 'queue-item';
@@ -643,7 +719,7 @@ function updateQueueDisplay() {
     `;
     queueList.appendChild(div);
   });
-  
+
   // Attach remove handlers
   document.querySelectorAll('.queue-item-remove').forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -673,7 +749,7 @@ async function clearQueue() {
 
 async function postToFacebook(vehicleData = null) {
   const dataToPost = vehicleData || scrapedData;
-  
+
   if (!dataToPost) {
     showNotification('No vehicle data to post', 'error');
     return;
@@ -681,9 +757,9 @@ async function postToFacebook(vehicleData = null) {
 
   try {
     showNotification('Opening Facebook Marketplace...', 'info');
-    
+
     // Store data for the Facebook autofill script
-    await chrome.storage.local.set({ 
+    await chrome.storage.local.set({
       pendingPost: {
         ...dataToPost,
         description: document.getElementById('generatedDesc').value,
@@ -696,19 +772,19 @@ async function postToFacebook(vehicleData = null) {
         }
       }
     });
-    
+
     // Open Facebook Marketplace create listing page
     const marketplaceUrl = 'https://www.facebook.com/marketplace/create/vehicle';
     await chrome.tabs.create({ url: marketplaceUrl });
-    
+
     showNotification('Navigate through the form. Auto-fill will activate automatically.', 'success');
-    
+
     // Log posting activity
     await logActivity('post_initiated', {
       vin: dataToPost.vin,
       vehicle: `${dataToPost.year} ${dataToPost.make} ${dataToPost.model}`
     });
-    
+
   } catch (error) {
     console.error('Posting error:', error);
     showNotification('Error initiating post: ' + error.message, 'error');
@@ -726,7 +802,7 @@ async function postAllInQueue() {
   }
 
   showNotification(`Starting batch post of ${postingQueue.length} vehicles...`, 'info');
-  
+
   // Post first item and set up sequential posting
   for (let i = 0; i < postingQueue.length; i++) {
     await postToFacebook(postingQueue[i]);
@@ -735,7 +811,7 @@ async function postAllInQueue() {
       await new Promise(resolve => setTimeout(resolve, 3000));
     }
   }
-  
+
   // Clear queue after posting
   await clearQueue();
 }
@@ -748,10 +824,10 @@ async function logActivity(action, details) {
     const script = document.createElement('script');
     script.src = '../utils/browser-metadata.js';
     document.head.appendChild(script);
-    
+
     // Wait for script to load
     await sleep(100);
-    
+
     // Create comprehensive logging payload
     let payload;
     if (typeof BrowserMetadata !== 'undefined') {
@@ -776,7 +852,7 @@ async function logActivity(action, details) {
         sessionId: sessionId
       };
     }
-    
+
     // Send to backend
     const response = await fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.logActivity, {
       method: 'POST',
@@ -786,14 +862,14 @@ async function logActivity(action, details) {
       },
       body: JSON.stringify(payload)
     });
-    
+
     if (!response.ok) {
       // Store offline if network fails
       if (typeof BrowserMetadata !== 'undefined') {
         await BrowserMetadata.storeOffline(payload);
       }
     }
-    
+
     // Update local activity log
     await addActivityLogEntry(payload);
   } catch (error) {
@@ -833,15 +909,15 @@ async function addActivityLogEntry(entry) {
   const activityLog = document.getElementById('activityLog');
   const logDiv = document.createElement('div');
   logDiv.className = 'log-entry';
-  
+
   const time = new Date(entry.timestamp).toLocaleString();
   logDiv.innerHTML = `
     <div class="log-time">${time}</div>
     <div class="log-message">${entry.action}: ${JSON.stringify(entry.details)}</div>
   `;
-  
+
   activityLog.insertBefore(logDiv, activityLog.firstChild);
-  
+
   // Keep only last 10 entries
   while (activityLog.children.length > 10) {
     activityLog.removeChild(activityLog.lastChild);
@@ -862,7 +938,7 @@ function showNotification(message, type = 'info') {
     title: 'Vehicle Auto-Lister',
     message: message
   });
-  
+
   // Also log to console
   console.log(`[${type.toUpperCase()}] ${message}`);
 }
@@ -873,28 +949,28 @@ function attachEventListeners() {
   // Authentication
   document.getElementById('loginBtn').addEventListener('click', login);
   document.getElementById('logoutBtn').addEventListener('click', logout);
-  
+
   // Scraping
   document.getElementById('scrapeBtn').addEventListener('click', scrapeCurrentPage);
-  
+
   // AI Description
   document.getElementById('generateDescBtn').addEventListener('click', generateDescription);
-  
+
   // Queue Management
   document.getElementById('addToQueueBtn').addEventListener('click', addToQueue);
   document.getElementById('clearQueueBtn').addEventListener('click', clearQueue);
   document.getElementById('postAllBtn').addEventListener('click', postAllInQueue);
-  
+
   // Posting
   document.getElementById('postNowBtn').addEventListener('click', () => postToFacebook());
-  
+
   // Image editing
   document.getElementById('batchEditBtn').addEventListener('click', batchEditImages);
   document.getElementById('clearEditsBtn').addEventListener('click', clearAllEdits);
   document.getElementById('cropResizeBtn').addEventListener('click', () => {
     showNotification('Image crop/resize feature coming soon!', 'info');
   });
-  
+
   // Enter key for login
   document.getElementById('password').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') login();
@@ -920,14 +996,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       listingUrl: request.listingUrl,
       vin: request.vin
     });
-    
+
     if (request.success) {
       showNotification('Vehicle posted successfully!', 'success');
     } else {
       showNotification('Posting failed: ' + request.error, 'error');
     }
   }
-  
+
   if (request.action === 'updateProgress') {
     showNotification(request.message, 'info');
   }
