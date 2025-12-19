@@ -5,84 +5,146 @@ export const scrapeVehicle = async (url) => {
     try {
         const { data } = await axios.get(url, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.5'
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Cache-Control': 'max-age=0'
             }
         });
 
         const $ = cheerio.load(data);
         const domain = new URL(url).hostname;
 
+        // --- Search Page Detection & URL Extraction (for full image galleries) ---
+        if (url.includes('all-cars') || url.includes('cars-for-sale/searchresults')) {
+            const vehicleUrls = [];
+
+            const nextDataScript = $('#__NEXT_DATA__').html();
+            if (nextDataScript) {
+                try {
+                    const json = JSON.parse(nextDataScript);
+                    const eggsState = json.props?.pageProps?.__eggsState;
+
+                    if (eggsState?.inventory) {
+                        Object.values(eggsState.inventory).forEach(v => {
+                            if (v.id) {
+                                vehicleUrls.push(`https://www.autotrader.com/cars-for-sale/vehicle/${v.id}`);
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.error('Error parsing search page JSON:', e);
+                }
+            }
+
+            if (vehicleUrls.length > 0) {
+                return { type: 'expanded_search', urls: [...new Set(vehicleUrls)] };
+            } else {
+                throw new Error('Could not extract vehicle URLs');
+            }
+        }
+
+        // --- Regular Single Vehicle Scraping with Full Images ---
         const vehicle = {
             sourceUrl: url,
             images: [],
+            features: []
         };
 
         // Helper to clean price
         const cleanPrice = (text) => {
             if (!text) return null;
-            return parseInt(text.replace(/[^0-9]/g, ''));
+            if (typeof text === 'number') return text;
+            return parseInt(text.toString().replace(/[^0-9]/g, ''));
         };
 
-        if (domain.includes('autotrader.com')) {
-            // Autotrader Strategies
-            vehicle.year = parseInt($('[data-cmp="heading"]').text().match(/\d{4}/)?.[0]) ||
-                parseInt($('h1').text().match(/\d{4}/)?.[0]);
-            vehicle.make = $('meta[name="make"]').attr('content'); // Often in meta
-            vehicle.model = $('meta[name="model"]').attr('content');
-            vehicle.price = cleanPrice($('[data-cmp="pricing"]').text()) || cleanPrice($('.first-price').text());
-            vehicle.mileage = cleanPrice($('[data-cmp="mileage"]').text());
+        // Strategy: Next.js Data Parsing
+        const nextDataScript = $('#__NEXT_DATA__').html();
+        if (nextDataScript) {
+            try {
+                const json = JSON.parse(nextDataScript);
+                const props = json.props?.pageProps;
+                const eggsState = props?.__eggsState;
 
-            const extractedVin = $('span:contains("VIN")').next().text().trim();
-            vehicle.vin = extractedVin || undefined; // Use undefined to skip uniqueness check if missing
+                // Extract vehicle ID from URL
+                const vehicleIdMatch = url.match(/\/vehicle\/(\d+)/);
+                const vehicleId = vehicleIdMatch ? vehicleIdMatch[1] : null;
 
-            // Images (often in a JSON object in script tags for SPAs)
-            // Fallback to og:image
-            const ogImage = $('meta[property="og:image"]').attr('content');
-            if (ogImage) vehicle.images.push(ogImage);
+                // Check inventory for vehicle data
+                if (vehicleId && eggsState?.inventory?.[vehicleId]) {
+                    const v = eggsState.inventory[vehicleId];
 
-        } else if (domain.includes('cars.com')) {
-            // Cars.com Strategies
-            vehicle.title = $('h1.listing-title').text().trim();
-            if (vehicle.title) {
-                const parts = vehicle.title.split(' ');
-                vehicle.year = parseInt(parts[0]);
-                vehicle.make = parts[1];
-                vehicle.model = parts.slice(2).join(' '); // Rough approx
-            }
-            vehicle.price = cleanPrice($('.primary-price').text());
-            vehicle.mileage = cleanPrice($('.listing-mileage').text());
+                    if (v.year) vehicle.year = parseInt(v.year);
+                    if (v.make) vehicle.make = typeof v.make === 'object' ? v.make.name : v.make;
+                    if (v.model) vehicle.model = typeof v.model === 'object' ? v.model.name : v.model;
+                    if (v.trim) vehicle.trim = typeof v.trim === 'object' ? v.trim.name : v.trim;
+                    if (v.vin) vehicle.vin = v.vin;
 
-            // Images
-            $('img.swipe-main-image').each((i, el) => {
-                const src = $(el).attr('src');
-                if (src) vehicle.images.push(src);
-            });
-        } else {
-            // Generic Fallback (Meta Tags)
-            vehicle.year = parseInt($('meta[property="og:title"]').attr('content')?.match(/\d{4}/)?.[0]);
-            const title = $('meta[property="og:title"]').attr('content') || $('title').text();
-            vehicle.description = $('meta[property="og:description"]').attr('content');
-            vehicle.price = cleanPrice($('meta[property="product:price:amount"]').attr('content'));
+                    // Price
+                    if (v.pricingDetail?.salePrice) {
+                        vehicle.price = v.pricingDetail.salePrice;
+                    } else if (v.pricingHistory && v.pricingHistory.length > 0) {
+                        vehicle.price = cleanPrice(v.pricingHistory[0].price);
+                    }
 
-            if ($('meta[property="og:image"]').attr('content')) {
-                vehicle.images.push($('meta[property="og:image"]').attr('content'));
+                    // Mileage - handle object or direct value
+                    let mileageValue = null;
+                    if (v.mileage) {
+                        if (typeof v.mileage === 'object' && v.mileage.value) {
+                            mileageValue = cleanPrice(v.mileage.value);
+                        } else {
+                            mileageValue = cleanPrice(v.mileage);
+                        }
+                    } else if (v.odometer) {
+                        mileageValue = cleanPrice(v.odometer);
+                    }
+
+                    if (mileageValue && !isNaN(mileageValue)) {
+                        vehicle.mileage = mileageValue;
+                    }
+
+
+                    // Description - fullDescription has complete text
+                    if (v.fullDescription) {
+                        vehicle.description = v.fullDescription
+                            .replace(/<br\s*\/?>/gi, '\n')
+                            .replace(/<[^>]+>/g, '')
+                            .replace(/&amp;/g, '&')
+                            .replace(/&lt;/g, '<')
+                            .replace(/&gt;/g, '>')
+                            .replace(/&quot;/g, '"')
+                            .trim();
+                    } else if (v.description) {
+                        let desc = typeof v.description === 'object' ? v.description.label : v.description;
+                        if (desc) {
+                            vehicle.description = desc.replace(/<br\s*\/?>/gi, '\n')
+                                .replace(/<[^>]+>/g, '')
+                                .replace(/&amp;/g, '&')
+                                .trim();
+                        }
+                    }
+                }
+
+                // Images from pageProps.images (FULL GALLERY - 30-40 images)
+                if (props?.images?.sources) {
+                    props.images.sources.forEach(img => {
+                        if (img.src) vehicle.images.push(img.src);
+                    });
+                }
+
+            } catch (e) {
+                console.error('Error parsing Next.js data:', e);
             }
         }
 
-        // Final Validation - Ensure we actually got a vehicle
-        if ((!vehicle.year && !vehicle.price) || (!vehicle.make && !vehicle.title)) {
-            throw new Error("Could not detect vehicle details. Please ensure the URL is a specific vehicle listing page, not a search result or homepage.");
+        // Return vehicle data
+        if (!vehicle.make || !vehicle.model) {
+            throw new Error('Could not extract vehicle make/model');
         }
-
-        if (vehicle.vin === '') vehicle.vin = undefined; // Global safety for Unique Index
-        if (!vehicle.year) vehicle.year = new Date().getFullYear();
-        if (!vehicle.description) vehicle.description = "Please contact for more details.";
 
         return vehicle;
+
     } catch (error) {
-        console.error(`Scraping error for ${url}:`, error.message);
-        throw new Error(`Failed to scrape: ${error.message}`);
+        throw new Error(`Scraping failed: ${error.message}`);
     }
 };

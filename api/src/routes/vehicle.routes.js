@@ -10,6 +10,7 @@ const router = express.Router();
 // @route   GET /api/vehicles
 // @access  Protected
 router.get('/', protect, async (req, res) => {
+    const { status, minPrice, maxPrice, search, repostEligible, days } = req.query;
     const query = { organization: req.user.organization._id };
 
     // Agents only see vehicles assigned to them
@@ -17,7 +18,45 @@ router.get('/', protect, async (req, res) => {
         query.assignedUser = req.user._id;
     }
 
-    const vehicles = await Vehicle.find(query).sort('-createdAt');
+    // Filter by Status
+    if (status) query.status = status;
+
+    // Filter by Price Range
+    if (minPrice || maxPrice) {
+        query.price = {};
+        if (minPrice) query.price.$gte = Number(minPrice);
+        if (maxPrice) query.price.$lte = Number(maxPrice);
+    }
+
+    // Search (Keyword)
+    if (search) {
+        const searchRegex = { $regex: search, $options: 'i' };
+        query.$or = [
+            { make: searchRegex },
+            { model: searchRegex },
+            { vin: searchRegex },
+            { 'aiContent.title': searchRegex }
+        ];
+        if (!isNaN(search)) query.$or.push({ year: Number(search) });
+    }
+
+    let vehicles = await Vehicle.find(query).sort('-createdAt');
+
+    // Filter for Repost Eligibility
+    if (repostEligible === 'true') {
+        const eligibilityDays = Number(days) || 7;
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - eligibilityDays);
+
+        vehicles = vehicles.filter(v => {
+            if (v.status !== 'posted') return false;
+            const lastPost = v.postingHistory?.length > 0
+                ? v.postingHistory[v.postingHistory.length - 1]
+                : null;
+            return lastPost && new Date(lastPost.timestamp) < cutoffDate;
+        });
+    }
+
     res.json(vehicles);
 });
 
@@ -95,6 +134,156 @@ router.post('/:id/posted', protect, async (req, res) => {
 
     await vehicle.save();
     res.json({ success: true, vehicle });
+});
+
+
+// @desc    Bulk Scrape and create vehicles
+// @route   POST /api/vehicles/scrape-bulk
+// @access  Protected/Admin
+router.post('/scrape-bulk', protect, admin, async (req, res) => {
+    const { urls, assignedUserId } = req.body;
+
+    if (!urls || !Array.isArray(urls)) {
+        res.status(400);
+        throw new Error('Urls array is required');
+    }
+
+    const results = {
+        total: urls.length,
+        success: 0,
+        failed: 0,
+        items: []
+    };
+
+    // Process with a queue to support dynamic expansion
+    const queue = [...urls];
+    const processed = new Set();
+
+    while (queue.length > 0) {
+        const url = queue.shift();
+
+        if (!url || typeof url !== 'string') continue;
+        const trimmedUrl = url.trim();
+
+        if (!trimmedUrl) continue;
+        if (processed.has(trimmedUrl)) continue;
+
+        processed.add(trimmedUrl);
+
+        try {
+            const result = await scrapeVehicle(trimmedUrl);
+
+            // Handle Bulk Vehicles (Search Page with Full Data)
+            if (result.type === 'bulk_vehicles') {
+                if (result.vehicles && result.vehicles.length > 0) {
+                    results.items.push({
+                        url: trimmedUrl,
+                        status: 'expanded',
+                        info: `Found ${result.vehicles.length} vehicles with full data. Processing...`
+                    });
+
+                    // Add vehicles directly to queue for saving
+                    for (const vehicleData of result.vehicles) {
+                        // Check for duplicates
+                        const existing = await Vehicle.findOne({
+                            organization: req.user.organization._id,
+                            $or: [
+                                { vin: vehicleData.vin },
+                                { sourceUrl: vehicleData.sourceUrl }
+                            ]
+                        });
+
+                        if (existing && vehicleData.vin) {
+                            results.failed++;
+                            results.items.push({
+                                url: vehicleData.sourceUrl,
+                                status: 'failed',
+                                error: `Vehicle with VIN ${vehicleData.vin} already exists.`
+                            });
+                            continue;
+                        }
+
+                        try {
+                            const vehicle = await Vehicle.create({
+                                ...vehicleData,
+                                organization: req.user.organization._id,
+                                assignedUser: assignedUserId || null,
+                            });
+
+                            results.success++;
+                            results.items.push({
+                                url: vehicleData.sourceUrl,
+                                status: 'success',
+                                vehicleId: vehicle._id,
+                                title: `${vehicle.year} ${vehicle.make} ${vehicle.model}`
+                            });
+                        } catch (err) {
+                            results.failed++;
+                            results.items.push({
+                                url: vehicleData.sourceUrl,
+                                status: 'failed',
+                                error: err.message
+                            });
+                        }
+                    }
+                }
+                continue;
+            }
+
+            // Handle Expansion (Search Result with URLs only)
+            if (result.type === 'expanded_search') {
+                if (result.urls && result.urls.length > 0) {
+                    // Add to queue
+                    queue.push(...result.urls);
+                    results.items.push({
+                        url: trimmedUrl,
+                        status: 'expanded',
+                        info: `Found ${result.urls.length} listings. Added to queue.`
+                    });
+                } else {
+                    results.items.push({
+                        url: trimmedUrl,
+                        status: 'warning',
+                        info: 'Search page found but no vehicles extracted.'
+                    });
+                }
+                continue;
+            }
+
+            // Regular Vehicle Result
+            const scrapedData = result;
+
+            // Duplicate Check: Check standard VIN or SourceURL
+            const existing = await Vehicle.findOne({
+                organization: req.user.organization._id,
+                $or: [
+                    { vin: scrapedData.vin },
+                    { sourceUrl: trimmedUrl } // Fallback if no vin
+                ]
+            });
+
+            if (existing && scrapedData.vin) {
+                results.failed++;
+                results.items.push({ url: trimmedUrl, status: 'failed', error: `Vehicle with VIN ${scrapedData.vin} already exists.` });
+                continue;
+            }
+
+            const vehicle = await Vehicle.create({
+                ...scrapedData,
+                organization: req.user.organization._id,
+                assignedUser: assignedUserId || null,
+            });
+
+            results.success++;
+            results.items.push({ url: trimmedUrl, status: 'success', vehicleId: vehicle._id, title: `${vehicle.year} ${vehicle.make} ${vehicle.model}` });
+
+        } catch (error) {
+            results.failed++;
+            results.items.push({ url: trimmedUrl, status: 'failed', error: error.message });
+        }
+    }
+
+    res.json(results);
 });
 
 export default router;
