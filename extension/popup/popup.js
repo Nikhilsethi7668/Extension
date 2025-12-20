@@ -20,16 +20,74 @@ function generateSessionId() {
   return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 }
 
+// Helper function to check if extension context is still valid
+function isExtensionContextValid() {
+  try {
+    // Try to access chrome.runtime - if it throws, context is invalidated
+    return chrome && chrome.runtime && chrome.runtime.id !== undefined;
+  } catch (error) {
+    return false;
+  }
+}
+
+// Helper function to safely call chrome APIs with error handling
+async function safeChromeCall(apiCall, errorMessage = 'Extension context invalidated. Please reload the extension.') {
+  if (!isExtensionContextValid()) {
+    throw new Error(errorMessage);
+  }
+  
+  try {
+    return await apiCall();
+  } catch (error) {
+    if (error.message && error.message.includes('Extension context invalidated')) {
+      showNotification('Extension was reloaded. Please refresh the page and try again.', 'error');
+      throw new Error(errorMessage);
+    }
+    throw error;
+  }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
-  await loadUserSession();
-  attachEventListeners();
+  try {
+    // Check if extension context is valid
+    if (!isExtensionContextValid()) {
+      console.error('Extension context invalidated on load');
+      const loginSection = document.getElementById('loginSection');
+      if (loginSection) {
+        loginSection.innerHTML = `
+          <div class="auth-card" style="text-align: center; padding: 20px;">
+            <h2>⚠️ Extension Reloaded</h2>
+            <p style="color: #ef4444; margin: 10px 0;">The extension context has been invalidated.</p>
+            <p style="margin: 10px 0;">Please close and reopen this popup, or reload the extension.</p>
+          </div>
+        `;
+      }
+      return;
+    }
+
+    await loadUserSession();
+    attachEventListeners();
+  } catch (error) {
+    console.error('Initialization error:', error);
+    if (error.message && error.message.includes('Extension context invalidated')) {
+      showNotification('Extension was reloaded. Please refresh the page.', 'error');
+    }
+  }
+});
+
+// Global error handler for extension context errors
+window.addEventListener('error', (event) => {
+  if (event.error && event.error.message && event.error.message.includes('Extension context invalidated')) {
+    event.preventDefault();
+    showNotification('Extension context invalidated. Please reload the extension.', 'error');
+  }
 });
 
 // Load existing session
 async function loadUserSession() {
   try {
-    const stored = await chrome.storage.local.get(['userSession']);
+    const stored = await safeChromeCall(() => chrome.storage.local.get(['userSession']), 'Failed to load session');
     if (stored.userSession) {
       const isValid = await validateSession(stored.userSession);
       if (isValid) {
@@ -37,7 +95,7 @@ async function loadUserSession() {
         showMainControls();
       } else {
         currentUser = null;
-        await chrome.storage.local.remove('userSession');
+        await safeChromeCall(() => chrome.storage.local.remove('userSession'), 'Failed to clear session');
         showLoginSection();
       }
     } else {
@@ -82,7 +140,7 @@ async function login() {
         token: data.token, // Store the JWT token
         organization: data.organization
       };
-      await chrome.storage.local.set({ userSession: currentUser });
+      await safeChromeCall(() => chrome.storage.local.set({ userSession: currentUser }), 'Failed to save session');
       showMainControls();
       showNotification('Logged in successfully!', 'success');
     } else {
@@ -100,7 +158,7 @@ async function login() {
 // Logout function
 async function logout() {
   currentUser = null;
-  await chrome.storage.local.remove('userSession');
+  await safeChromeCall(() => chrome.storage.local.remove('userSession'), 'Failed to clear session');
   showLoginSection();
   document.getElementById('apiToken').value = '';
   showNotification('Logged out', 'success');
@@ -128,7 +186,7 @@ async function validateSession(session) {
           ...session,
           ...data
         };
-        await chrome.storage.local.set({ userSession: currentUser });
+        await safeChromeCall(() => chrome.storage.local.set({ userSession: currentUser }), 'Failed to save session');
       }
       return true;
     }
@@ -183,19 +241,22 @@ function showNotification(message, type = 'info') {
   
   // Also show Chrome notification for important messages
   if (type === 'error' || type === 'success') {
-    chrome.notifications.create({
-      type: 'basic',
-      iconUrl: chrome.runtime.getURL('icons/icon128.png') || '',
-      title: 'Shifty Auto Lister',
-      message: message
-    }).catch(() => {
-      // Ignore if notifications permission not granted
-    });
+    if (isExtensionContextValid()) {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: chrome.runtime.getURL('icons/icon128.png') || '',
+        title: 'Shifty Auto Lister',
+        message: message
+      }).catch(() => {
+        // Ignore if notifications permission not granted
+      });
+    }
   }
 }
 
 // Event listeners
 function attachEventListeners() {
+  // Authentication
   const loginBtn = document.getElementById('loginBtn');
   const logoutBtn = document.getElementById('logoutBtn');
   const apiTokenInput = document.getElementById('apiToken');
@@ -217,6 +278,56 @@ function attachEventListeners() {
   if (apiTokenInput) {
     apiTokenInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') login();
+    });
+  }
+
+  // Scraping
+  const scrapeBtn = document.getElementById('scrapeBtn');
+  if (scrapeBtn) {
+    scrapeBtn.addEventListener('click', scrapeCurrentPage);
+  }
+
+  // AI Description
+  const generateDescBtn = document.getElementById('generateDescBtn');
+  if (generateDescBtn) {
+    generateDescBtn.addEventListener('click', generateDescription);
+  }
+
+  // Queue Management
+  const addToQueueBtn = document.getElementById('addToQueueBtn');
+  const clearQueueBtn = document.getElementById('clearQueueBtn');
+  const postAllBtn = document.getElementById('postAllBtn');
+  
+  if (addToQueueBtn) {
+    addToQueueBtn.addEventListener('click', addToQueue);
+  }
+  if (clearQueueBtn) {
+    clearQueueBtn.addEventListener('click', clearQueue);
+  }
+  if (postAllBtn) {
+    postAllBtn.addEventListener('click', postAllInQueue);
+  }
+
+  // Posting
+  const postNowBtn = document.getElementById('postNowBtn');
+  if (postNowBtn) {
+    postNowBtn.addEventListener('click', () => postToFacebook());
+  }
+
+  // Image editing
+  const batchEditBtn = document.getElementById('batchEditBtn');
+  const clearEditsBtn = document.getElementById('clearEditsBtn');
+  const cropResizeBtn = document.getElementById('cropResizeBtn');
+  
+  if (batchEditBtn) {
+    batchEditBtn.addEventListener('click', batchEditImages);
+  }
+  if (clearEditsBtn) {
+    clearEditsBtn.addEventListener('click', clearAllEdits);
+  }
+  if (cropResizeBtn) {
+    cropResizeBtn.addEventListener('click', () => {
+      showNotification('Image crop/resize feature coming soon!', 'info');
     });
   }
 
@@ -244,6 +355,309 @@ function attachEventListeners() {
       showNotification('Posted Vehicles feature coming soon', 'info');
     });
   }
+
+  // Test Fill button
+  const testFillBtn = document.getElementById('testFillBtn');
+  if (testFillBtn) {
+    testFillBtn.addEventListener('click', testFillFacebookForm);
+  }
+}
+
+// Test Fill Facebook Marketplace Form
+async function testFillFacebookForm() {
+  const testBtn = document.getElementById('testFillBtn');
+  testBtn.disabled = true;
+  testBtn.classList.add('loading');
+
+  try {
+    // Check if extension context is valid
+    if (!isExtensionContextValid()) {
+      showNotification('Extension context invalidated. Please reload the extension.', 'error');
+      testBtn.disabled = false;
+      testBtn.classList.remove('loading');
+      return;
+    }
+
+    // Get the current active tab
+    const [tab] = await safeChromeCall(
+      () => chrome.tabs.query({ active: true, currentWindow: true }),
+      'Failed to access tabs. Please reload the extension.'
+    );
+    
+    if (!tab) {
+      showNotification('No active tab found', 'error');
+      testBtn.disabled = false;
+      testBtn.classList.remove('loading');
+      return;
+    }
+
+    // Check if we're on Facebook Marketplace
+    if (!tab.url.includes('facebook.com/marketplace/create')) {
+      showNotification('Opening Facebook Marketplace...', 'info');
+      // Open the page
+      const marketplaceUrl = 'https://www.facebook.com/marketplace/create/vehicle';
+      const newTab = await safeChromeCall(
+        () => chrome.tabs.create({ url: marketplaceUrl }),
+        'Failed to open new tab. Please reload the extension.'
+      );
+      
+      // Wait a bit then inject script
+      setTimeout(async () => {
+        try {
+          await executeTestFill(newTab.id);
+        } catch (error) {
+          console.error('Error in delayed test fill:', error);
+          showNotification('Error filling form: ' + error.message, 'error');
+        }
+      }, 5000);
+      testBtn.disabled = false;
+      testBtn.classList.remove('loading');
+      return;
+    }
+
+    showNotification('Filling form with test data...', 'info');
+    await executeTestFill(tab.id);
+
+  } catch (error) {
+    console.error('Test fill error:', error);
+    const errorMsg = error.message || 'Unknown error occurred';
+    showNotification('Error: ' + errorMsg, 'error');
+  } finally {
+    testBtn.disabled = false;
+    testBtn.classList.remove('loading');
+  }
+}
+
+async function executeTestFill(tabId) {
+  // Create dummy test data
+  const testData = {
+    year: '2023',
+    make: 'Toyota',
+    model: 'Camry',
+    price: '25000',
+    location: 'New York, NY',
+    description: 'Excellent condition 2023 Toyota Camry. Well maintained, single owner. All service records available. No accidents. Perfect for daily commute or family use. Contact for more details!',
+    images: ['https://images.pexels.com/photos/112460/pexels-photo-112460.jpeg'],
+    vehicleType: 'Car'
+  };
+
+  try {
+    // Check if extension context is valid
+    if (!isExtensionContextValid()) {
+      throw new Error('Extension context invalidated');
+    }
+
+    // Store test data
+    await safeChromeCall(
+      () => chrome.storage.local.set({ pendingPost: testData }),
+      'Failed to save test data'
+    );
+
+    // Inject and execute test fill script
+    await safeChromeCall(
+      () => chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: fillFacebookFormWithTestData,
+        args: [testData]
+      }),
+      'Failed to inject script. Please reload the extension.'
+    );
+
+    showNotification('Test data sent! Form should fill automatically.', 'success');
+  } catch (error) {
+    console.error('Execute test fill error:', error);
+    throw error;
+  }
+}
+
+// Function to fill Facebook form (runs in page context)
+function fillFacebookFormWithTestData(testData) {
+  console.log('Starting test fill with data:', testData);
+
+  // Helper function to wait
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+  // Helper function to fill input with human-like typing
+  async function fillInput(element, value, delay = 300) {
+    if (!element) return false;
+    
+    element.focus();
+    await sleep(200);
+    
+    // Clear existing value
+    element.value = '';
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    
+    // Type character by character
+    for (let i = 0; i < value.length; i++) {
+      element.value += value[i];
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+      await sleep(50 + Math.random() * 50);
+    }
+    
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+    element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await sleep(delay);
+    return true;
+  }
+
+  // Helper function to fill contentEditable
+  async function fillContentEditable(element, value, delay = 300) {
+    if (!element) return false;
+    
+    element.focus();
+    await sleep(200);
+    element.textContent = value;
+    element.innerHTML = value.replace(/\n/g, '<br>');
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    await sleep(delay);
+    return true;
+  }
+
+  // Helper function to find by text
+  function findElementByText(texts) {
+    const allElements = document.querySelectorAll('span, button, div[role="button"], label, div');
+    for (const text of texts) {
+      for (const el of allElements) {
+        if (el.textContent && el.textContent.trim().toLowerCase().includes(text.toLowerCase())) {
+          return el;
+        }
+      }
+    }
+    return null;
+  }
+
+  // Helper function to trigger click
+  async function safeClick(element) {
+    if (!element) return false;
+    element.focus();
+    element.click();
+    const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
+    element.dispatchEvent(clickEvent);
+    return true;
+  }
+
+  // Main fill function
+  (async () => {
+    try {
+      console.log('Waiting for form to load...');
+      await sleep(3000);
+
+      // 1. Fill Vehicle Type (dropdown)
+      console.log('Filling vehicle type...');
+      const vehicleTypeLabel = document.querySelector('label[aria-label*="Vehicle type" i], label[id*="_r_c4_"], label[role="combobox"]');
+      if (vehicleTypeLabel) {
+        await safeClick(vehicleTypeLabel);
+        await sleep(1000);
+        
+        // Look for Car option in dropdown
+        const carOption = findElementByText(['Car', 'Sedan', 'Vehicle']);
+        if (carOption) {
+          await safeClick(carOption);
+          await sleep(500);
+        }
+      }
+
+      // 2. Upload Image
+      console.log('Uploading image...');
+      const fileInput = document.querySelector('input[type="file"][accept*="image"]');
+      if (fileInput && testData.images && testData.images.length > 0) {
+        try {
+          const response = await fetch(testData.images[0]);
+          const blob = await response.blob();
+          const file = new File([blob], 'test-vehicle.jpg', { type: 'image/jpeg' });
+          
+          const dataTransfer = new DataTransfer();
+          dataTransfer.items.add(file);
+          fileInput.files = dataTransfer.files;
+          
+          const changeEvent = new Event('change', { bubbles: true });
+          fileInput.dispatchEvent(changeEvent);
+          
+          console.log('Image uploaded');
+          await sleep(2000); // Wait for image to process
+        } catch (error) {
+          console.error('Image upload error:', error);
+        }
+      }
+
+      // 3. Fill Location
+      console.log('Filling location...');
+      const locationInput = document.querySelector('input[aria-label="Location"], input[id*="_r_cc_"], input[placeholder*="Location" i]');
+      if (locationInput) {
+        await fillInput(locationInput, testData.location, 500);
+      }
+
+      // 4. Fill Year (dropdown)
+      console.log('Filling year...');
+      const yearLabel = document.querySelector('label[aria-label*="Year" i], label[id*="_r_ck_"]');
+      if (yearLabel) {
+        await safeClick(yearLabel);
+        await sleep(800);
+        
+        // Try to find and click the year option
+        const yearOption = findElementByText([testData.year, '2023']);
+        if (yearOption) {
+          await safeClick(yearOption);
+          await sleep(500);
+        } else {
+          // Fallback: try to type in the input
+          const yearInput = document.querySelector('input[id*="_r_cj_"], input[aria-label*="Year" i]');
+          if (yearInput) {
+            await fillInput(yearInput, testData.year, 500);
+          }
+        }
+      }
+
+      // 5. Fill Make
+      console.log('Filling make...');
+      const makeInput = document.querySelector('input[id*="_r_cn_"], input[aria-label*="Make" i], input[placeholder*="Make" i]');
+      if (makeInput) {
+        await fillInput(makeInput, testData.make, 500);
+      }
+
+      // 6. Fill Model
+      console.log('Filling model...');
+      const modelInput = document.querySelector('input[id*="_r_cr_"], input[aria-label*="Model" i], input[placeholder*="Model" i]');
+      if (modelInput) {
+        await fillInput(modelInput, testData.model, 500);
+      }
+
+      // 7. Fill Price
+      console.log('Filling price...');
+      const priceInput = document.querySelector('input[id*="_r_cv_"], input[aria-label*="Price" i], input[placeholder*="Price" i]');
+      if (priceInput) {
+        await fillInput(priceInput, testData.price, 500);
+      }
+
+      // 8. Fill Description
+      console.log('Filling description...');
+      const descTextarea = document.querySelector('textarea[id*="_r_d3_"], textarea[aria-label*="Description" i]');
+      if (descTextarea) {
+        await fillContentEditable(descTextarea, testData.description, 500);
+      } else {
+        // Try contentEditable div
+        const descDiv = document.querySelector('div[contenteditable="true"][role="textbox"]');
+        if (descDiv) {
+          await fillContentEditable(descDiv, testData.description, 500);
+        }
+      }
+
+      console.log('✅ Test fill completed!');
+      
+      // Show success notification
+      const notification = document.createElement('div');
+      notification.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 16px 24px; border-radius: 8px; z-index: 10000; box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-family: Arial; font-size: 14px;';
+      notification.textContent = '✅ Test data filled successfully!';
+      document.body.appendChild(notification);
+      
+      setTimeout(() => notification.remove(), 5000);
+
+    } catch (error) {
+      console.error('Error filling form:', error);
+      alert('❌ Error: ' + error.message);
+    }
+  })();
 }
 
 // Test backend connection
@@ -285,7 +699,15 @@ async function testConnection() {
 // Scrape current page
 async function scrapeCurrentPage() {
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!isExtensionContextValid()) {
+      showNotification('Extension context invalidated. Please reload the extension.', 'error');
+      return;
+    }
+
+    const [tab] = await safeChromeCall(
+      () => chrome.tabs.query({ active: true, currentWindow: true }),
+      'Failed to access tabs. Please reload the extension.'
+    );
 
     if (!tab) {
       showNotification('No active tab found', 'error');
@@ -307,10 +729,13 @@ async function scrapeCurrentPage() {
     // Inject scraper if needed (usually handled by manifest, but safe to try)
     // Send message to content script
     try {
-      const response = await chrome.tabs.sendMessage(tab.id, {
-        action: 'scrape',
-        scraper: scraperType
-      });
+      const response = await safeChromeCall(
+        () => chrome.tabs.sendMessage(tab.id, {
+          action: 'scrape',
+          scraper: scraperType
+        }),
+        'Failed to communicate with page. Please reload the extension.'
+      );
 
       if (response && response.success) {
         scrapedData = response.data;
@@ -318,10 +743,12 @@ async function scrapeCurrentPage() {
         showNotification('Vehicle scraped successfully!', 'success');
 
         // Notify background to save state if needed
-        chrome.runtime.sendMessage({
-          action: 'scrape_complete',
-          data: scrapedData
-        });
+        if (isExtensionContextValid()) {
+          chrome.runtime.sendMessage({
+            action: 'scrape_complete',
+            data: scrapedData
+          }).catch(err => console.warn('Failed to send message to background:', err));
+        }
       } else {
         throw new Error(response?.error || 'Unknown scraping error');
       }
@@ -329,26 +756,43 @@ async function scrapeCurrentPage() {
       console.error('Message error:', msgError);
 
       // If message fails, script might not be loaded. Try injecting.
-      await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        files: [`content/scrapers/${scraperType}-scraper.js`]
-      });
+      if (isExtensionContextValid()) {
+        await safeChromeCall(
+          () => chrome.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: [`content/scrapers/${scraperType}-scraper.js`]
+          }),
+          'Failed to inject scraper script. Please reload the extension.'
+        );
 
-      // Retry message
-      setTimeout(async () => {
-        const retryResponse = await chrome.tabs.sendMessage(tab.id, {
-          action: 'scrape',
-          scraper: scraperType
-        });
+        // Retry message
+        setTimeout(async () => {
+          if (!isExtensionContextValid()) {
+            showNotification('Extension context invalidated. Please reload.', 'error');
+            return;
+          }
+          try {
+            const retryResponse = await safeChromeCall(
+              () => chrome.tabs.sendMessage(tab.id, {
+                action: 'scrape',
+                scraper: scraperType
+              }),
+              'Failed to retry scraping. Please reload the extension.'
+            );
 
-        if (retryResponse && retryResponse.success) {
-          scrapedData = retryResponse.data;
-          displayScrapedData(scrapedData);
-          showNotification('Vehicle scraped successfully!', 'success');
-        } else {
-          showNotification('Failed to scrape page. Refresh and try again.', 'error');
-        }
-      }, 500);
+            if (retryResponse && retryResponse.success) {
+              scrapedData = retryResponse.data;
+              displayScrapedData(scrapedData);
+              showNotification('Vehicle scraped successfully!', 'success');
+            } else {
+              showNotification('Failed to scrape page. Refresh and try again.', 'error');
+            }
+          } catch (retryError) {
+            console.error('Retry scraping error:', retryError);
+            showNotification('Failed to scrape page. Refresh and try again.', 'error');
+          }
+        }, 500);
+      }
     }
 
   } catch (error) {
@@ -730,7 +1174,11 @@ async function saveQueue() {
 }
 
 async function loadQueue() {
-  const stored = await chrome.storage.local.get(['postingQueue']);
+  if (!isExtensionContextValid()) return;
+  const stored = await safeChromeCall(
+    () => chrome.storage.local.get(['postingQueue']),
+    'Failed to load queue'
+  );
   if (stored.postingQueue) {
     postingQueue = stored.postingQueue;
     updateQueueDisplay();
@@ -803,24 +1251,35 @@ async function postToFacebook(vehicleData = null) {
   try {
     showNotification('Opening Facebook Marketplace...', 'info');
 
+    if (!isExtensionContextValid()) {
+      showNotification('Extension context invalidated. Please reload the extension.', 'error');
+      return;
+    }
+
     // Store data for the Facebook autofill script
-    await chrome.storage.local.set({
-      pendingPost: {
-        ...dataToPost,
-        description: document.getElementById('generatedDesc').value,
-        config: {
-          category: document.getElementById('vehicleCategory').value,
-          emoji: document.getElementById('emojiStyle').value,
-          whereToPost: document.getElementById('whereToPost').value,
-          distance: document.getElementById('distance').value,
-          groups: document.getElementById('fbGroups').value.split('\n').filter(g => g.trim())
+    await safeChromeCall(
+      () => chrome.storage.local.set({
+        pendingPost: {
+          ...dataToPost,
+          description: document.getElementById('generatedDesc').value,
+          config: {
+            category: document.getElementById('vehicleCategory').value,
+            emoji: document.getElementById('emojiStyle').value,
+            whereToPost: document.getElementById('whereToPost').value,
+            distance: document.getElementById('distance').value,
+            groups: document.getElementById('fbGroups').value.split('\n').filter(g => g.trim())
+          }
         }
-      }
-    });
+      }),
+      'Failed to save post data'
+    );
 
     // Open Facebook Marketplace create listing page
     const marketplaceUrl = 'https://www.facebook.com/marketplace/create/vehicle';
-    await chrome.tabs.create({ url: marketplaceUrl });
+    await safeChromeCall(
+      () => chrome.tabs.create({ url: marketplaceUrl }),
+      'Failed to open Facebook Marketplace. Please reload the extension.'
+    );
 
     showNotification('Navigate through the form. Auto-fill will activate automatically.', 'success');
 
@@ -986,41 +1445,7 @@ async function updateActivityLog() {
 // Note: showNotification is already defined above with toast UI
 
 // ============ Event Listeners ============
-
-function attachEventListeners() {
-  // Authentication
-  document.getElementById('loginBtn').addEventListener('click', login);
-  document.getElementById('logoutBtn').addEventListener('click', logout);
-
-  // Scraping
-  document.getElementById('scrapeBtn').addEventListener('click', scrapeCurrentPage);
-
-  // AI Description
-  document.getElementById('generateDescBtn').addEventListener('click', generateDescription);
-
-  // Queue Management
-  document.getElementById('addToQueueBtn').addEventListener('click', addToQueue);
-  document.getElementById('clearQueueBtn').addEventListener('click', clearQueue);
-  document.getElementById('postAllBtn').addEventListener('click', postAllInQueue);
-
-  // Posting
-  document.getElementById('postNowBtn').addEventListener('click', () => postToFacebook());
-
-  // Image editing
-  document.getElementById('batchEditBtn').addEventListener('click', batchEditImages);
-  document.getElementById('clearEditsBtn').addEventListener('click', clearAllEdits);
-  document.getElementById('cropResizeBtn').addEventListener('click', () => {
-    showNotification('Image crop/resize feature coming soon!', 'info');
-  });
-
-  // Enter key for login
-  const apiTokenInput = document.getElementById('apiToken');
-  if (apiTokenInput) {
-    apiTokenInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') login();
-    });
-  }
-}
+// Note: Event listeners are attached in the main attachEventListeners() function above
 
 // ============ Utility Functions ============
 

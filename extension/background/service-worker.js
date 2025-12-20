@@ -109,12 +109,22 @@ async function logToBackend(logData) {
       return; // No authentication available
     }
 
-    await fetch(`${BACKEND_URL}/logs/activity`, {
+    const response = await fetch(`${BACKEND_URL}/logs/activity`, {
       method: 'POST',
       headers: headers,
       body: JSON.stringify(logData)
     });
+
+    // Only log errors if response is not OK and it's not a network error
+    if (!response.ok && response.status !== 0) {
+      console.warn('Failed to log activity:', response.status, response.statusText);
+    }
   } catch (error) {
+    // Silently handle network errors (backend might be offline)
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      // Backend unavailable - don't spam console
+      return;
+    }
     console.error('Error logging to backend:', error);
   }
 }
@@ -135,12 +145,29 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
           }
         });
 
+        // Check if response is OK and is JSON
         if (!response.ok) {
-          await chrome.storage.local.remove('userSession');
-          showNotification('Session Expired', 'Please log in again');
+          // If unauthorized, clear session
+          if (response.status === 401 || response.status === 403) {
+            await chrome.storage.local.remove('userSession');
+            showNotification('Session Expired', 'Please log in again');
+          }
+          return;
+        }
+
+        // Check if response is actually JSON
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          await response.json();
         }
       } catch (error) {
-        console.error('Session validation error:', error);
+        // Only log network errors, don't clear session for connection issues
+        if (error.name === 'TypeError' && error.message.includes('fetch')) {
+          console.warn('Session validation: Backend unavailable', error.message);
+        } else {
+          console.error('Session validation error:', error);
+        }
+        // Don't clear session on network errors - might just be offline
       }
     }
   }
