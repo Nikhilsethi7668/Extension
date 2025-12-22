@@ -434,11 +434,18 @@ async function executeTestFill(tabId) {
     year: '2023',
     make: 'Toyota',
     model: 'Camry',
+    mileage: '15000',
     price: '25000',
-    location: 'New York, NY',
+    dealerAddress: 'New York, NY',
+    title: '2023 Toyota Camry',
     description: 'Excellent condition 2023 Toyota Camry. Well maintained, single owner. All service records available. No accidents. Perfect for daily commute or family use. Contact for more details!',
-    images: ['https://images.pexels.com/photos/112460/pexels-photo-112460.jpeg'],
-    vehicleType: 'Car'
+    images: ['https://images.pexels.com/photos/112460/pexels-photo-112460.jpeg', 'https://images.pexels.com/photos/170811/pexels-photo-170811.jpeg'],
+    exteriorColor: 'Black',
+    fuelType: 'Petrol',
+    condition: 'Excellent',
+    config: {
+      category: 'Car/van',
+    }
   };
 
   try {
@@ -447,217 +454,17 @@ async function executeTestFill(tabId) {
       throw new Error('Extension context invalidated');
     }
 
-    // Store test data
+    // Store test data in local storage - content script will pick it up automatically
     await safeChromeCall(
       () => chrome.storage.local.set({ pendingPost: testData }),
       'Failed to save test data'
     );
 
-    // Inject and execute test fill script
-    await safeChromeCall(
-      () => chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        func: fillFacebookFormWithTestData,
-        args: [testData]
-      }),
-      'Failed to inject script. Please reload the extension.'
-    );
-
-    showNotification('Test data sent! Form should fill automatically.', 'success');
+    showNotification('Test data stored! Content script will auto-fill the form.', 'success');
   } catch (error) {
     console.error('Execute test fill error:', error);
     throw error;
   }
-}
-
-// Function to fill Facebook form (runs in page context)
-function fillFacebookFormWithTestData(testData) {
-  console.log('Starting test fill with data:', testData);
-
-  // Helper function to wait
-  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-  // Helper function to fill input with human-like typing
-  async function fillInput(element, value, delay = 300) {
-    if (!element) return false;
-    
-    element.focus();
-    await sleep(200);
-    
-    // Clear existing value
-    element.value = '';
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    
-    // Type character by character
-    for (let i = 0; i < value.length; i++) {
-      element.value += value[i];
-      element.dispatchEvent(new Event('input', { bubbles: true }));
-      await sleep(50 + Math.random() * 50);
-    }
-    
-    element.dispatchEvent(new Event('change', { bubbles: true }));
-    element.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    await sleep(delay);
-    return true;
-  }
-
-  // Helper function to fill contentEditable
-  async function fillContentEditable(element, value, delay = 300) {
-    if (!element) return false;
-    
-    element.focus();
-    await sleep(200);
-    element.textContent = value;
-    element.innerHTML = value.replace(/\n/g, '<br>');
-    element.dispatchEvent(new Event('input', { bubbles: true }));
-    await sleep(delay);
-    return true;
-  }
-
-  // Helper function to find by text
-  function findElementByText(texts) {
-    const allElements = document.querySelectorAll('span, button, div[role="button"], label, div');
-    for (const text of texts) {
-      for (const el of allElements) {
-        if (el.textContent && el.textContent.trim().toLowerCase().includes(text.toLowerCase())) {
-          return el;
-        }
-      }
-    }
-    return null;
-  }
-
-  // Helper function to trigger click
-  async function safeClick(element) {
-    if (!element) return false;
-    element.focus();
-    element.click();
-    const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true });
-    element.dispatchEvent(clickEvent);
-    return true;
-  }
-
-  // Main fill function
-  (async () => {
-    try {
-      console.log('Waiting for form to load...');
-      await sleep(3000);
-
-      // 1. Fill Vehicle Type (dropdown)
-      console.log('Filling vehicle type...');
-      const vehicleTypeLabel = document.querySelector('label[aria-label*="Vehicle type" i], label[id*="_r_c4_"], label[role="combobox"]');
-      if (vehicleTypeLabel) {
-        await safeClick(vehicleTypeLabel);
-        await sleep(1000);
-        
-        // Look for Car option in dropdown
-        const carOption = findElementByText(['Car', 'Sedan', 'Vehicle']);
-        if (carOption) {
-          await safeClick(carOption);
-          await sleep(500);
-        }
-      }
-
-      // 2. Upload Image
-      console.log('Uploading image...');
-      const fileInput = document.querySelector('input[type="file"][accept*="image"]');
-      if (fileInput && testData.images && testData.images.length > 0) {
-        try {
-          const response = await fetch(testData.images[0]);
-          const blob = await response.blob();
-          const file = new File([blob], 'test-vehicle.jpg', { type: 'image/jpeg' });
-          
-          const dataTransfer = new DataTransfer();
-          dataTransfer.items.add(file);
-          fileInput.files = dataTransfer.files;
-          
-          const changeEvent = new Event('change', { bubbles: true });
-          fileInput.dispatchEvent(changeEvent);
-          
-          console.log('Image uploaded');
-          await sleep(2000); // Wait for image to process
-        } catch (error) {
-          console.error('Image upload error:', error);
-        }
-      }
-
-      // 3. Fill Location
-      console.log('Filling location...');
-      const locationInput = document.querySelector('input[aria-label="Location"], input[id*="_r_cc_"], input[placeholder*="Location" i]');
-      if (locationInput) {
-        await fillInput(locationInput, testData.location, 500);
-      }
-
-      // 4. Fill Year (dropdown)
-      console.log('Filling year...');
-      const yearLabel = document.querySelector('label[aria-label*="Year" i], label[id*="_r_ck_"]');
-      if (yearLabel) {
-        await safeClick(yearLabel);
-        await sleep(800);
-        
-        // Try to find and click the year option
-        const yearOption = findElementByText([testData.year, '2023']);
-        if (yearOption) {
-          await safeClick(yearOption);
-          await sleep(500);
-        } else {
-          // Fallback: try to type in the input
-          const yearInput = document.querySelector('input[id*="_r_cj_"], input[aria-label*="Year" i]');
-          if (yearInput) {
-            await fillInput(yearInput, testData.year, 500);
-          }
-        }
-      }
-
-      // 5. Fill Make
-      console.log('Filling make...');
-      const makeInput = document.querySelector('input[id*="_r_cn_"], input[aria-label*="Make" i], input[placeholder*="Make" i]');
-      if (makeInput) {
-        await fillInput(makeInput, testData.make, 500);
-      }
-
-      // 6. Fill Model
-      console.log('Filling model...');
-      const modelInput = document.querySelector('input[id*="_r_cr_"], input[aria-label*="Model" i], input[placeholder*="Model" i]');
-      if (modelInput) {
-        await fillInput(modelInput, testData.model, 500);
-      }
-
-      // 7. Fill Price
-      console.log('Filling price...');
-      const priceInput = document.querySelector('input[id*="_r_cv_"], input[aria-label*="Price" i], input[placeholder*="Price" i]');
-      if (priceInput) {
-        await fillInput(priceInput, testData.price, 500);
-      }
-
-      // 8. Fill Description
-      console.log('Filling description...');
-      const descTextarea = document.querySelector('textarea[id*="_r_d3_"], textarea[aria-label*="Description" i]');
-      if (descTextarea) {
-        await fillContentEditable(descTextarea, testData.description, 500);
-      } else {
-        // Try contentEditable div
-        const descDiv = document.querySelector('div[contenteditable="true"][role="textbox"]');
-        if (descDiv) {
-          await fillContentEditable(descDiv, testData.description, 500);
-        }
-      }
-
-      console.log('✅ Test fill completed!');
-      
-      // Show success notification
-      const notification = document.createElement('div');
-      notification.style.cssText = 'position: fixed; top: 20px; right: 20px; background: #10b981; color: white; padding: 16px 24px; border-radius: 8px; z-index: 10000; box-shadow: 0 4px 12px rgba(0,0,0,0.3); font-family: Arial; font-size: 14px;';
-      notification.textContent = '✅ Test data filled successfully!';
-      document.body.appendChild(notification);
-      
-      setTimeout(() => notification.remove(), 5000);
-
-    } catch (error) {
-      console.error('Error filling form:', error);
-      alert('❌ Error: ' + error.message);
-    }
-  })();
 }
 
 // Test backend connection

@@ -282,266 +282,431 @@
 
   // ============ Field Filling Functions ============
 
+  // ========== HELPERS ==========
+  const VEHICLE_TYPE_INDEX = {
+    "Car/van": 0,
+    "Motorcycle": 1,
+    "Power sport": 2,
+    "Motorhome/caravan": 3,
+    "Trailer": 4,
+    "Boat": 5,
+    "Commercial/Industrial": 6,
+    "Other": 7
+  };
+
+  const EXTERIOR_COLOR_INDEX = {
+    "Black": 0,
+    "Blue": 1,
+    "Brown": 2,
+    "Gold": 3,
+    "Green": 4,
+    "Grey": 5,
+    "Pink": 6,
+    "Purple": 7,
+    "Red": 8,
+    "Silver": 9,
+    "Orange": 10,
+    "White": 11,
+    "Yellow": 12,
+    "Charcoal": 13,
+    "Off white": 14,
+    "Tan": 15,
+    "Beige": 16,
+    "Burgundy": 17,
+    "Turquoise": 18
+  };
+
+  const FUEL_TYPE_INDEX = {
+    "Diesel": 0,
+    "Electric": 1,
+    "Petrol": 2,
+    "Flex": 3,
+    "Hybrid": 4,
+    "Plug-in hybrid": 5,
+    "Other": 6
+  };
+
+  const CONDITION_INDEX = {
+    "Excellent": 0,
+    "Very good": 1,
+    "Good": 2,
+    "Fair": 3,
+    "Poor": 4
+  };
+
+  function openDropdown(dropdown) {
+    dropdown.scrollIntoView({ block: "center" });
+    dropdown.focus();
+  
+    dropdown.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    dropdown.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    dropdown.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  
+    dropdown.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        code: "ArrowDown",
+        bubbles: true
+      })
+    );
+  }
+  
+  
+  function waitForExpanded(dropdown, timeout = 2000) {
+    return new Promise((resolve, reject) => {
+      const start = Date.now();
+      const timer = setInterval(() => {
+        const expanded = dropdown.getAttribute("aria-expanded") === "true";
+        const listbox = document.querySelector('[role="listbox"]');
+  
+        if (expanded && listbox) {
+          clearInterval(timer);
+          resolve();
+        }
+  
+        if (Date.now() - start > timeout) {
+          clearInterval(timer);
+          reject("Dropdown did not open");
+        }
+      }, 50);
+    });
+  }
+
+  function waitForOptions(timeout = 3000) {
+    return new Promise((resolve, reject) => {
+      const start = Date.now();
+      const timer = setInterval(() => {
+        const listbox = document.querySelector('[role="listbox"]');
+        const options = listbox?.querySelectorAll('[role="option"]');
+
+        if (options && options.length > 0) {
+          clearInterval(timer);
+          resolve([...options]);
+        }
+
+        if (Date.now() - start > timeout) {
+          clearInterval(timer);
+          reject(new Error("Options not found within timeout"));
+        }
+      }, 50);
+    });
+  }
+
+  function fbSelectOption(option) {
+    option.scrollIntoView({ block: "center" });
+    option.focus();
+
+    option.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
+    option.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    option.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+
+    option.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+    option.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+    option.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    option.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "Enter",
+        code: "Enter",
+        bubbles: true
+      })
+    );
+  }
+  
+  async function selectVehicleByIndex(index) {
+    const dropdown = document.querySelector(
+      'label[role="combobox"][aria-haspopup="listbox"]'
+    );
+  
+    if (!dropdown) {
+      console.error('Vehicle type dropdown not found');
+      return false;
+    }
+  
+    // Reset state if dropdown is already open
+    if (dropdown.getAttribute("aria-expanded") === "true") {
+      dropdown.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          code: "Escape",
+          bubbles: true
+        })
+      );
+      await sleep(200);
+    }
+  
+    // Open dropdown
+    openDropdown(dropdown);
+    
+    // Wait for dropdown to expand
+    try {
+      await waitForExpanded(dropdown);
+    } catch (error) {
+      console.error('Error opening dropdown:', error);
+      return false;
+    }
+  
+    // Wait for options to appear
+    let options;
+    try {
+      options = await waitForOptions();
+      console.log(`Found ${options.length} options`);
+    } catch (error) {
+      console.error('Error waiting for options:', error);
+      return false;
+    }
+  
+    // Select option by index
+    const target = options[index];
+    if (!target) {
+      console.error(`Option at index ${index} not found. Available indices: 0-${options.length - 1}`);
+      return false;
+    }
+  
+    console.log(`Selecting option at index ${index}: "${target.innerText || target.textContent}"`);
+    fbSelectOption(target);
+    
+    await sleep(1000);
+    
+    // Verify selection
+    const isClosed = dropdown.getAttribute('aria-expanded') === 'false';
+    const selectedText = dropdown.textContent || '';
+    
+    if (isClosed && selectedText !== 'Vehicle type') {
+      console.log(`✅ Successfully selected: "${selectedText}"`);
+      return true;
+    } else {
+      console.log(`⚠ Selection may not have worked. Closed: ${isClosed}, Text: "${selectedText}"`);
+      return isClosed;
+    }
+  }
+
+  /**
+   * Select vehicle type by name using the VEHICLE_TYPE_INDEX mapping
+   * @param {string} vehicleType - The vehicle type name (e.g., 'Car/van', 'Boat', 'Motorcycle')
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectVehicleType(vehicleType = 'Car/van') {
+    // First try exact match
+    let index = VEHICLE_TYPE_INDEX[vehicleType];
+    
+    // If not found, try case-insensitive match
+    if (index === undefined) {
+      const vehicleTypeLower = vehicleType.toLowerCase();
+      const matchedKey = Object.keys(VEHICLE_TYPE_INDEX).find(
+        key => key.toLowerCase() === vehicleTypeLower
+      );
+      
+      if (matchedKey) {
+        index = VEHICLE_TYPE_INDEX[matchedKey];
+        vehicleType = matchedKey; // Use the correct casing
+        console.log(`ℹ️ Case-insensitive match: "${vehicleType}"`);
+      }
+    }
+    
+    if (index === undefined) {
+      console.error(`❌ Unknown vehicle type: "${vehicleType}". Available types:`, Object.keys(VEHICLE_TYPE_INDEX));
+      return false;
+    }
+    
+    console.log(`🚗 Selecting vehicle type: "${vehicleType}" (index: ${index})`);
+    return await selectVehicleByIndex(index);
+  }
+
   async function fillVehicleCategory() {
     console.log('=== Starting fillVehicleCategory ===');
     
-    // Find the dropdown trigger (label with "Vehicle type")
-    let dropdownElement = null;
-    const allLabels = document.querySelectorAll('label[role="combobox"], label[aria-haspopup="listbox"]');
+    // Get vehicle type from pendingPost config if available, otherwise default to Car/van
+    let targetVehicleType = 'Car/van';
     
-    for (const label of allLabels) {
-      const text = label.textContent || '';
-      const ariaLabel = label.getAttribute('aria-labelledby');
-      const labelElement = ariaLabel ? document.getElementById(ariaLabel) : null;
-      const labelText = labelElement?.textContent || '';
+    if (pendingPost?.config?.category) {
+      const category = pendingPost.config.category;
+      console.log(`📋 Received category from config: "${category}"`);
       
-      if (text.includes('Vehicle type') || text.includes('Vehicle Type') || 
-          labelText.includes('Vehicle type') || labelText.includes('Vehicle Type')) {
-        dropdownElement = label;
-        console.log('Found dropdown element:', dropdownElement);
-        break;
-      }
-    }
-    
-    if (!dropdownElement) {
-      console.log('Vehicle type dropdown not found');
-      return false;
-    }
-    
-    // Check current state
-    const isOpen = dropdownElement.getAttribute('aria-expanded') === 'true';
-    console.log('Dropdown is open:', isOpen);
-    
-    // Open dropdown if not open
-    if (!isOpen) {
-      console.log('Clicking to open dropdown...');
+      // First, check if the category directly matches a VEHICLE_TYPE_INDEX key (case-insensitive)
+      const categoryLower = category.toLowerCase();
+      const vehicleTypeKeys = Object.keys(VEHICLE_TYPE_INDEX);
+      const directMatch = vehicleTypeKeys.find(key => key.toLowerCase() === categoryLower);
       
-      // Try multiple click methods
-      dropdownElement.focus();
-      await sleep(200);
-      
-      // Method 1: Direct click
-      dropdownElement.click();
-      await sleep(300);
-      
-      // Method 2: Mouse events
-      const mouseDown = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
-      const mouseUp = new MouseEvent('mouseup', { bubbles: true, cancelable: true });
-      const click = new MouseEvent('click', { bubbles: true, cancelable: true });
-      dropdownElement.dispatchEvent(mouseDown);
-      await sleep(50);
-      dropdownElement.dispatchEvent(mouseUp);
-      await sleep(50);
-      dropdownElement.dispatchEvent(click);
-      
-      // Method 3: Keyboard Enter
-      const keyDown = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
-      const keyUp = new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
-      dropdownElement.dispatchEvent(keyDown);
-      await sleep(50);
-      dropdownElement.dispatchEvent(keyUp);
-      
-      await sleep(1500); // Wait for dropdown to fully open
-    }
-    
-    // Wait for listbox to appear (could be in a portal/overlay)
-    let listbox = null;
-    let attempts = 0;
-    const maxAttempts = 15;
-    
-    while (attempts < maxAttempts && !listbox) {
-      // Check main document
-      listbox = document.querySelector('[role="listbox"]');
-      
-      // Also check if dropdown is now expanded
-      if (dropdownElement.getAttribute('aria-expanded') === 'true') {
-        // Listbox might be in a portal, search more broadly
-        if (!listbox) {
-          // Look for any visible div that might contain options
-          const allDivs = document.querySelectorAll('div[role="listbox"], div[aria-label*="listbox"], ul[role="listbox"]');
-          for (const div of allDivs) {
-            if (isVisible(div)) {
-              listbox = div;
-              console.log('Found listbox in portal:', listbox);
-              break;
-            }
-          }
-        }
-      }
-      
-      if (listbox && isVisible(listbox)) {
-        console.log('Listbox found and visible');
-        break;
-      }
-      
-      await sleep(200);
-      attempts++;
-    }
-    
-    if (!listbox) {
-      console.log('Listbox did not appear. Trying to find options anyway...');
-    }
-    
-    // Search for the option - try multiple strategies
-    const optionTexts = ['Car/van', 'Car/Van', 'car/van', 'Car', 'Vehicle'];
-    let vehicleOption = null;
-    
-    // Strategy 1: Search in listbox
-    if (listbox) {
-      console.log('Searching in listbox...');
-      const selectors = [
-        '[role="option"]',
-        'div[tabindex]',
-        'li',
-        'div[role="button"]',
-        'span[role="button"]',
-        'div[aria-selected]',
-        'div[data-testid*="option"]'
-      ];
-      
-      for (const selector of selectors) {
-        const options = listbox.querySelectorAll(selector);
-        console.log(`Found ${options.length} elements with selector: ${selector}`);
-        
-        for (const option of options) {
-          const text = (option.textContent || '').trim();
-          console.log(`Checking option text: "${text}"`);
-          
-          for (const searchText of optionTexts) {
-            const normalizedText = text.toLowerCase();
-            const normalizedSearch = searchText.toLowerCase();
-            
-            if (normalizedText === normalizedSearch || 
-                (normalizedText.includes('car') && normalizedText.includes('van')) ||
-                (normalizedText === 'car/van')) {
-              vehicleOption = option;
-              console.log(`✓ Found matching option: "${text}"`);
-              break;
-            }
-          }
-          if (vehicleOption) break;
-        }
-        if (vehicleOption) break;
-      }
-    }
-    
-    // Strategy 2: Search entire document for visible options
-    if (!vehicleOption) {
-      console.log('Searching entire document for options...');
-      const allClickable = document.querySelectorAll('div[role="option"], div[tabindex], li, span, div[role="button"]');
-      
-      for (const el of allClickable) {
-        if (!isVisible(el)) continue;
-        
-        const text = (el.textContent || '').trim();
-        if (!text) continue;
-        
-        for (const searchText of optionTexts) {
-          const normalizedText = text.toLowerCase();
-          const normalizedSearch = searchText.toLowerCase();
-          
-          if (normalizedText === normalizedSearch || 
-              (normalizedText.includes('car') && normalizedText.includes('van'))) {
-            // Make sure it's in a dropdown context
-            const parent = el.closest('[role="listbox"], [role="combobox"], [aria-haspopup="listbox"]');
-            if (parent || listbox?.contains(el)) {
-              vehicleOption = el;
-              console.log(`✓ Found option in document: "${text}"`);
-              break;
-            }
-          }
-        }
-        if (vehicleOption) break;
-      }
-    }
-    
-    // Strategy 3: Try keyboard navigation as fallback
-    if (!vehicleOption && listbox) {
-      console.log('Trying keyboard navigation...');
-      dropdownElement.focus();
-      await sleep(200);
-      
-      // Press Arrow Down to navigate
-      const arrowDown = new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, bubbles: true });
-      dropdownElement.dispatchEvent(arrowDown);
-      await sleep(300);
-      
-      // Try Enter to select first option
-      const enter = new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true });
-      dropdownElement.dispatchEvent(enter);
-      await sleep(500);
-      
-      // Check if selection was made
-      const selectedText = dropdownElement.textContent || '';
-      if (selectedText.includes('Car') || selectedText.includes('car')) {
-        console.log('Selection made via keyboard');
-        return true;
-      }
-    }
-    
-    // Click the option if found
-    if (vehicleOption) {
-      console.log('Attempting to click option:', vehicleOption.textContent);
-      
-      // Scroll into view
-      vehicleOption.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      await sleep(300);
-      
-      // Try multiple click methods
-      vehicleOption.focus();
-      await sleep(100);
-      
-      // Method 1: Direct click
-      vehicleOption.click();
-      await sleep(200);
-      
-      // Method 2: Mouse events
-      const mouseDown = new MouseEvent('mousedown', { bubbles: true, cancelable: true, buttons: 1 });
-      const mouseUp = new MouseEvent('mouseup', { bubbles: true, cancelable: true, buttons: 1 });
-      const click = new MouseEvent('click', { bubbles: true, cancelable: true, buttons: 1 });
-      
-      vehicleOption.dispatchEvent(mouseDown);
-      await sleep(50);
-      vehicleOption.dispatchEvent(mouseUp);
-      await sleep(50);
-      vehicleOption.dispatchEvent(click);
-      
-      // Method 3: Touch events (for mobile-like interactions)
-      const touchStart = new TouchEvent('touchstart', { bubbles: true, cancelable: true });
-      const touchEnd = new TouchEvent('touchend', { bubbles: true, cancelable: true });
-      try {
-        vehicleOption.dispatchEvent(touchStart);
-        await sleep(50);
-        vehicleOption.dispatchEvent(touchEnd);
-      } catch (e) {
-        // Touch events might not be available
-      }
-      
-      await sleep(800);
-      
-      // Verify selection
-      const isNowClosed = dropdownElement.getAttribute('aria-expanded') === 'false';
-      const selectedValue = dropdownElement.textContent || '';
-      
-      console.log('After click - Dropdown closed:', isNowClosed);
-      console.log('After click - Selected value:', selectedValue);
-      
-      if (isNowClosed || selectedValue.includes('Car') || selectedValue.includes('car')) {
-        console.log('✓ Selection successful!');
-        return true;
+      if (directMatch) {
+        targetVehicleType = directMatch;
+        console.log(`✓ Direct match found: "${targetVehicleType}"`);
       } else {
-        console.log('⚠ Selection may not have worked, but continuing...');
-        return true; // Return true anyway to continue
+        // Use categoryMap for backward compatibility with lowercase values
+        const categoryMap = {
+          'car': 'Car/van',
+          'truck': 'Car/van',
+          'suv': 'Car/van',
+          'van': 'Car/van',
+          'motorcycle': 'Motorcycle',
+          'boat': 'Boat',
+          'other': 'Other'
+        };
+        targetVehicleType = categoryMap[categoryLower] || 'Car/van';
+        console.log(`✓ Mapped via categoryMap: "${category}" → "${targetVehicleType}"`);
       }
     } else {
-      console.log('✗ Vehicle option not found');
+      console.log('⚠ No category in config, defaulting to Car/van');
+    }
+    
+    console.log(`🎯 Target vehicle type: "${targetVehicleType}"`);
+    
+    // Use selectVehicleType which uses the index mapping
+    return await selectVehicleType(targetVehicleType);
+  }
+  
+  
+
+  /**
+   * Select year by index from dropdown (similar to vehicle type selection)
+   * @param {number} index - The index of the year option (0 = current year, 1 = current year - 1, etc.)
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectYearByIndex(index) {
+    // Find year dropdown - look for label with "Year" text that has combobox role
+    let dropdown = null;
+    
+    // Strategy 1: Find label with "Year" text that has combobox role
+    const allLabels = document.querySelectorAll('label');
+    for (const label of allLabels) {
+      const labelText = label.textContent || '';
+      if (labelText.toLowerCase().includes('year') && 
+          label.getAttribute('role') === 'combobox' &&
+          label.getAttribute('aria-haspopup') === 'listbox') {
+        dropdown = label;
+        break;
+      }
+    }
+    
+    // Strategy 2: Find by span with "Year" text and look for nearby combobox
+    if (!dropdown) {
+      const yearSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+        const text = span.textContent || '';
+        return text.toLowerCase().trim() === 'year';
+      });
+      
+      for (const span of yearSpans) {
+        const parent = span.closest('label, div');
+        if (parent) {
+          const combobox = parent.querySelector('label[role="combobox"][aria-haspopup="listbox"]');
+          if (combobox) {
+            dropdown = combobox;
+            break;
+          }
+        }
+      }
+    }
+    
+    // Strategy 3: Generic combobox near year-related elements
+    if (!dropdown) {
+      dropdown = document.querySelector('label[role="combobox"][aria-haspopup="listbox"]');
+    }
+  
+    if (!dropdown) {
+      console.error('Year dropdown not found');
       return false;
     }
+  
+    // Reset state if dropdown is already open
+    if (dropdown.getAttribute("aria-expanded") === "true") {
+      dropdown.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          code: "Escape",
+          bubbles: true
+        })
+      );
+      await sleep(200);
+    }
+  
+    // Open dropdown
+    openDropdown(dropdown);
+    
+    // Wait for dropdown to expand
+    try {
+      await waitForExpanded(dropdown);
+    } catch (error) {
+      console.error('Error opening year dropdown:', error);
+      return false;
+    }
+  
+    // Wait for options to appear
+    let options;
+    try {
+      options = await waitForOptions();
+      console.log(`Found ${options.length} year options`);
+    } catch (error) {
+      console.error('Error waiting for year options:', error);
+      return false;
+    }
+  
+    // Select option by index
+    const target = options[index];
+    if (!target) {
+      console.error(`Year option at index ${index} not found. Available indices: 0-${options.length - 1}`);
+      return false;
+    }
+  
+    console.log(`Selecting year at index ${index}: "${target.innerText || target.textContent}"`);
+    fbSelectOption(target);
+    
+    await sleep(1000);
+    
+    // Verify selection
+    const isClosed = dropdown.getAttribute('aria-expanded') === 'false';
+    const selectedText = dropdown.textContent || '';
+    
+    if (isClosed && selectedText !== 'Year' && selectedText.trim() !== '') {
+      console.log(`✅ Successfully selected year: "${selectedText}"`);
+      return true;
+    } else {
+      console.log(`⚠ Year selection may not have worked. Closed: ${isClosed}, Text: "${selectedText}"`);
+      return isClosed;
+    }
+  }
+
+  /**
+   * Select year by year value (calculates index from current year)
+   * Facebook includes 1 upcoming year, so the dropdown structure is:
+   * Index 0 = currentYear + 1 (upcoming year)
+   * Index 1 = currentYear
+   * Index 2 = currentYear - 1
+   * Index 3 = currentYear - 2
+   * ... down to 1930
+   * @param {string|number} year - The year to select (e.g., '2023' or 2023)
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectYear(year) {
+    const currentYear = new Date().getFullYear();
+    const upcomingYear = currentYear + 1;
+    const yearNum = parseInt(year);
+    
+    if (isNaN(yearNum) || yearNum < 1930 || yearNum > upcomingYear) {
+      console.error(`❌ Invalid year: ${year}. Must be between 1930 and ${upcomingYear}`);
+      return false;
+    }
+    
+    // Calculate index: 0 = upcoming year, 1 = current year, 2 = current year - 1, etc.
+    const index = upcomingYear - yearNum;
+    
+    console.log(`📅 Selecting year: ${yearNum} (index: ${index}, upcoming year: ${upcomingYear})`);
+    return await selectYearByIndex(index);
   }
 
   async function fillYear() {
     if (!pendingPost.year) return false;
     
+    console.log('=== Starting fillYear ===');
+    
+    // Try index-based selection first (dropdown approach)
+    const yearSelected = await selectYear(pendingPost.year);
+    
+    if (yearSelected) {
+      return true;
+    }
+    
+    // Fallback to direct input if dropdown selection fails
+    console.log('Dropdown selection failed, trying direct input...');
     const selectors = [
       'input[placeholder*="year" i]',
       'input[aria-label*="year" i]',
@@ -549,6 +714,257 @@
     ];
 
     return await fillInput(selectors, pendingPost.year);
+  }
+
+  /**
+   * Select exterior color by index from dropdown (similar to vehicle type and year selection)
+   * @param {number} index - The index of the color option
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectExteriorColorByIndex(index) {
+    // Find exterior color dropdown - look for div with "Exterior colour" text
+    let dropdown = null;
+    
+    // Strategy 1: Find span with "Exterior colour" text and look for nearby combobox/dropdown
+    const exteriorColorSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+      const text = span.textContent || '';
+      return text.toLowerCase().includes('exterior') && text.toLowerCase().includes('colour');
+    });
+    
+    for (const span of exteriorColorSpans) {
+      // Look for parent div that contains the dropdown
+      const parent = span.closest('div');
+      if (parent) {
+        // First, look for label with combobox role (most common)
+        const labelCombobox = parent.querySelector('label[role="combobox"][aria-haspopup="listbox"]');
+        if (labelCombobox) {
+          dropdown = labelCombobox;
+          break;
+        }
+        
+        // Look for div with combobox role
+        const divCombobox = parent.querySelector('div[role="combobox"][aria-haspopup="listbox"]');
+        if (divCombobox) {
+          dropdown = divCombobox;
+          break;
+        }
+        
+        // Look for div with tabindex="-1" (clickable dropdown trigger)
+        const clickableDiv = parent.querySelector('div[tabindex="-1"]');
+        if (clickableDiv) {
+          // Check if this div or its parent has combobox role
+          const comboboxParent = clickableDiv.closest('[role="combobox"]');
+          if (comboboxParent) {
+            dropdown = comboboxParent;
+          } else {
+            dropdown = clickableDiv;
+          }
+          break;
+        }
+        
+        // Check for div with role="combobox" as sibling or child
+        const comboboxSibling = parent.querySelector('div[role="combobox"]');
+        if (comboboxSibling) {
+          dropdown = comboboxSibling;
+          break;
+        }
+      }
+    }
+    
+    // Strategy 2: Find by label with "Exterior colour" text
+    if (!dropdown) {
+      const allLabels = document.querySelectorAll('label');
+      for (const label of allLabels) {
+        const labelText = label.textContent || '';
+        if (labelText.toLowerCase().includes('exterior') && labelText.toLowerCase().includes('colour')) {
+          // Check if label itself is combobox
+          if (label.getAttribute('role') === 'combobox') {
+            dropdown = label;
+            break;
+          }
+          // Look for combobox within label
+          const combobox = label.querySelector('div[role="combobox"], label[role="combobox"]');
+          if (combobox) {
+            dropdown = combobox;
+            break;
+          }
+          // Look for clickable div within label
+          const clickableDiv = label.querySelector('div[tabindex="-1"]');
+          if (clickableDiv) {
+            dropdown = clickableDiv;
+            break;
+          }
+          // Check parent
+          const parentCombobox = label.closest('div[role="combobox"]');
+          if (parentCombobox) {
+            dropdown = parentCombobox;
+            break;
+          }
+        }
+      }
+    }
+    
+    // Strategy 3: Generic combobox near exterior color elements
+    if (!dropdown) {
+      const allComboboxes = document.querySelectorAll('label[role="combobox"][aria-haspopup="listbox"], div[role="combobox"][aria-haspopup="listbox"]');
+      for (const cb of allComboboxes) {
+        const parent = cb.closest('div');
+        if (parent) {
+          const text = parent.textContent || '';
+          if (text.toLowerCase().includes('exterior') && text.toLowerCase().includes('colour')) {
+            dropdown = cb;
+            break;
+          }
+        }
+      }
+    }
+  
+    if (!dropdown) {
+      console.error('Exterior color dropdown not found');
+      return false;
+    }
+  
+    // Reset state if dropdown is already open
+    if (dropdown.getAttribute("aria-expanded") === "true") {
+      dropdown.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          code: "Escape",
+          bubbles: true
+        })
+      );
+      await sleep(200);
+    }
+  
+    // Open dropdown - handle both label and div elements
+    console.log(`Opening exterior color dropdown, tag: ${dropdown.tagName}, role: ${dropdown.getAttribute('role')}, tabindex: ${dropdown.getAttribute('tabindex')}`);
+    
+    if (dropdown.tagName === 'DIV' && dropdown.getAttribute('tabindex') === '-1') {
+      // For div dropdowns, click directly with proper events
+      dropdown.scrollIntoView({ block: "center" });
+      dropdown.focus();
+      await sleep(100);
+      
+      // Trigger mouse events
+      dropdown.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      dropdown.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+      dropdown.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      
+      // Also try native click
+      dropdown.click();
+      
+      // Trigger keyboard event
+      dropdown.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        code: "ArrowDown",
+        bubbles: true
+      }));
+    } else {
+      // For label dropdowns, use standard openDropdown
+      openDropdown(dropdown);
+    }
+    
+    // Wait for dropdown to expand - check both the dropdown and any parent with aria-expanded
+    try {
+      await waitForExpanded(dropdown);
+    } catch (error) {
+      console.error('Error opening exterior color dropdown:', error);
+      // Try waiting a bit more and checking again
+      await sleep(500);
+      const expanded = dropdown.getAttribute("aria-expanded") === "true";
+      const listbox = document.querySelector('[role="listbox"]');
+      if (!expanded && !listbox) {
+        console.error('Dropdown did not open after retry');
+        return false;
+      }
+    }
+  
+    // Wait for options to appear
+    let options;
+    try {
+      options = await waitForOptions();
+      console.log(`Found ${options.length} exterior color options`);
+    } catch (error) {
+      console.error('Error waiting for exterior color options:', error);
+      return false;
+    }
+  
+    // Select option by index
+    const target = options[index];
+    if (!target) {
+      console.error(`Exterior color option at index ${index} not found. Available indices: 0-${options.length - 1}`);
+      return false;
+    }
+  
+    console.log(`Selecting exterior color at index ${index}: "${target.innerText || target.textContent}"`);
+    fbSelectOption(target);
+    
+    await sleep(1000);
+    
+    // Verify selection
+    const isClosed = dropdown.getAttribute('aria-expanded') === 'false';
+    const selectedText = dropdown.textContent || '';
+    
+    if (isClosed && selectedText !== 'Exterior colour' && selectedText.trim() !== '') {
+      console.log(`✅ Successfully selected exterior color: "${selectedText}"`);
+      return true;
+    } else {
+      console.log(`⚠ Exterior color selection may not have worked. Closed: ${isClosed}, Text: "${selectedText}"`);
+      return isClosed;
+    }
+  }
+
+  /**
+   * Select exterior color by color name using the EXTERIOR_COLOR_INDEX mapping
+   * @param {string} colorName - The color name (e.g., 'Black', 'Blue', 'Red')
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectExteriorColor(colorName) {
+    // First try exact match
+    let index = EXTERIOR_COLOR_INDEX[colorName];
+    
+    // If not found, try case-insensitive match
+    if (index === undefined) {
+      const colorLower = colorName.toLowerCase();
+      const matchedKey = Object.keys(EXTERIOR_COLOR_INDEX).find(
+        key => key.toLowerCase() === colorLower
+      );
+      
+      if (matchedKey) {
+        index = EXTERIOR_COLOR_INDEX[matchedKey];
+        colorName = matchedKey; // Use the correct casing
+        console.log(`ℹ️ Case-insensitive match: "${colorName}"`);
+      }
+    }
+    
+    // Try common color name variations
+    if (index === undefined) {
+      const colorVariations = {
+        'gray': 'Grey',
+        'gray': 'Grey',
+        'off-white': 'Off white',
+        'offwhite': 'Off white',
+        'navy': 'Blue',
+        'maroon': 'Burgundy',
+        'teal': 'Turquoise'
+      };
+      
+      const colorLower = colorName.toLowerCase();
+      if (colorVariations[colorLower]) {
+        const matchedColor = colorVariations[colorLower];
+        index = EXTERIOR_COLOR_INDEX[matchedColor];
+        colorName = matchedColor;
+        console.log(`ℹ️ Color variation matched: "${colorName}"`);
+      }
+    }
+    
+    if (index === undefined) {
+      console.error(`❌ Unknown exterior color: "${colorName}". Available colors:`, Object.keys(EXTERIOR_COLOR_INDEX));
+      return false;
+    }
+    
+    console.log(`🎨 Selecting exterior color: "${colorName}" (index: ${index})`);
+    return await selectExteriorColorByIndex(index);
   }
 
   async function fillMake() {
@@ -566,6 +982,40 @@
   async function fillModel() {
     if (!pendingPost.model) return false;
     
+    console.log('=== Starting fillModel ===');
+    
+    // Strategy 1: Find input by label containing "Model"
+    const allLabels = document.querySelectorAll('label');
+    for (const label of allLabels) {
+      const labelText = label.textContent || '';
+      if (labelText.toLowerCase().includes('model') && !labelText.toLowerCase().includes('body')) {
+        const input = label.querySelector('input[type="text"], input:not([type="file"])');
+        if (input && isVisible(input)) {
+          console.log('Found model input via label');
+          return await fillInput([input], pendingPost.model);
+        }
+      }
+    }
+    
+    // Strategy 2: Find input near span containing "Model"
+    const modelSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+      const text = span.textContent || '';
+      return text.toLowerCase().trim() === 'model';
+    });
+    
+    for (const span of modelSpans) {
+      // Look for input in parent or sibling elements
+      const parent = span.closest('label, div');
+      if (parent) {
+        const input = parent.querySelector('input[type="text"], input:not([type="file"])');
+        if (input && isVisible(input)) {
+          console.log('Found model input near Model span');
+          return await fillInput([input], pendingPost.model);
+        }
+      }
+    }
+    
+    // Strategy 3: Standard selectors
     const selectors = [
       'input[placeholder*="model" i]',
       'input[aria-label*="model" i]'
@@ -577,13 +1027,48 @@
   async function fillMileage() {
     if (!pendingPost.mileage) return false;
     
+    console.log('=== Starting fillMileage ===');
+    
+    const mileage = pendingPost.mileage.replace(/[^\d]/g, '');
+    
+    // Strategy 1: Find input by label containing "Mileage"
+    const allLabels = document.querySelectorAll('label');
+    for (const label of allLabels) {
+      const labelText = label.textContent || '';
+      if (labelText.toLowerCase().includes('mileage')) {
+        const input = label.querySelector('input[type="text"], input:not([type="file"])');
+        if (input && isVisible(input)) {
+          console.log('Found mileage input via label');
+          return await fillInput([input], mileage);
+        }
+      }
+    }
+    
+    // Strategy 2: Find input near span containing "Mileage"
+    const mileageSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+      const text = span.textContent || '';
+      return text.toLowerCase().trim() === 'mileage';
+    });
+    
+    for (const span of mileageSpans) {
+      // Look for input in parent or sibling elements
+      const parent = span.closest('label, div');
+      if (parent) {
+        const input = parent.querySelector('input[type="text"], input:not([type="file"])');
+        if (input && isVisible(input)) {
+          console.log('Found mileage input near Mileage span');
+          return await fillInput([input], mileage);
+        }
+      }
+    }
+    
+    // Strategy 3: Standard selectors
     const selectors = [
       'input[placeholder*="mileage" i]',
       'input[aria-label*="mileage" i]',
       'input[placeholder*="odometer" i]'
     ];
 
-    const mileage = pendingPost.mileage.replace(/[^\d]/g, '');
     return await fillInput(selectors, mileage);
   }
 
@@ -602,14 +1087,48 @@
   async function fillPrice() {
     if (!pendingPost.price) return false;
     
+    const price = pendingPost.price.replace(/[^\d]/g, '');
+    
+    // Strategy 1: Find input by label containing "Price"
+    const allLabels = document.querySelectorAll('label');
+    for (const label of allLabels) {
+      const labelText = label.textContent || '';
+      if (labelText.toLowerCase().includes('price') && !labelText.toLowerCase().includes('original')) {
+        const input = label.querySelector('input[type="text"], input[type="number"], input:not([type="file"])');
+        if (input && isVisible(input)) {
+          console.log('Found price input via label');
+          return await fillInput([input], price);
+        }
+      }
+    }
+    
+    // Strategy 2: Find input near span containing "Price"
+    const priceSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+      const text = span.textContent || '';
+      return text.toLowerCase().trim() === 'price';
+    });
+    
+    for (const span of priceSpans) {
+      // Look for input in parent or sibling elements
+      const parent = span.closest('label, div');
+      if (parent) {
+        const input = parent.querySelector('input[type="text"], input[type="number"], input:not([type="file"])');
+        if (input && isVisible(input)) {
+          console.log('Found price input near Price span');
+          return await fillInput([input], price);
+        }
+      }
+    }
+    
+    // Strategy 3: Standard selectors
     const selectors = [
       'input[placeholder*="price" i]',
       'input[aria-label*="price" i]',
       'input[type="number"]',
-      'input[inputmode="numeric"]'
+      'input[inputmode="numeric"]',
+      'input[id*="_r_"][type="text"]' // Facebook's dynamic ID pattern
     ];
 
-    const price = pendingPost.price.replace(/[^\d]/g, '');
     return await fillInput(selectors, price);
   }
 
@@ -875,7 +1394,7 @@
       console.log(`✓ Description filled successfully (${finalContent.length} characters)`);
       return true;
     } else {
-      console.log('⚠ Description may not have been filled correctly');
+      console.log('✗ Description field appears empty after filling');
       return false;
     }
   }
@@ -883,13 +1402,134 @@
   async function fillLocation() {
     if (!pendingPost.dealerAddress) return false;
     
+    console.log('=== Starting fillLocation ===');
+    
     const selectors = [
       'input[placeholder*="location" i]',
       'input[aria-label*="location" i]',
       'input[placeholder*="address" i]'
     ];
 
-    return await fillInput(selectors, pendingPost.dealerAddress);
+    // Find the location input
+    let locationInput = null;
+    for (const selector of selectors) {
+      const element = document.querySelector(selector);
+      if (element && isVisible(element)) {
+        locationInput = element;
+        break;
+      }
+    }
+
+    if (!locationInput) {
+      console.log('Location input not found');
+      return false;
+    }
+
+    // Focus and clear the input
+    locationInput.focus();
+    await sleep(300);
+    
+    // Clear existing value
+    locationInput.value = '';
+    locationInput.dispatchEvent(new Event('input', { bubbles: true }));
+    locationInput.dispatchEvent(new Event('change', { bubbles: true }));
+    await sleep(200);
+    
+    // Type the location value character by character
+    const locationValue = pendingPost.dealerAddress;
+    for (let i = 0; i < locationValue.length; i++) {
+      locationInput.value += locationValue[i];
+      locationInput.dispatchEvent(new Event('input', { bubbles: true }));
+      await sleep(80 + Math.random() * 40);
+    }
+    
+    // Final input event to trigger autocomplete
+    locationInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await sleep(500);
+    
+    // Press ArrowDown to open/activate autocomplete
+    locationInput.dispatchEvent(new KeyboardEvent('keydown', { 
+      key: 'ArrowDown', 
+      code: 'ArrowDown',
+      keyCode: 40,
+      bubbles: true 
+    }));
+    await sleep(300);
+    
+    // Wait for autocomplete suggestions using waitForOptions helper
+    let options = null;
+    try {
+      options = await waitForOptions(3000);
+      console.log(`Found ${options.length} location suggestions`);
+    } catch (error) {
+      console.log('Waiting for location options...', error.message);
+      // Try alternative method to find options
+      await sleep(1000);
+      
+      // Look for all possible autocomplete containers
+      const allListboxes = document.querySelectorAll('[role="listbox"]');
+      for (const listbox of allListboxes) {
+        if (isVisible(listbox)) {
+          const opts = listbox.querySelectorAll('[role="option"]');
+          if (opts && opts.length > 0) {
+            options = [...opts];
+            console.log(`Found ${options.length} location suggestions in visible listbox`);
+            break;
+          }
+        }
+      }
+      
+      // If still no options, try finding by proximity to input
+      if (!options || options.length === 0) {
+        const inputParent = locationInput.closest('div, form, label');
+        if (inputParent) {
+          const nearbyListbox = inputParent.querySelector('[role="listbox"]');
+          if (nearbyListbox && isVisible(nearbyListbox)) {
+            const opts = nearbyListbox.querySelectorAll('[role="option"], div[role="option"], li[role="option"]');
+            if (opts && opts.length > 0) {
+              options = [...opts];
+              console.log(`Found ${options.length} location suggestions near input`);
+            }
+          }
+        }
+      }
+    }
+    
+    if (options && options.length > 0) {
+      // Select index 0 (first suggestion) using fbSelectOption helper
+      const firstOption = options[0];
+      const optionText = firstOption.textContent || firstOption.innerText || '';
+      console.log(`Selecting first location suggestion (index 0): "${optionText}"`);
+      
+      // Use the same selection method as other dropdowns
+      fbSelectOption(firstOption);
+      
+      await sleep(800);
+      
+      // Verify selection by checking if input value changed
+      const finalValue = locationInput.value || '';
+      if (finalValue && finalValue.length > 0) {
+        console.log(`✅ Location selected: "${finalValue}"`);
+        return true;
+      } else {
+        // Try clicking directly as fallback
+        console.log('Trying direct click on first option...');
+        firstOption.click();
+        await sleep(500);
+        return true;
+      }
+    } else {
+      console.log('⚠ No autocomplete suggestions found, submitting typed value');
+      // Fallback: press Enter to submit the typed value
+      locationInput.dispatchEvent(new KeyboardEvent("keydown", { 
+        key: "Enter", 
+        code: "Enter",
+        keyCode: 13,
+        bubbles: true 
+      }));
+      await sleep(300);
+      return true;
+    }
   }
 
   async function fillCondition() {
@@ -947,16 +1587,338 @@
     return false;
   }
 
+  /**
+   * Select fuel type by index from dropdown (similar to vehicle type, year, and exterior color selection)
+   * @param {number} index - The index of the fuel type option
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectFuelTypeByIndex(index) {
+    // Find fuel type dropdown - look for span with "Fuel type" text
+    let dropdown = null;
+    
+    // Strategy 1: Find span with "Fuel type" text and look for nearby combobox/dropdown
+    const fuelTypeSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+      const text = span.textContent || '';
+      return text.toLowerCase().includes('fuel') && text.toLowerCase().includes('type');
+    });
+    
+    for (const span of fuelTypeSpans) {
+      // Look for parent div that contains the dropdown
+      const parent = span.closest('div');
+      if (parent) {
+        // First, look for label with combobox role (most common)
+        const labelCombobox = parent.querySelector('label[role="combobox"][aria-haspopup="listbox"]');
+        if (labelCombobox) {
+          dropdown = labelCombobox;
+          break;
+        }
+        
+        // Look for div with combobox role
+        const divCombobox = parent.querySelector('div[role="combobox"][aria-haspopup="listbox"]');
+        if (divCombobox) {
+          dropdown = divCombobox;
+          break;
+        }
+        
+        // Look for div with tabindex="-1" (clickable dropdown trigger)
+        const clickableDiv = parent.querySelector('div[tabindex="-1"]');
+        if (clickableDiv) {
+          // Check if this div or its parent has combobox role
+          const comboboxParent = clickableDiv.closest('[role="combobox"]');
+          if (comboboxParent) {
+            dropdown = comboboxParent;
+          } else {
+            dropdown = clickableDiv;
+          }
+          break;
+        }
+        
+        // Check for div with role="combobox" as sibling or child
+        const comboboxSibling = parent.querySelector('div[role="combobox"]');
+        if (comboboxSibling) {
+          dropdown = comboboxSibling;
+          break;
+        }
+      }
+    }
+    
+    // Strategy 2: Find label[role="combobox"] directly that contains "Fuel type" span
+    if (!dropdown) {
+      const allComboboxLabels = document.querySelectorAll('label[role="combobox"][aria-haspopup="listbox"]');
+      for (const label of allComboboxLabels) {
+        const labelText = label.textContent || '';
+        const hasFuelTypeSpan = label.querySelector('span[id*="_r_"]') && labelText.toLowerCase().includes('fuel') && labelText.toLowerCase().includes('type');
+        if (hasFuelTypeSpan || (labelText.toLowerCase().includes('fuel') && labelText.toLowerCase().includes('type'))) {
+          dropdown = label;
+          console.log('Found fuel type label combobox directly');
+          break;
+        }
+      }
+    }
+    
+    // Strategy 3: Find by label with "Fuel type" text
+    if (!dropdown) {
+      const allLabels = document.querySelectorAll('label');
+      for (const label of allLabels) {
+        const labelText = label.textContent || '';
+        if (labelText.toLowerCase().includes('fuel') && labelText.toLowerCase().includes('type')) {
+          // Check if label itself is combobox
+          if (label.getAttribute('role') === 'combobox') {
+            dropdown = label;
+            break;
+          }
+          // Look for combobox within label
+          const combobox = label.querySelector('div[role="combobox"], label[role="combobox"]');
+          if (combobox) {
+            dropdown = combobox;
+            break;
+          }
+          // Look for clickable div within label
+          const clickableDiv = label.querySelector('div[tabindex="-1"]');
+          if (clickableDiv) {
+            dropdown = clickableDiv;
+            break;
+          }
+          // Check parent
+          const parentCombobox = label.closest('div[role="combobox"]');
+          if (parentCombobox) {
+            dropdown = parentCombobox;
+            break;
+          }
+        }
+      }
+    }
+    
+    // Strategy 4: Generic combobox near fuel type elements
+    if (!dropdown) {
+      const allComboboxes = document.querySelectorAll('label[role="combobox"][aria-haspopup="listbox"], div[role="combobox"][aria-haspopup="listbox"]');
+      for (const cb of allComboboxes) {
+        const parent = cb.closest('div');
+        if (parent) {
+          const text = parent.textContent || '';
+          if (text.toLowerCase().includes('fuel') && text.toLowerCase().includes('type')) {
+            dropdown = cb;
+            break;
+          }
+        }
+      }
+    }
+  
+    if (!dropdown) {
+      console.error('Fuel type dropdown not found');
+      return false;
+    }
+  
+    // Reset state if dropdown is already open
+    if (dropdown.getAttribute("aria-expanded") === "true") {
+      dropdown.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          code: "Escape",
+          bubbles: true
+        })
+      );
+      await sleep(200);
+    }
+  
+    // Open dropdown - handle both label and div elements
+    console.log(`Opening fuel type dropdown, tag: ${dropdown.tagName}, role: ${dropdown.getAttribute('role')}, tabindex: ${dropdown.getAttribute('tabindex')}`);
+    
+    if (dropdown.tagName === 'DIV' && dropdown.getAttribute('tabindex') === '-1') {
+      // For div dropdowns, click directly with proper events
+      dropdown.scrollIntoView({ block: "center" });
+      dropdown.focus();
+      await sleep(100);
+      
+      // Trigger mouse events
+      dropdown.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      dropdown.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+      dropdown.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      
+      // Also try native click
+      dropdown.click();
+      
+      // Trigger keyboard event
+      dropdown.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        code: "ArrowDown",
+        bubbles: true
+      }));
+    } else {
+      // For label dropdowns, use standard openDropdown
+      openDropdown(dropdown);
+    }
+    
+    // Wait for dropdown to expand - check both the dropdown and any parent with aria-expanded
+    try {
+      await waitForExpanded(dropdown);
+    } catch (error) {
+      console.error('Error opening fuel type dropdown:', error);
+      // Try waiting a bit more and checking again
+      await sleep(500);
+      const expanded = dropdown.getAttribute("aria-expanded") === "true";
+      const listbox = document.querySelector('[role="listbox"]');
+      if (!expanded && !listbox) {
+        console.error('Dropdown did not open after retry');
+        return false;
+      }
+    }
+  
+    // Wait for options to appear
+    let options;
+    try {
+      options = await waitForOptions();
+      console.log(`Found ${options.length} fuel type options`);
+    } catch (error) {
+      console.error('Error waiting for fuel type options:', error);
+      return false;
+    }
+  
+    // Select option by index
+    const target = options[index];
+    if (!target) {
+      console.error(`Fuel type option at index ${index} not found. Available indices: 0-${options.length - 1}`);
+      return false;
+    }
+  
+    console.log(`Selecting fuel type at index ${index}: "${target.innerText || target.textContent}"`);
+    fbSelectOption(target);
+    
+    await sleep(1000);
+    
+    // Verify selection
+    const isClosed = dropdown.getAttribute('aria-expanded') === 'false';
+    const selectedText = dropdown.textContent || '';
+    
+    if (isClosed && selectedText !== 'Fuel type' && selectedText.trim() !== '') {
+      console.log(`✅ Successfully selected fuel type: "${selectedText}"`);
+      return true;
+    } else {
+      console.log(`⚠ Fuel type selection may not have worked. Closed: ${isClosed}, Text: "${selectedText}"`);
+      return isClosed;
+    }
+  }
+
+  /**
+   * Select fuel type by fuel type name using the FUEL_TYPE_INDEX mapping
+   * @param {string} fuelTypeName - The fuel type name (e.g., 'Diesel', 'Electric', 'Petrol', 'Hybrid')
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectFuelType(fuelTypeName) {
+    // First try exact match
+    let index = FUEL_TYPE_INDEX[fuelTypeName];
+    
+    // If not found, try case-insensitive match
+    if (index === undefined) {
+      const fuelTypeLower = fuelTypeName.toLowerCase();
+      const matchedKey = Object.keys(FUEL_TYPE_INDEX).find(
+        key => key.toLowerCase() === fuelTypeLower
+      );
+      
+      if (matchedKey) {
+        index = FUEL_TYPE_INDEX[matchedKey];
+        fuelTypeName = matchedKey; // Use the correct casing
+        console.log(`ℹ️ Case-insensitive match: "${fuelTypeName}"`);
+      }
+    }
+    
+    // Try common fuel type name variations and engine-based detection
+    if (index === undefined) {
+      const fuelTypeLower = fuelTypeName.toLowerCase();
+      const fuelVariations = {
+        'gasoline': 'Petrol',
+        'gas': 'Petrol',
+        'petrol': 'Petrol',
+        'diesel': 'Diesel',
+        'electric': 'Electric',
+        'ev': 'Electric',
+        'hybrid': 'Hybrid',
+        'plug-in hybrid': 'Plug-in hybrid',
+        'plugin hybrid': 'Plug-in hybrid',
+        'phev': 'Plug-in hybrid',
+        'flex': 'Flex',
+        'other': 'Other'
+      };
+      
+      // Check direct match
+      if (fuelVariations[fuelTypeLower]) {
+        const matchedFuel = fuelVariations[fuelTypeLower];
+        index = FUEL_TYPE_INDEX[matchedFuel];
+        fuelTypeName = matchedFuel;
+        console.log(`ℹ️ Fuel type variation matched: "${fuelTypeName}"`);
+      } else {
+        // Try to detect from engine description
+        if (fuelTypeLower.includes('diesel')) {
+          index = FUEL_TYPE_INDEX['Diesel'];
+          fuelTypeName = 'Diesel';
+        } else if (fuelTypeLower.includes('electric') || fuelTypeLower.includes('ev')) {
+          index = FUEL_TYPE_INDEX['Electric'];
+          fuelTypeName = 'Electric';
+        } else if (fuelTypeLower.includes('hybrid')) {
+          if (fuelTypeLower.includes('plug') || fuelTypeLower.includes('phev')) {
+            index = FUEL_TYPE_INDEX['Plug-in hybrid'];
+            fuelTypeName = 'Plug-in hybrid';
+          } else {
+            index = FUEL_TYPE_INDEX['Hybrid'];
+            fuelTypeName = 'Hybrid';
+          }
+        } else if (fuelTypeLower.includes('petrol') || fuelTypeLower.includes('gasoline') || fuelTypeLower.includes('gas')) {
+          index = FUEL_TYPE_INDEX['Petrol'];
+          fuelTypeName = 'Petrol';
+        } else if (fuelTypeLower.includes('flex')) {
+          index = FUEL_TYPE_INDEX['Flex'];
+          fuelTypeName = 'Flex';
+        }
+      }
+    }
+    
+    if (index === undefined) {
+      console.error(`❌ Unknown fuel type: "${fuelTypeName}". Available types:`, Object.keys(FUEL_TYPE_INDEX));
+      return false;
+    }
+    
+    console.log(`⛽ Selecting fuel type: "${fuelTypeName}" (index: ${index})`);
+    return await selectFuelTypeByIndex(index);
+  }
+
   async function fillFuelType() {
-    if (!pendingPost.engine) return false;
+    // Check if we have fuelType directly, or try to derive from engine
+    let fuelType = pendingPost.fuelType;
     
-    const engine = pendingPost.engine.toLowerCase();
-    let fuelType = 'Gasoline';
+    if (!fuelType && pendingPost.engine) {
+      // Derive fuel type from engine description (backward compatibility)
+      const engine = pendingPost.engine.toLowerCase();
+      if (engine.includes('diesel')) fuelType = 'Diesel';
+      else if (engine.includes('electric') || engine.includes('ev')) fuelType = 'Electric';
+      else if (engine.includes('hybrid')) {
+        if (engine.includes('plug') || engine.includes('phev')) {
+          fuelType = 'Plug-in hybrid';
+        } else {
+          fuelType = 'Hybrid';
+        }
+      } else if (engine.includes('petrol') || engine.includes('gasoline') || engine.includes('gas')) {
+        fuelType = 'Petrol';
+      } else if (engine.includes('flex')) {
+        fuelType = 'Flex';
+      }
+    }
     
-    if (engine.includes('diesel')) fuelType = 'Diesel';
-    if (engine.includes('electric')) fuelType = 'Electric';
-    if (engine.includes('hybrid')) fuelType = 'Hybrid';
+    if (!fuelType) {
+      console.log('No fuel type provided');
+      return false;
+    }
     
+    console.log('=== Starting fillFuelType ===');
+    
+    // Try index-based selection first (dropdown approach)
+    const fuelTypeSelected = await selectFuelType(fuelType);
+    
+    if (fuelTypeSelected) {
+      return true;
+    }
+    
+    // Fallback to text-based selection
+    console.log('Dropdown selection failed, trying text-based selection...');
     const element = findElementByText([fuelType]);
     if (element) {
       simulateClick(element);
@@ -966,9 +1928,276 @@
     return false;
   }
 
+  /**
+   * Select vehicle condition by index from dropdown (similar to other dropdown selections)
+   * @param {number} index - The index of the condition option
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectConditionByIndex(index) {
+    // Find condition dropdown - look for label with "Vehicle condition" text
+    let dropdown = null;
+    
+    // Strategy 1: Find label[role="combobox"] directly that contains "Vehicle condition" span
+    const allComboboxLabels = document.querySelectorAll('label[role="combobox"][aria-haspopup="listbox"]');
+    for (const label of allComboboxLabels) {
+      const labelText = label.textContent || '';
+      if (labelText.toLowerCase().includes('condition') && labelText.toLowerCase().includes('vehicle')) {
+        dropdown = label;
+        console.log('Found condition label combobox directly');
+        break;
+      }
+    }
+    
+    // Strategy 2: Find span with "Vehicle condition" text and look for nearby combobox/dropdown
+    if (!dropdown) {
+      const conditionSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+        const text = span.textContent || '';
+        return text.toLowerCase().includes('condition') && text.toLowerCase().includes('vehicle');
+      });
+      
+      for (const span of conditionSpans) {
+        const parent = span.closest('div');
+        if (parent) {
+          const labelCombobox = parent.querySelector('label[role="combobox"][aria-haspopup="listbox"]');
+          if (labelCombobox) {
+            dropdown = labelCombobox;
+            break;
+          }
+          
+          const divCombobox = parent.querySelector('div[role="combobox"][aria-haspopup="listbox"]');
+          if (divCombobox) {
+            dropdown = divCombobox;
+            break;
+          }
+          
+          const clickableDiv = parent.querySelector('div[tabindex="-1"]');
+          if (clickableDiv) {
+            const comboboxParent = clickableDiv.closest('[role="combobox"]');
+            if (comboboxParent) {
+              dropdown = comboboxParent;
+            } else {
+              dropdown = clickableDiv;
+            }
+            break;
+          }
+        }
+      }
+    }
+    
+    // Strategy 3: Find by label with "Vehicle condition" text
+    if (!dropdown) {
+      const allLabels = document.querySelectorAll('label');
+      for (const label of allLabels) {
+        const labelText = label.textContent || '';
+        if (labelText.toLowerCase().includes('condition') && labelText.toLowerCase().includes('vehicle')) {
+          if (label.getAttribute('role') === 'combobox') {
+            dropdown = label;
+            break;
+          }
+          const combobox = label.querySelector('div[role="combobox"], label[role="combobox"]');
+          if (combobox) {
+            dropdown = combobox;
+            break;
+          }
+          const clickableDiv = label.querySelector('div[tabindex="-1"]');
+          if (clickableDiv) {
+            dropdown = clickableDiv;
+            break;
+          }
+        }
+      }
+    }
+  
+    if (!dropdown) {
+      console.error('Vehicle condition dropdown not found');
+      return false;
+    }
+  
+    // Reset state if dropdown is already open
+    if (dropdown.getAttribute("aria-expanded") === "true") {
+      dropdown.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          code: "Escape",
+          bubbles: true
+        })
+      );
+      await sleep(200);
+    }
+  
+    // Open dropdown
+    console.log(`Opening condition dropdown, tag: ${dropdown.tagName}, role: ${dropdown.getAttribute('role')}, tabindex: ${dropdown.getAttribute('tabindex')}`);
+    
+    if (dropdown.tagName === 'DIV' && dropdown.getAttribute('tabindex') === '-1') {
+      dropdown.scrollIntoView({ block: "center" });
+      dropdown.focus();
+      await sleep(100);
+      dropdown.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      dropdown.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+      dropdown.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      dropdown.click();
+      dropdown.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        code: "ArrowDown",
+        bubbles: true
+      }));
+    } else {
+      openDropdown(dropdown);
+    }
+    
+    // Wait for dropdown to expand
+    try {
+      await waitForExpanded(dropdown);
+    } catch (error) {
+      console.error('Error opening condition dropdown:', error);
+      await sleep(500);
+      const expanded = dropdown.getAttribute("aria-expanded") === "true";
+      const listbox = document.querySelector('[role="listbox"]');
+      if (!expanded && !listbox) {
+        console.error('Condition dropdown did not open after retry');
+        return false;
+      }
+    }
+  
+    // Wait for options to appear
+    let options;
+    try {
+      options = await waitForOptions();
+      console.log(`Found ${options.length} condition options`);
+    } catch (error) {
+      console.error('Error waiting for condition options:', error);
+      return false;
+    }
+  
+    // Select option by index
+    const target = options[index];
+    if (!target) {
+      console.error(`Condition option at index ${index} not found. Available indices: 0-${options.length - 1}`);
+      return false;
+    }
+  
+    console.log(`Selecting condition at index ${index}: "${target.innerText || target.textContent}"`);
+    fbSelectOption(target);
+    
+    await sleep(1000);
+    
+    // Verify selection
+    const isClosed = dropdown.getAttribute('aria-expanded') === 'false';
+    const selectedText = dropdown.textContent || '';
+    
+    if (isClosed && selectedText !== 'Vehicle condition' && selectedText.trim() !== '') {
+      console.log(`✅ Successfully selected condition: "${selectedText}"`);
+      return true;
+    } else {
+      console.log(`⚠ Condition selection may not have worked. Closed: ${isClosed}, Text: "${selectedText}"`);
+      return isClosed;
+    }
+  }
+
+  /**
+   * Select vehicle condition by condition name using the CONDITION_INDEX mapping
+   * @param {string} conditionName - The condition name (e.g., 'Excellent', 'Very good', 'Good', 'Fair', 'Poor')
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectCondition(conditionName) {
+    // First try exact match
+    let index = CONDITION_INDEX[conditionName];
+    
+    // If not found, try case-insensitive match
+    if (index === undefined) {
+      const conditionLower = conditionName.toLowerCase();
+      const matchedKey = Object.keys(CONDITION_INDEX).find(
+        key => key.toLowerCase() === conditionLower
+      );
+      
+      if (matchedKey) {
+        index = CONDITION_INDEX[matchedKey];
+        conditionName = matchedKey;
+        console.log(`ℹ️ Case-insensitive match: "${conditionName}"`);
+      }
+    }
+    
+    // Try common condition name variations
+    if (index === undefined) {
+      const conditionLower = conditionName.toLowerCase();
+      const conditionVariations = {
+        'excellent': 'Excellent',
+        'very good': 'Very good',
+        'verygood': 'Very good',
+        'good': 'Good',
+        'fair': 'Fair',
+        'poor': 'Poor',
+        'new': 'Excellent',
+        'used': 'Good',
+        'pre-owned': 'Good'
+      };
+      
+      if (conditionVariations[conditionLower]) {
+        const matchedCondition = conditionVariations[conditionLower];
+        index = CONDITION_INDEX[matchedCondition];
+        conditionName = matchedCondition;
+        console.log(`ℹ️ Condition variation matched: "${conditionName}"`);
+      }
+    }
+    
+    if (index === undefined) {
+      console.error(`❌ Unknown condition: "${conditionName}". Available conditions:`, Object.keys(CONDITION_INDEX));
+      return false;
+    }
+    
+    console.log(`🚗 Selecting vehicle condition: "${conditionName}" (index: ${index})`);
+    return await selectConditionByIndex(index);
+  }
+
+  async function fillCondition() {
+    if (!pendingPost.condition) return false;
+    
+    console.log('=== Starting fillCondition ===');
+    
+    // Try index-based selection first (dropdown approach)
+    const conditionSelected = await selectCondition(pendingPost.condition);
+    
+    if (conditionSelected) {
+      return true;
+    }
+    
+    // Fallback to text-based selection
+    console.log('Dropdown selection failed, trying text-based selection...');
+    const condition = pendingPost.condition.toLowerCase();
+    const isNew = condition.includes('new');
+    
+    const conditionElement = findElementByText([
+      isNew ? 'New' : 'Used',
+      isNew ? 'Brand New' : 'Pre-owned',
+      'Excellent',
+      'Very good',
+      'Good',
+      'Fair',
+      'Poor'
+    ]);
+    
+    if (conditionElement) {
+      simulateClick(conditionElement);
+      await sleep(500);
+      return true;
+    }
+    return false;
+  }
+
   async function fillExteriorColor() {
     if (!pendingPost.exteriorColor) return false;
     
+    console.log('=== Starting fillExteriorColor ===');
+    
+    // Try index-based selection first (dropdown approach)
+    const colorSelected = await selectExteriorColor(pendingPost.exteriorColor);
+    
+    if (colorSelected) {
+      return true;
+    }
+    
+    // Fallback to direct input if dropdown selection fails
+    console.log('Dropdown selection failed, trying direct input...');
     const colorInput = document.querySelector('input[placeholder*="exterior" i], input[aria-label*="exterior" i]');
     if (colorInput && isVisible(colorInput)) {
       return await fillInput([colorInput], pendingPost.exteriorColor);
