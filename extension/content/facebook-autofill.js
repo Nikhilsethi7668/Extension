@@ -74,31 +74,53 @@
     }
   }
 
+  // Message listener for receiving test data directly (without storage)
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    // Ping handler to check if content script is loaded
+    if (request.action === 'ping') {
+      sendResponse({ success: true, loaded: true });
+      return true;
+    }
+    
+    if (request.action === 'fillFormWithData') {
+      console.log('Received test data via API:', request.data);
+      
+      // Set pendingPost directly without storage
+      pendingPost = request.data;
+      
+      // Reset fill state
+      filledFields.clear();
+      fillAttempts = 0;
+      isFilling = false;
+      
+      // Start observer if not already started
+      if (!observer) {
+        startObserver();
+      }
+      
+      // Start filling immediately
+      setTimeout(() => {
+        attemptAutoFill();
+      }, 500);
+      
+      sendResponse({ success: true, message: 'Test data received, starting form fill' });
+      return true; // Keep channel open for async response
+    }
+    
+    return false;
+  });
+
   // Initialize the autofill agent
   init();
 
   async function init() {
     try {
-      // Load pending post data
-      const stored = await safeChromeStorageGet(['pendingPost']);
-      if (stored.pendingPost) {
-        pendingPost = stored.pendingPost;
-        console.log('Loaded pending post:', pendingPost);
-        
-        // Start observing DOM for form elements
-        startObserver();
-        
-        // Try initial fill after delay with context validation
-        setTimeout(() => {
-          if (isExtensionContextValid()) {
-            attemptAutoFill();
-          } else {
-            console.log('Extension context invalidated, skipping initial autofill');
-          }
-        }, 2000);
-      } else {
-        console.log('No pending post data found');
-      }
+      // Don't load from storage/history - only use data sent via messages
+      // This prevents loading old/stale data
+      console.log('Autofill agent initialized - waiting for post data via message');
+      
+      // Don't start observer yet - wait for data to arrive via message
+      // Observer will be started when fillFormWithData message is received
     } catch (error) {
       console.error('Error initializing autofill:', error);
       if (error.message && error.message.includes('Extension context invalidated')) {
@@ -116,6 +138,11 @@
         if (observer) {
           observer.disconnect();
         }
+        return;
+      }
+      
+      // Don't trigger if we don't have post data yet
+      if (!pendingPost) {
         return;
       }
       
@@ -162,6 +189,12 @@
       return;
     }
     
+    // Check if we have post data - if not, don't attempt to fill
+    if (!pendingPost) {
+      console.log('No pending post data available, skipping autofill');
+      return;
+    }
+    
     // Prevent concurrent fills
     if (isFilling) {
       return;
@@ -178,94 +211,138 @@
       return;
     }
 
+    // Store pendingPost reference to prevent it from becoming null during execution
+    const postData = pendingPost;
+    if (!postData) {
+      console.log('pendingPost is null, cannot proceed');
+      isFilling = false;
+      return;
+    }
+
     try {
-      // Wait for form to be ready
-      await waitForElement('[role="dialog"], form, [data-pagelet]', 2000);
+      // Wait for form to be ready - give more time for Facebook's dynamic content to load
+      try {
+        await waitForElement('[role="dialog"], form, [data-pagelet]', 10000);
+      } catch (error) {
+        console.log('Form container not found with standard selectors, trying alternative...');
+        // Try alternative selectors
+        const altSelectors = [
+          'form',
+          '[role="dialog"]',
+          '[data-pagelet]',
+          'div[role="main"]',
+          'div[data-testid]'
+        ];
+        
+        let formFound = false;
+        for (const selector of altSelectors) {
+          try {
+            await waitForElement(selector, 3000);
+            formFound = true;
+            console.log(`Found form container with selector: ${selector}`);
+            break;
+          } catch (e) {
+            // Continue to next selector
+          }
+        }
+        
+        if (!formFound) {
+          console.log('Form container not found, but continuing anyway...');
+          // Continue anyway - the form might be loaded but with different structure
+        }
+      }
       
       // Fill different form sections based on what's visible (only if not already filled)
+      // Use postData (local copy) instead of pendingPost to prevent null reference errors
       if (!filledFields.has('category')) {
         const categoryFilled = await fillVehicleCategory();
         if (categoryFilled) filledFields.add('category');
       }
       
-      if (!filledFields.has('year') && pendingPost.year) {
+      // Use postData instead of pendingPost to prevent null reference
+      if (!filledFields.has('year') && postData?.year) {
         const yearFilled = await fillYear();
         if (yearFilled) filledFields.add('year');
       }
       
-      if (!filledFields.has('make') && pendingPost.make) {
+      if (!filledFields.has('make') && postData?.make) {
         const makeFilled = await fillMake();
         if (makeFilled) filledFields.add('make');
       }
       
-      if (!filledFields.has('model') && pendingPost.model) {
+      if (!filledFields.has('model') && postData?.model) {
         const modelFilled = await fillModel();
         if (modelFilled) filledFields.add('model');
       }
       
-      if (!filledFields.has('mileage') && pendingPost.mileage) {
+      if (!filledFields.has('mileage') && postData?.mileage) {
         const mileageFilled = await fillMileage();
         if (mileageFilled) filledFields.add('mileage');
       }
       
-      if (!filledFields.has('vin') && pendingPost.vin) {
+      if (!filledFields.has('vin') && postData?.vin) {
         const vinFilled = await fillVIN();
         if (vinFilled) filledFields.add('vin');
       }
       
-      if (!filledFields.has('price') && pendingPost.price) {
+      if (!filledFields.has('price') && postData?.price) {
         const priceFilled = await fillPrice();
         if (priceFilled) filledFields.add('price');
       }
       
-      if (!filledFields.has('title') && pendingPost.year && pendingPost.make && pendingPost.model) {
+      if (!filledFields.has('title') && postData?.year && postData?.make && postData?.model) {
         const titleFilled = await fillTitle();
         if (titleFilled) filledFields.add('title');
       }
       
       // Description should only be filled once with the actual description
-      if (!filledFields.has('description')) {
+      if (!filledFields.has('description') && postData) {
         const descFilled = await fillDescription();
         if (descFilled) filledFields.add('description');
       }
       
-      if (!filledFields.has('location') && pendingPost.dealerAddress) {
+      if (!filledFields.has('location') && postData?.dealerAddress) {
         const locationFilled = await fillLocation();
         if (locationFilled) filledFields.add('location');
       }
       
-      if (!filledFields.has('condition') && pendingPost.condition) {
+      if (!filledFields.has('condition') && postData?.condition) {
         const conditionFilled = await fillCondition();
         if (conditionFilled) filledFields.add('condition');
       }
       
-      if (!filledFields.has('transmission') && pendingPost.transmission) {
+      if (!filledFields.has('transmission') && postData?.transmission) {
         const transmissionFilled = await fillTransmission();
         if (transmissionFilled) filledFields.add('transmission');
       }
       
-      if (!filledFields.has('drivetrain') && pendingPost.drivetrain) {
+      if (!filledFields.has('drivetrain') && postData?.drivetrain) {
         const drivetrainFilled = await fillDrivetrain();
         if (drivetrainFilled) filledFields.add('drivetrain');
       }
       
-      if (!filledFields.has('fuelType') && pendingPost.engine) {
+      if (!filledFields.has('fuelType') && postData?.engine) {
         const fuelFilled = await fillFuelType();
         if (fuelFilled) filledFields.add('fuelType');
       }
       
-      if (!filledFields.has('exteriorColor') && pendingPost.exteriorColor) {
+      if (!filledFields.has('exteriorColor') && postData?.exteriorColor) {
         const extColorFilled = await fillExteriorColor();
         if (extColorFilled) filledFields.add('exteriorColor');
       }
       
-      if (!filledFields.has('interiorColor') && pendingPost.interiorColor) {
+      if (!filledFields.has('interiorColor') && postData?.interiorColor) {
         const intColorFilled = await fillInteriorColor();
         if (intColorFilled) filledFields.add('interiorColor');
       }
       
+      if (!filledFields.has('bodyStyle') && postData?.bodyStyle) {
+        const bodyStyleFilled = await fillBodyStyle();
+        if (bodyStyleFilled) filledFields.add('bodyStyle');
+      }
+      
       // Handle images (only once)
-      if (!filledFields.has('images') && pendingPost.images && pendingPost.images.length > 0) {
+      if (!filledFields.has('images') && postData?.images && postData.images.length > 0) {
         await handleImages();
         filledFields.add('images');
       }
@@ -316,6 +393,28 @@
     "Turquoise": 18
   };
 
+  const INTERIOR_COLOR_INDEX = {
+    "Black": 0,
+    "Blue": 1,
+    "Brown": 2,
+    "Gold": 3,
+    "Green": 4,
+    "Grey": 5,
+    "Pink": 6,
+    "Purple": 7,
+    "Red": 8,
+    "Silver": 9,
+    "Orange": 10,
+    "White": 11,
+    "Yellow": 12,
+    "Charcoal": 13,
+    "Off white": 14,
+    "Tan": 15,
+    "Beige": 16,
+    "Burgundy": 17,
+    "Turquoise": 18
+  };
+
   const FUEL_TYPE_INDEX = {
     "Diesel": 0,
     "Electric": 1,
@@ -332,6 +431,24 @@
     "Good": 2,
     "Fair": 3,
     "Poor": 4
+  };
+
+  const BODY_STYLE_INDEX = {
+    "Coupé": 0,
+    "Van": 1,
+    "Saloon": 2,
+    "Hatchback": 3,
+    "4x4": 4,
+    "Convertible": 5,
+    "Estate": 6,
+    "MPV/People carrier": 7,
+    "Small car": 8,
+    "Other": 9
+  };
+
+  const TRANSMISSION_INDEX = {
+    "Manual transmission": 0,
+    "Automatic transmission": 1
   };
 
   function openDropdown(dropdown) {
@@ -514,13 +631,17 @@
   }
 
   async function fillVehicleCategory() {
+    // Get local copy to prevent null reference
+    const postData = pendingPost;
+    if (!postData) return false;
+    
     console.log('=== Starting fillVehicleCategory ===');
     
-    // Get vehicle type from pendingPost config if available, otherwise default to Car/van
+    // Get vehicle type from postData config if available, otherwise default to Car/van
     let targetVehicleType = 'Car/van';
     
-    if (pendingPost?.config?.category) {
-      const category = pendingPost.config.category;
+    if (postData?.config?.category) {
+      const category = postData.config.category;
       console.log(`📋 Received category from config: "${category}"`);
       
       // First, check if the category directly matches a VEHICLE_TYPE_INDEX key (case-insensitive)
@@ -694,12 +815,14 @@
   }
 
   async function fillYear() {
-    if (!pendingPost.year) return false;
+    // Get local copy to prevent null reference
+    const postData = pendingPost;
+    if (!postData || !postData.year) return false;
     
     console.log('=== Starting fillYear ===');
     
     // Try index-based selection first (dropdown approach)
-    const yearSelected = await selectYear(pendingPost.year);
+    const yearSelected = await selectYear(postData.year);
     
     if (yearSelected) {
       return true;
@@ -713,7 +836,7 @@
       'input[name*="year" i]'
     ];
 
-    return await fillInput(selectors, pendingPost.year);
+    return await fillInput(selectors, postData.year);
   }
 
   /**
@@ -967,20 +1090,309 @@
     return await selectExteriorColorByIndex(index);
   }
 
-  async function fillMake() {
-    if (!pendingPost.make) return false;
+  /**
+   * Select interior color by index from dropdown (similar to exterior color selection)
+   * @param {number} index - The index of the color option
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectInteriorColorByIndex(index) {
+    // Find interior color dropdown - look for div with "Interior colour" text
+    let dropdown = null;
     
+    // Strategy 1: Find span with "Interior colour" text and look for nearby combobox/dropdown
+    const interiorColorSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+      const text = span.textContent || '';
+      return text.toLowerCase().includes('interior') && text.toLowerCase().includes('colour');
+    });
+    
+    for (const span of interiorColorSpans) {
+      // Look for parent div that contains the dropdown
+      const parent = span.closest('div');
+      if (parent) {
+        // First, look for label with combobox role (most common)
+        const labelCombobox = parent.querySelector('label[role="combobox"][aria-haspopup="listbox"]');
+        if (labelCombobox) {
+          dropdown = labelCombobox;
+          break;
+        }
+        
+        // Look for div with combobox role
+        const divCombobox = parent.querySelector('div[role="combobox"][aria-haspopup="listbox"]');
+        if (divCombobox) {
+          dropdown = divCombobox;
+          break;
+        }
+        
+        // Look for div with tabindex="-1" (clickable dropdown trigger)
+        const clickableDiv = parent.querySelector('div[tabindex="-1"]');
+        if (clickableDiv) {
+          // Check if this div or its parent has combobox role
+          const comboboxParent = clickableDiv.closest('[role="combobox"]');
+          if (comboboxParent) {
+            dropdown = comboboxParent;
+          } else {
+            dropdown = clickableDiv;
+          }
+          break;
+        }
+        
+        // Check for div with role="combobox" as sibling or child
+        const comboboxSibling = parent.querySelector('div[role="combobox"]');
+        if (comboboxSibling) {
+          dropdown = comboboxSibling;
+          break;
+        }
+      }
+    }
+    
+    // Strategy 2: Find by label with "Interior colour" text
+    if (!dropdown) {
+      const allLabels = document.querySelectorAll('label');
+      for (const label of allLabels) {
+        const labelText = label.textContent || '';
+        if (labelText.toLowerCase().includes('interior') && labelText.toLowerCase().includes('colour')) {
+          // Check if label itself is combobox
+          if (label.getAttribute('role') === 'combobox') {
+            dropdown = label;
+            break;
+          }
+          // Look for combobox within label
+          const combobox = label.querySelector('div[role="combobox"], label[role="combobox"]');
+          if (combobox) {
+            dropdown = combobox;
+            break;
+          }
+          // Look for clickable div within label
+          const clickableDiv = label.querySelector('div[tabindex="-1"]');
+          if (clickableDiv) {
+            dropdown = clickableDiv;
+            break;
+          }
+          // Check parent
+          const parentCombobox = label.closest('div[role="combobox"]');
+          if (parentCombobox) {
+            dropdown = parentCombobox;
+            break;
+          }
+        }
+      }
+    }
+    
+    // Strategy 3: Generic combobox near interior color elements
+    if (!dropdown) {
+      const allComboboxes = document.querySelectorAll('label[role="combobox"][aria-haspopup="listbox"], div[role="combobox"][aria-haspopup="listbox"]');
+      for (const cb of allComboboxes) {
+        const parent = cb.closest('div');
+        if (parent) {
+          const text = parent.textContent || '';
+          if (text.toLowerCase().includes('interior') && text.toLowerCase().includes('colour')) {
+            dropdown = cb;
+            break;
+          }
+        }
+      }
+    }
+  
+    if (!dropdown) {
+      console.error('Interior color dropdown not found');
+      return false;
+    }
+  
+    // Reset state if dropdown is already open
+    if (dropdown.getAttribute("aria-expanded") === "true") {
+      dropdown.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          code: "Escape",
+          bubbles: true
+        })
+      );
+      await sleep(200);
+    }
+  
+    // Open dropdown - handle both label and div elements
+    console.log(`Opening interior color dropdown, tag: ${dropdown.tagName}, role: ${dropdown.getAttribute('role')}, tabindex: ${dropdown.getAttribute('tabindex')}`);
+    
+    if (dropdown.tagName === 'DIV' && dropdown.getAttribute('tabindex') === '-1') {
+      // For div dropdowns, click directly with proper events
+      dropdown.scrollIntoView({ block: "center" });
+      dropdown.focus();
+      await sleep(100);
+      
+      // Trigger mouse events
+      dropdown.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      dropdown.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+      dropdown.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      
+      // Also try native click
+      dropdown.click();
+      
+      // Trigger keyboard event
+      dropdown.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        code: "ArrowDown",
+        bubbles: true
+      }));
+    } else {
+      // For label dropdowns, use standard openDropdown
+      openDropdown(dropdown);
+    }
+    
+    // Wait for dropdown to expand - check both the dropdown and any parent with aria-expanded
+    try {
+      await waitForExpanded(dropdown);
+    } catch (error) {
+      console.error('Error opening interior color dropdown:', error);
+      // Try waiting a bit more and checking again
+      await sleep(500);
+      const expanded = dropdown.getAttribute("aria-expanded") === "true";
+      const listbox = document.querySelector('[role="listbox"]');
+      if (!expanded && !listbox) {
+        console.error('Dropdown did not open after retry');
+        return false;
+      }
+    }
+  
+    // Wait for options to appear
+    let options;
+    try {
+      options = await waitForOptions();
+      console.log(`Found ${options.length} interior color options`);
+    } catch (error) {
+      console.error('Error waiting for interior color options:', error);
+      return false;
+    }
+  
+    // Select option by index
+    const target = options[index];
+    if (!target) {
+      console.error(`Interior color option at index ${index} not found. Available indices: 0-${options.length - 1}`);
+      return false;
+    }
+  
+    console.log(`Selecting interior color at index ${index}: "${target.innerText || target.textContent}"`);
+    fbSelectOption(target);
+    
+    await sleep(1000);
+    
+    // Verify selection
+    const isClosed = dropdown.getAttribute('aria-expanded') === 'false';
+    const selectedText = dropdown.textContent || '';
+    
+    if (isClosed && selectedText !== 'Interior colour' && selectedText.trim() !== '') {
+      console.log(`✅ Successfully selected interior color: "${selectedText}"`);
+      return true;
+    } else {
+      console.log(`⚠ Interior color selection may not have worked. Closed: ${isClosed}, Text: "${selectedText}"`);
+      return isClosed;
+    }
+  }
+
+  /**
+   * Select interior color by color name using the INTERIOR_COLOR_INDEX mapping
+   * @param {string} colorName - The color name (e.g., 'Black', 'Blue', 'Red')
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectInteriorColor(colorName) {
+    // First try exact match
+    let index = INTERIOR_COLOR_INDEX[colorName];
+    
+    // If not found, try case-insensitive match
+    if (index === undefined) {
+      const colorLower = colorName.toLowerCase();
+      const matchedKey = Object.keys(INTERIOR_COLOR_INDEX).find(
+        key => key.toLowerCase() === colorLower
+      );
+      
+      if (matchedKey) {
+        index = INTERIOR_COLOR_INDEX[matchedKey];
+        colorName = matchedKey; // Use the correct casing
+        console.log(`ℹ️ Case-insensitive match: "${colorName}"`);
+      }
+    }
+    
+    // Try common color name variations
+    if (index === undefined) {
+      const colorVariations = {
+        'gray': 'Grey',
+        'gray': 'Grey',
+        'off-white': 'Off white',
+        'offwhite': 'Off white',
+        'navy': 'Blue',
+        'maroon': 'Burgundy',
+        'teal': 'Turquoise'
+      };
+      
+      const colorLower = colorName.toLowerCase();
+      if (colorVariations[colorLower]) {
+        const matchedColor = colorVariations[colorLower];
+        index = INTERIOR_COLOR_INDEX[matchedColor];
+        colorName = matchedColor;
+        console.log(`ℹ️ Color variation matched: "${colorName}"`);
+      }
+    }
+    
+    if (index === undefined) {
+      console.error(`❌ Unknown interior color: "${colorName}". Available colors:`, Object.keys(INTERIOR_COLOR_INDEX));
+      return false;
+    }
+    
+    console.log(`🎨 Selecting interior color: "${colorName}" (index: ${index})`);
+    return await selectInteriorColorByIndex(index);
+  }
+
+  async function fillMake() {
+    // Get local copy to prevent null reference
+    const postData = pendingPost;
+    if (!postData || !postData.make) return false;
+    
+    console.log('=== Starting fillMake ===');
+    
+    // Strategy 1: Find input by label containing "Make"
+    const allLabels = document.querySelectorAll('label');
+    for (const label of allLabels) {
+      const labelText = label.textContent || '';
+      if (labelText.toLowerCase().includes('make') && !labelText.toLowerCase().includes('model')) {
+        const input = label.querySelector('input[type="text"], input:not([type="file"])');
+        if (input && isVisible(input)) {
+          console.log('Found make input via label');
+          return await fillInput([input], postData.make);
+        }
+      }
+    }
+    
+    // Strategy 2: Find input near span containing "Make"
+    const makeSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+      const text = span.textContent || '';
+      return text.toLowerCase().trim() === 'make';
+    });
+    
+    for (const span of makeSpans) {
+      // Look for input in parent or sibling elements
+      const parent = span.closest('label, div');
+      if (parent) {
+        const input = parent.querySelector('input[type="text"], input:not([type="file"])');
+        if (input && isVisible(input)) {
+          console.log('Found make input near Make span');
+          return await fillInput([input], postData.make);
+        }
+      }
+    }
+    
+    // Strategy 3: Standard selectors
     const selectors = [
       'input[placeholder*="make" i]',
       'input[aria-label*="make" i]',
       'input[placeholder*="brand" i]'
     ];
 
-    return await fillInput(selectors, pendingPost.make);
+    return await fillInput(selectors, postData.make);
   }
 
   async function fillModel() {
-    if (!pendingPost.model) return false;
+    // Get local copy to prevent null reference
+    const postData = pendingPost;
+    if (!postData || !postData.model) return false;
     
     console.log('=== Starting fillModel ===');
     
@@ -992,7 +1404,7 @@
         const input = label.querySelector('input[type="text"], input:not([type="file"])');
         if (input && isVisible(input)) {
           console.log('Found model input via label');
-          return await fillInput([input], pendingPost.model);
+          return await fillInput([input], postData.model);
         }
       }
     }
@@ -1010,7 +1422,7 @@
         const input = parent.querySelector('input[type="text"], input:not([type="file"])');
         if (input && isVisible(input)) {
           console.log('Found model input near Model span');
-          return await fillInput([input], pendingPost.model);
+          return await fillInput([input], postData.model);
         }
       }
     }
@@ -1021,15 +1433,17 @@
       'input[aria-label*="model" i]'
     ];
 
-    return await fillInput(selectors, pendingPost.model);
+    return await fillInput(selectors, postData.model);
   }
 
   async function fillMileage() {
-    if (!pendingPost.mileage) return false;
+    // Get local copy to prevent null reference
+    const postData = pendingPost;
+    if (!postData || !postData.mileage) return false;
     
     console.log('=== Starting fillMileage ===');
     
-    const mileage = pendingPost.mileage.replace(/[^\d]/g, '');
+    const mileage = postData.mileage.replace(/[^\d]/g, '');
     
     // Strategy 1: Find input by label containing "Mileage"
     const allLabels = document.querySelectorAll('label');
@@ -1073,7 +1487,9 @@
   }
 
   async function fillVIN() {
-    if (!pendingPost.vin) return false;
+    // Get local copy to prevent null reference
+    const postData = pendingPost;
+    if (!postData || !postData.vin) return false;
     
     const selectors = [
       'input[placeholder*="vin" i]',
@@ -1081,11 +1497,11 @@
       'input[placeholder*="vehicle identification" i]'
     ];
 
-    return await fillInput(selectors, pendingPost.vin);
+    return await fillInput(selectors, postData.vin);
   }
 
   async function fillPrice() {
-    if (!pendingPost.price) return false;
+    if (!pendingPost || !pendingPost.price) return false;
     
     const price = pendingPost.price.replace(/[^\d]/g, '');
     
@@ -1133,7 +1549,9 @@
   }
 
   async function fillTitle() {
-    if (!pendingPost.year || !pendingPost.make || !pendingPost.model) return false;
+    // Get local copy to prevent null reference
+    const postData = pendingPost;
+    if (!postData || !postData.year || !postData.make || !postData.model) return false;
     
     const selectors = [
       'input[placeholder*="title" i]',
@@ -1141,20 +1559,20 @@
       'input[placeholder*="listing title" i]'
     ];
 
-    let title = `${pendingPost.year} ${pendingPost.make} ${pendingPost.model}`;
-    if (pendingPost.trim) {
-      title += ` ${pendingPost.trim}`;
+    let title = `${postData.year} ${postData.make} ${postData.model}`;
+    if (postData.trim) {
+      title += ` ${postData.trim}`;
     }
 
     // Add emoji if configured
-    if (pendingPost.config?.emoji && pendingPost.config.emoji !== 'none') {
+    if (postData.config?.emoji && postData.config.emoji !== 'none') {
       const emojiMap = {
         'sparkle': '✨',
         'fire': '🔥',
         'star': '⭐',
         'checkmark': '✅'
       };
-      const emoji = emojiMap[pendingPost.config.emoji];
+      const emoji = emojiMap[postData.config.emoji];
       if (emoji) {
         title = `${emoji} ${title} ${emoji}`;
       }
@@ -1400,7 +1818,7 @@
   }
 
   async function fillLocation() {
-    if (!pendingPost.dealerAddress) return false;
+    if (!pendingPost || !pendingPost.dealerAddress) return false;
     
     console.log('=== Starting fillLocation ===');
     
@@ -1496,15 +1914,66 @@
     }
     
     if (options && options.length > 0) {
-      // Select index 0 (first suggestion) using fbSelectOption helper
-      const firstOption = options[0];
+      // Wait a bit before selecting to ensure autocomplete is fully loaded
+      console.log('Waiting before selecting location option...');
+      await sleep(2000);
+      
+      // Re-query options after delay to get fresh DOM references
+      let firstOption = null;
+      try {
+        const freshOptions = await waitForOptions(2000);
+        if (freshOptions && freshOptions.length > 0) {
+          firstOption = freshOptions[0];
+          console.log(`Re-queried and found ${freshOptions.length} location suggestions`);
+        }
+      } catch (e) {
+        console.log('Could not re-query options, trying to find manually...');
+        // Try to find options again manually
+        const allListboxes = document.querySelectorAll('[role="listbox"]');
+        for (const listbox of allListboxes) {
+          if (isVisible(listbox)) {
+            const opts = listbox.querySelectorAll('[role="option"]');
+            if (opts && opts.length > 0) {
+              firstOption = opts[0];
+              console.log(`Found ${opts.length} location suggestions in listbox`);
+              break;
+            }
+          }
+        }
+      }
+      
+      // Fallback to original options if re-query failed
+      if (!firstOption && options && options.length > 0) {
+        firstOption = options[0];
+        console.log('Using original first option');
+      }
+      
+      if (!firstOption) {
+        console.log('⚠ First option not found after delay');
+        return false;
+      }
+      
       const optionText = firstOption.textContent || firstOption.innerText || '';
       console.log(`Selecting first location suggestion (index 0): "${optionText}"`);
       
-      // Use the same selection method as other dropdowns
-      fbSelectOption(firstOption);
+      // Find the clickable div inside the li element (div[tabindex="-1"])
+      let clickableElement = firstOption;
+      if (firstOption.tagName === 'LI') {
+        const clickableDiv = firstOption.querySelector('div[tabindex="-1"]');
+        if (clickableDiv) {
+          clickableElement = clickableDiv;
+          console.log('Found clickable div inside li element');
+        }
+      }
       
-      await sleep(800);
+      // Scroll into view first
+      clickableElement.scrollIntoView({ block: "center", behavior: "smooth" });
+      await sleep(200);
+      
+      // Use the same selection method as other dropdowns
+      fbSelectOption(clickableElement);
+      
+      await sleep(1000);
       
       // Verify selection by checking if input value changed
       const finalValue = locationInput.value || '';
@@ -1512,11 +1981,51 @@
         console.log(`✅ Location selected: "${finalValue}"`);
         return true;
       } else {
-        // Try clicking directly as fallback
-        console.log('Trying direct click on first option...');
-        firstOption.click();
+        // Try clicking directly on the clickable element
+        console.log('Trying direct click on clickable element...');
+        clickableElement.scrollIntoView({ block: "center" });
+        await sleep(200);
+        clickableElement.click();
         await sleep(500);
-        return true;
+        
+        // Also try clicking on the li element itself
+        if (firstOption.tagName === 'LI' && clickableElement !== firstOption) {
+          firstOption.click();
+          await sleep(300);
+        }
+        
+        const finalValue2 = locationInput.value || '';
+        if (finalValue2 && finalValue2.length > 0) {
+          console.log(`✅ Location selected (click method): "${finalValue2}"`);
+          return true;
+        }
+        
+        // Last resort: try keyboard navigation
+        console.log('Trying keyboard navigation...');
+        locationInput.focus();
+        await sleep(100);
+        locationInput.dispatchEvent(new KeyboardEvent('keydown', { 
+          key: 'ArrowDown', 
+          code: 'ArrowDown',
+          keyCode: 40,
+          bubbles: true 
+        }));
+        await sleep(200);
+        locationInput.dispatchEvent(new KeyboardEvent('keydown', { 
+          key: 'Enter', 
+          code: 'Enter',
+          keyCode: 13,
+          bubbles: true 
+        }));
+        await sleep(500);
+        
+        const finalValue3 = locationInput.value || '';
+        if (finalValue3 && finalValue3.length > 0) {
+          console.log(`✅ Location selected (keyboard method): "${finalValue3}"`);
+          return true;
+        }
+        
+        return false;
       }
     } else {
       console.log('⚠ No autocomplete suggestions found, submitting typed value');
@@ -1533,7 +2042,7 @@
   }
 
   async function fillCondition() {
-    if (!pendingPost.condition) return false;
+    if (!pendingPost || !pendingPost.condition) return false;
     
     // Look for condition dropdown/radio buttons
     const condition = pendingPost.condition.toLowerCase();
@@ -1552,13 +2061,233 @@
     return false;
   }
 
-  async function fillTransmission() {
-    if (!pendingPost.transmission) return false;
+  /**
+   * Select transmission by index from dropdown (similar to other dropdown selections)
+   * @param {number} index - The index of the transmission option
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectTransmissionByIndex(index) {
+    // Find transmission dropdown - look for label[role="combobox"] that contains "Transmission"
+    let dropdown = null;
     
+    // Strategy 1: Find all combobox labels and check which one has "Transmission" text
+    const allComboboxLabels = document.querySelectorAll('label[role="combobox"][aria-haspopup="listbox"]');
+    for (const label of allComboboxLabels) {
+      const labelText = label.textContent || '';
+      if (labelText.toLowerCase().includes('transmission')) {
+        dropdown = label;
+        console.log('Found transmission label combobox directly');
+        break;
+      }
+    }
+    
+    // Strategy 2: Find span with "Transmission" and look for parent label with combobox role
+    if (!dropdown) {
+      const transmissionSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+        const text = span.textContent || '';
+        return text.toLowerCase().trim() === 'transmission';
+      });
+      
+      for (const span of transmissionSpans) {
+        const label = span.closest('label[role="combobox"][aria-haspopup="listbox"]');
+        if (label) {
+          dropdown = label;
+          console.log('Found transmission label via span');
+          break;
+        }
+        
+        // Also check parent div for label
+        const parent = span.closest('div');
+        if (parent) {
+          const labelCombobox = parent.querySelector('label[role="combobox"][aria-haspopup="listbox"]');
+          if (labelCombobox) {
+            dropdown = labelCombobox;
+            console.log('Found transmission label in parent div');
+            break;
+          }
+          
+          // Look for div with tabindex="-1" (clickable dropdown trigger)
+          const clickableDiv = parent.querySelector('div[tabindex="-1"]');
+          if (clickableDiv) {
+            const comboboxParent = clickableDiv.closest('label[role="combobox"]');
+            if (comboboxParent) {
+              dropdown = comboboxParent;
+              console.log('Found transmission label via clickable div parent');
+              break;
+            }
+          }
+        }
+      }
+    }
+    
+    // Strategy 3: Find by aria-labelledby that points to "Transmission" span
+    if (!dropdown) {
+      const transmissionSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+        const text = span.textContent || '';
+        return text.toLowerCase().includes('transmission');
+      });
+      
+      for (const span of transmissionSpans) {
+        const spanId = span.getAttribute('id');
+        if (spanId) {
+          const label = document.querySelector(`label[aria-labelledby="${spanId}"][role="combobox"]`);
+          if (label) {
+            dropdown = label;
+            console.log('Found transmission label via aria-labelledby');
+            break;
+          }
+        }
+      }
+    }
+  
+    if (!dropdown) {
+      console.error('Transmission dropdown not found');
+      return false;
+    }
+  
+    // Reset state if dropdown is already open
+    if (dropdown.getAttribute("aria-expanded") === "true") {
+      dropdown.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          code: "Escape",
+          bubbles: true
+        })
+      );
+      await sleep(200);
+    }
+  
+    // Open dropdown - handle both label and div elements
+    if (dropdown.tagName === 'DIV' && dropdown.getAttribute('tabindex') === '-1') {
+      dropdown.scrollIntoView({ block: "center" });
+      dropdown.focus();
+      await sleep(100);
+      dropdown.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      dropdown.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+      dropdown.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      dropdown.click();
+      dropdown.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        code: "ArrowDown",
+        bubbles: true
+      }));
+    } else {
+      openDropdown(dropdown);
+    }
+    
+    // Wait for dropdown to expand
+    try {
+      await waitForExpanded(dropdown);
+    } catch (error) {
+      console.error('Error opening transmission dropdown:', error);
+      return false;
+    }
+  
+    // Wait for options to appear
+    let options;
+    try {
+      options = await waitForOptions();
+      console.log(`Found ${options.length} transmission options`);
+    } catch (error) {
+      console.error('Error waiting for transmission options:', error);
+      return false;
+    }
+  
+    // Select option by index
+    const target = options[index];
+    if (!target) {
+      console.error(`Transmission option at index ${index} not found. Available indices: 0-${options.length - 1}`);
+      return false;
+    }
+  
+    console.log(`Selecting transmission at index ${index}: "${target.innerText || target.textContent}"`);
+    fbSelectOption(target);
+    
+    await sleep(1000);
+    
+    // Verify selection
+    const isClosed = dropdown.getAttribute('aria-expanded') === 'false';
+    const selectedText = dropdown.textContent || '';
+    
+    if (isClosed && selectedText !== 'Transmission' && selectedText.trim() !== '') {
+      console.log(`✅ Successfully selected transmission: "${selectedText}"`);
+      return true;
+    } else {
+      console.log(`⚠ Transmission selection may not have worked. Closed: ${isClosed}, Text: "${selectedText}"`);
+      return isClosed;
+    }
+  }
+
+  /**
+   * Select transmission by transmission name using the TRANSMISSION_INDEX mapping
+   * @param {string} transmissionName - The transmission name (e.g., 'Automatic transmission', 'Manual transmission')
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectTransmission(transmissionName) {
+    // First try exact match
+    let index = TRANSMISSION_INDEX[transmissionName];
+    
+    // If not found, try case-insensitive match
+    if (index === undefined) {
+      const transLower = transmissionName.toLowerCase();
+      const matchedKey = Object.keys(TRANSMISSION_INDEX).find(
+        key => key.toLowerCase() === transLower
+      );
+      
+      if (matchedKey) {
+        index = TRANSMISSION_INDEX[matchedKey];
+        transmissionName = matchedKey;
+        console.log(`ℹ️ Case-insensitive match: "${transmissionName}"`);
+      }
+    }
+    
+    // Try common transmission name variations
+    if (index === undefined) {
+      const transLower = transmissionName.toLowerCase();
+      const transVariations = {
+        'automatic': 'Automatic transmission',
+        'auto': 'Automatic transmission',
+        'manual': 'Manual transmission',
+        'stick': 'Manual transmission',
+        'standard': 'Manual transmission'
+      };
+      
+      if (transVariations[transLower]) {
+        const matchedTrans = transVariations[transLower];
+        index = TRANSMISSION_INDEX[matchedTrans];
+        transmissionName = matchedTrans;
+        console.log(`ℹ️ Transmission variation matched: "${transmissionName}"`);
+      }
+    }
+    
+    if (index === undefined) {
+      console.error(`❌ Unknown transmission: "${transmissionName}". Available transmissions:`, Object.keys(TRANSMISSION_INDEX));
+      return false;
+    }
+    
+    console.log(`🚗 Selecting transmission: "${transmissionName}" (index: ${index})`);
+    return await selectTransmissionByIndex(index);
+  }
+
+  async function fillTransmission() {
+    if (!pendingPost || !pendingPost.transmission) return false;
+    
+    console.log('=== Starting fillTransmission ===');
+    
+    // Try index-based selection first (dropdown approach)
+    const transmissionSelected = await selectTransmission(pendingPost.transmission);
+    
+    if (transmissionSelected) {
+      return true;
+    }
+    
+    // Fallback to text-based selection
+    console.log('Dropdown selection failed, trying text-based selection...');
     const trans = pendingPost.transmission.toLowerCase();
     const isAutomatic = trans.includes('automatic');
     
     const element = findElementByText([
+      isAutomatic ? 'Automatic transmission' : 'Manual transmission',
       isAutomatic ? 'Automatic' : 'Manual',
       trans
     ]);
@@ -1572,7 +2301,7 @@
   }
 
   async function fillDrivetrain() {
-    if (!pendingPost.drivetrain) return false;
+    if (!pendingPost || !pendingPost.drivetrain) return false;
     
     const element = findElementByText([
       pendingPost.drivetrain,
@@ -1593,62 +2322,72 @@
    * @returns {Promise<boolean>} - Returns true if selection was successful
    */
   async function selectFuelTypeByIndex(index) {
-    // Find fuel type dropdown - look for span with "Fuel type" text
+    // Find fuel type dropdown - look for label[role="combobox"] that contains "Fuel type"
     let dropdown = null;
     
-    // Strategy 1: Find span with "Fuel type" text and look for nearby combobox/dropdown
+    // Strategy 1: Find by aria-labelledby that points to "Fuel type" span (most reliable)
     const fuelTypeSpans = Array.from(document.querySelectorAll('span')).filter(span => {
       const text = span.textContent || '';
-      return text.toLowerCase().includes('fuel') && text.toLowerCase().includes('type');
+      return text.toLowerCase().trim() === 'fuel type' || 
+             (text.toLowerCase().includes('fuel') && text.toLowerCase().includes('type') && 
+              !text.toLowerCase().includes('vehicle'));
     });
     
     for (const span of fuelTypeSpans) {
-      // Look for parent div that contains the dropdown
-      const parent = span.closest('div');
-      if (parent) {
-        // First, look for label with combobox role (most common)
-        const labelCombobox = parent.querySelector('label[role="combobox"][aria-haspopup="listbox"]');
-        if (labelCombobox) {
-          dropdown = labelCombobox;
-          break;
-        }
-        
-        // Look for div with combobox role
-        const divCombobox = parent.querySelector('div[role="combobox"][aria-haspopup="listbox"]');
-        if (divCombobox) {
-          dropdown = divCombobox;
-          break;
-        }
-        
-        // Look for div with tabindex="-1" (clickable dropdown trigger)
-        const clickableDiv = parent.querySelector('div[tabindex="-1"]');
-        if (clickableDiv) {
-          // Check if this div or its parent has combobox role
-          const comboboxParent = clickableDiv.closest('[role="combobox"]');
-          if (comboboxParent) {
-            dropdown = comboboxParent;
-          } else {
-            dropdown = clickableDiv;
-          }
-          break;
-        }
-        
-        // Check for div with role="combobox" as sibling or child
-        const comboboxSibling = parent.querySelector('div[role="combobox"]');
-        if (comboboxSibling) {
-          dropdown = comboboxSibling;
+      const spanId = span.getAttribute('id');
+      if (spanId) {
+        const label = document.querySelector(`label[aria-labelledby="${spanId}"][role="combobox"][aria-haspopup="listbox"]`);
+        if (label) {
+          dropdown = label;
+          console.log('Found fuel type label via aria-labelledby');
           break;
         }
       }
     }
     
-    // Strategy 2: Find label[role="combobox"] directly that contains "Fuel type" span
+    // Strategy 2: Find span with "Fuel type" and look for parent label with combobox role
+    if (!dropdown) {
+      for (const span of fuelTypeSpans) {
+        const label = span.closest('label[role="combobox"][aria-haspopup="listbox"]');
+        if (label) {
+          dropdown = label;
+          console.log('Found fuel type label via span closest');
+          break;
+        }
+        
+        // Also check parent div for label
+        const parent = span.closest('div');
+        if (parent) {
+          const labelCombobox = parent.querySelector('label[role="combobox"][aria-haspopup="listbox"]');
+          if (labelCombobox) {
+            dropdown = labelCombobox;
+            console.log('Found fuel type label in parent div');
+            break;
+          }
+          
+          // Also look for div with tabindex="-1" (clickable dropdown trigger)
+          const clickableDiv = parent.querySelector('div[tabindex="-1"]');
+          if (clickableDiv) {
+            // Check if this div's parent has combobox role
+            const comboboxParent = clickableDiv.closest('label[role="combobox"][aria-haspopup="listbox"]');
+            if (comboboxParent) {
+              dropdown = comboboxParent;
+              console.log('Found fuel type label via clickable div parent');
+              break;
+            }
+          }
+        }
+      }
+    }
+    
+    // Strategy 3: Find all combobox labels and check which one has "Fuel type" text
     if (!dropdown) {
       const allComboboxLabels = document.querySelectorAll('label[role="combobox"][aria-haspopup="listbox"]');
       for (const label of allComboboxLabels) {
         const labelText = label.textContent || '';
-        const hasFuelTypeSpan = label.querySelector('span[id*="_r_"]') && labelText.toLowerCase().includes('fuel') && labelText.toLowerCase().includes('type');
-        if (hasFuelTypeSpan || (labelText.toLowerCase().includes('fuel') && labelText.toLowerCase().includes('type'))) {
+        // Check if label contains "Fuel type" (not "Vehicle type" or other types)
+        if (labelText.toLowerCase().includes('fuel') && labelText.toLowerCase().includes('type') && 
+            !labelText.toLowerCase().includes('vehicle') && !labelText.toLowerCase().includes('exterior')) {
           dropdown = label;
           console.log('Found fuel type label combobox directly');
           break;
@@ -1656,49 +2395,21 @@
       }
     }
     
-    // Strategy 3: Find by label with "Fuel type" text
+    // Strategy 4: Find div with tabindex="-1" that has a span with "Fuel type" nearby, then find parent label
     if (!dropdown) {
-      const allLabels = document.querySelectorAll('label');
-      for (const label of allLabels) {
-        const labelText = label.textContent || '';
-        if (labelText.toLowerCase().includes('fuel') && labelText.toLowerCase().includes('type')) {
-          // Check if label itself is combobox
-          if (label.getAttribute('role') === 'combobox') {
-            dropdown = label;
-            break;
-          }
-          // Look for combobox within label
-          const combobox = label.querySelector('div[role="combobox"], label[role="combobox"]');
-          if (combobox) {
-            dropdown = combobox;
-            break;
-          }
-          // Look for clickable div within label
-          const clickableDiv = label.querySelector('div[tabindex="-1"]');
-          if (clickableDiv) {
-            dropdown = clickableDiv;
-            break;
-          }
-          // Check parent
-          const parentCombobox = label.closest('div[role="combobox"]');
-          if (parentCombobox) {
-            dropdown = parentCombobox;
-            break;
-          }
-        }
-      }
-    }
-    
-    // Strategy 4: Generic combobox near fuel type elements
-    if (!dropdown) {
-      const allComboboxes = document.querySelectorAll('label[role="combobox"][aria-haspopup="listbox"], div[role="combobox"][aria-haspopup="listbox"]');
-      for (const cb of allComboboxes) {
-        const parent = cb.closest('div');
+      const allClickableDivs = document.querySelectorAll('div[tabindex="-1"]');
+      for (const clickableDiv of allClickableDivs) {
+        const parent = clickableDiv.closest('div');
         if (parent) {
-          const text = parent.textContent || '';
-          if (text.toLowerCase().includes('fuel') && text.toLowerCase().includes('type')) {
-            dropdown = cb;
-            break;
+          const parentText = parent.textContent || '';
+          if (parentText.toLowerCase().includes('fuel') && parentText.toLowerCase().includes('type') &&
+              !parentText.toLowerCase().includes('vehicle')) {
+            const label = clickableDiv.closest('label[role="combobox"][aria-haspopup="listbox"]');
+            if (label) {
+              dropdown = label;
+              console.log('Found fuel type label via clickable div in parent');
+              break;
+            }
           }
         }
       }
@@ -1708,6 +2419,8 @@
       console.error('Fuel type dropdown not found');
       return false;
     }
+  
+    console.log(`Found fuel type dropdown: ${dropdown.tagName}, role: ${dropdown.getAttribute('role')}, aria-labelledby: ${dropdown.getAttribute('aria-labelledby')}`);
   
     // Reset state if dropdown is already open
     if (dropdown.getAttribute("aria-expanded") === "true") {
@@ -1721,45 +2434,58 @@
       await sleep(200);
     }
   
-    // Open dropdown - handle both label and div elements
-    console.log(`Opening fuel type dropdown, tag: ${dropdown.tagName}, role: ${dropdown.getAttribute('role')}, tabindex: ${dropdown.getAttribute('tabindex')}`);
+    // Open dropdown - try clickable div first (it's the actual trigger)
+    console.log('Opening fuel type dropdown...');
     
-    if (dropdown.tagName === 'DIV' && dropdown.getAttribute('tabindex') === '-1') {
-      // For div dropdowns, click directly with proper events
-      dropdown.scrollIntoView({ block: "center" });
-      dropdown.focus();
-      await sleep(100);
-      
-      // Trigger mouse events
-      dropdown.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-      dropdown.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
-      dropdown.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-      
-      // Also try native click
-      dropdown.click();
-      
-      // Trigger keyboard event
-      dropdown.dispatchEvent(new KeyboardEvent("keydown", {
-        key: "ArrowDown",
-        code: "ArrowDown",
-        bubbles: true
-      }));
+    // For labels, try clicking the clickable div inside first (the actual trigger element)
+    if (dropdown.tagName === 'LABEL') {
+      const clickableDiv = dropdown.querySelector('div[tabindex="-1"]');
+      if (clickableDiv) {
+        console.log('Clicking clickable div (actual trigger)...');
+        clickableDiv.scrollIntoView({ block: "center" });
+        clickableDiv.focus();
+        await sleep(100);
+        
+        // Use the same events as openDropdown but on the clickable div
+        clickableDiv.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+        clickableDiv.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+        clickableDiv.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+        clickableDiv.click();
+        
+        clickableDiv.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "ArrowDown",
+            code: "ArrowDown",
+            bubbles: true
+          })
+        );
+        await sleep(200);
+      } else {
+        // Fallback to standard openDropdown if no clickable div found
+        openDropdown(dropdown);
+      }
     } else {
-      // For label dropdowns, use standard openDropdown
       openDropdown(dropdown);
     }
     
-    // Wait for dropdown to expand - check both the dropdown and any parent with aria-expanded
+    // Wait for dropdown to expand
     try {
       await waitForExpanded(dropdown);
     } catch (error) {
       console.error('Error opening fuel type dropdown:', error);
-      // Try waiting a bit more and checking again
-      await sleep(500);
-      const expanded = dropdown.getAttribute("aria-expanded") === "true";
-      const listbox = document.querySelector('[role="listbox"]');
-      if (!expanded && !listbox) {
-        console.error('Dropdown did not open after retry');
+      // Try standard openDropdown as fallback
+      if (dropdown.tagName === 'LABEL') {
+        console.log('Trying standard openDropdown as fallback...');
+        openDropdown(dropdown);
+        await sleep(500);
+        
+        const expanded = dropdown.getAttribute("aria-expanded") === "true";
+        const listbox = document.querySelector('[role="listbox"]');
+        if (!expanded && !listbox) {
+          console.error('Fuel type dropdown still not open');
+          return false;
+        }
+      } else {
         return false;
       }
     }
@@ -2150,7 +2876,7 @@
   }
 
   async function fillCondition() {
-    if (!pendingPost.condition) return false;
+    if (!pendingPost || !pendingPost.condition) return false;
     
     console.log('=== Starting fillCondition ===');
     
@@ -2185,7 +2911,7 @@
   }
 
   async function fillExteriorColor() {
-    if (!pendingPost.exteriorColor) return false;
+    if (!pendingPost || !pendingPost.exteriorColor) return false;
     
     console.log('=== Starting fillExteriorColor ===');
     
@@ -2206,11 +2932,273 @@
   }
 
   async function fillInteriorColor() {
-    if (!pendingPost.interiorColor) return false;
+    if (!pendingPost || !pendingPost.interiorColor) return false;
     
+    console.log('=== Starting fillInteriorColor ===');
+    
+    // Try index-based selection first (dropdown approach)
+    const colorSelected = await selectInteriorColor(pendingPost.interiorColor);
+    
+    if (colorSelected) {
+      return true;
+    }
+    
+    // Fallback to direct input if dropdown selection fails
+    console.log('Dropdown selection failed, trying direct input...');
     const colorInput = document.querySelector('input[placeholder*="interior" i], input[aria-label*="interior" i]');
     if (colorInput && isVisible(colorInput)) {
       return await fillInput([colorInput], pendingPost.interiorColor);
+    }
+    return false;
+  }
+
+  /**
+   * Select body style by index from dropdown (similar to other dropdown selections)
+   * @param {number} index - The index of the body style option
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectBodyStyleByIndex(index) {
+    // Find body style dropdown - look for label[role="combobox"] that contains "Body style"
+    let dropdown = null;
+    
+    // Strategy 1: Find all combobox labels and check which one has "Body style" text
+    const allComboboxLabels = document.querySelectorAll('label[role="combobox"][aria-haspopup="listbox"]');
+    for (const label of allComboboxLabels) {
+      const labelText = label.textContent || '';
+      if (labelText.toLowerCase().includes('body') && labelText.toLowerCase().includes('style')) {
+        dropdown = label;
+        console.log('Found body style label combobox directly');
+        break;
+      }
+    }
+    
+    // Strategy 2: Find span with "Body style" and look for parent label with combobox role
+    if (!dropdown) {
+      const bodyStyleSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+        const text = span.textContent || '';
+        return text.toLowerCase().trim() === 'body style' || 
+               (text.toLowerCase().includes('body') && text.toLowerCase().includes('style'));
+      });
+      
+      for (const span of bodyStyleSpans) {
+        const label = span.closest('label[role="combobox"][aria-haspopup="listbox"]');
+        if (label) {
+          dropdown = label;
+          console.log('Found body style label via span');
+          break;
+        }
+        
+        // Also check parent div for label
+        const parent = span.closest('div');
+        if (parent) {
+          const labelCombobox = parent.querySelector('label[role="combobox"][aria-haspopup="listbox"]');
+          if (labelCombobox) {
+            dropdown = labelCombobox;
+            console.log('Found body style label in parent div');
+            break;
+          }
+          
+          // Look for div with tabindex="-1" (clickable dropdown trigger)
+          const clickableDiv = parent.querySelector('div[tabindex="-1"]');
+          if (clickableDiv) {
+            // Check if this div's parent has combobox role
+            const comboboxParent = clickableDiv.closest('label[role="combobox"]');
+            if (comboboxParent) {
+              dropdown = comboboxParent;
+            } else {
+              dropdown = clickableDiv;
+            }
+            console.log('Found body style via clickable div');
+            break;
+          }
+        }
+      }
+    }
+    
+    // Strategy 3: Find by aria-labelledby that points to "Body style" span
+    if (!dropdown) {
+      const bodyStyleSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+        const text = span.textContent || '';
+        return text.toLowerCase().includes('body') && text.toLowerCase().includes('style');
+      });
+      
+      for (const span of bodyStyleSpans) {
+        const spanId = span.getAttribute('id');
+        if (spanId) {
+          const label = document.querySelector(`label[aria-labelledby="${spanId}"][role="combobox"]`);
+          if (label) {
+            dropdown = label;
+            console.log('Found body style label via aria-labelledby');
+            break;
+          }
+        }
+      }
+    }
+  
+    if (!dropdown) {
+      console.error('Body style dropdown not found');
+      return false;
+    }
+  
+    // Reset state if dropdown is already open
+    if (dropdown.getAttribute("aria-expanded") === "true") {
+      dropdown.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          code: "Escape",
+          bubbles: true
+        })
+      );
+      await sleep(200);
+    }
+  
+    // Open dropdown - handle both label and div elements
+    if (dropdown.tagName === 'DIV' && dropdown.getAttribute('tabindex') === '-1') {
+      // For div dropdowns, click directly
+      dropdown.scrollIntoView({ block: "center" });
+      dropdown.focus();
+      await sleep(100);
+      dropdown.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+      dropdown.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+      dropdown.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      dropdown.click();
+      dropdown.dispatchEvent(new KeyboardEvent("keydown", {
+        key: "ArrowDown",
+        code: "ArrowDown",
+        bubbles: true
+      }));
+    } else {
+      // For label dropdowns, use standard openDropdown
+      openDropdown(dropdown);
+    }
+    
+    // Wait for dropdown to expand
+    try {
+      await waitForExpanded(dropdown);
+    } catch (error) {
+      console.error('Error opening body style dropdown:', error);
+      return false;
+    }
+  
+    // Wait for options to appear
+    let options;
+    try {
+      options = await waitForOptions();
+      console.log(`Found ${options.length} body style options`);
+    } catch (error) {
+      console.error('Error waiting for body style options:', error);
+      return false;
+    }
+  
+    // Select option by index
+    const target = options[index];
+    if (!target) {
+      console.error(`Body style option at index ${index} not found. Available indices: 0-${options.length - 1}`);
+      return false;
+    }
+  
+    console.log(`Selecting body style at index ${index}: "${target.innerText || target.textContent}"`);
+    fbSelectOption(target);
+    
+    await sleep(1000);
+    
+    // Verify selection
+    const isClosed = dropdown.getAttribute('aria-expanded') === 'false';
+    const selectedText = dropdown.textContent || '';
+    
+    if (isClosed && selectedText !== 'Body style' && selectedText.trim() !== '') {
+      console.log(`✅ Successfully selected body style: "${selectedText}"`);
+      return true;
+    } else {
+      console.log(`⚠ Body style selection may not have worked. Closed: ${isClosed}, Text: "${selectedText}"`);
+      return isClosed;
+    }
+  }
+
+  /**
+   * Select body style by body style name using the BODY_STYLE_INDEX mapping
+   * @param {string} bodyStyleName - The body style name (e.g., 'Saloon', 'Hatchback', 'Coupé')
+   * @returns {Promise<boolean>} - Returns true if selection was successful
+   */
+  async function selectBodyStyle(bodyStyleName) {
+    // First try exact match
+    let index = BODY_STYLE_INDEX[bodyStyleName];
+    
+    // If not found, try case-insensitive match
+    if (index === undefined) {
+      const bodyStyleLower = bodyStyleName.toLowerCase();
+      const matchedKey = Object.keys(BODY_STYLE_INDEX).find(
+        key => key.toLowerCase() === bodyStyleLower
+      );
+      
+      if (matchedKey) {
+        index = BODY_STYLE_INDEX[matchedKey];
+        bodyStyleName = matchedKey; // Use the correct casing
+        console.log(`ℹ️ Case-insensitive match: "${bodyStyleName}"`);
+      }
+    }
+    
+    // Try common body style name variations
+    if (index === undefined) {
+      const bodyStyleLower = bodyStyleName.toLowerCase();
+      const bodyStyleVariations = {
+        'coupe': 'Coupé',
+        'coupe': 'Coupé',
+        'sedan': 'Saloon',
+        'saloon': 'Saloon',
+        'hatchback': 'Hatchback',
+        'suv': '4x4',
+        'sport utility vehicle': '4x4',
+        '4x4': '4x4',
+        'convertible': 'Convertible',
+        'wagon': 'Estate',
+        'estate': 'Estate',
+        'station wagon': 'Estate',
+        'mpv': 'MPV/People carrier',
+        'people carrier': 'MPV/People carrier',
+        'minivan': 'MPV/People carrier',
+        'small car': 'Small car',
+        'compact': 'Small car',
+        'van': 'Van',
+        'other': 'Other'
+      };
+      
+      if (bodyStyleVariations[bodyStyleLower]) {
+        const matchedStyle = bodyStyleVariations[bodyStyleLower];
+        index = BODY_STYLE_INDEX[matchedStyle];
+        bodyStyleName = matchedStyle;
+        console.log(`ℹ️ Body style variation matched: "${bodyStyleName}"`);
+      }
+    }
+    
+    if (index === undefined) {
+      console.error(`❌ Unknown body style: "${bodyStyleName}". Available styles:`, Object.keys(BODY_STYLE_INDEX));
+      return false;
+    }
+    
+    console.log(`🚗 Selecting body style: "${bodyStyleName}" (index: ${index})`);
+    return await selectBodyStyleByIndex(index);
+  }
+
+  async function fillBodyStyle() {
+    if (!pendingPost || !pendingPost.bodyStyle) return false;
+    
+    console.log('=== Starting fillBodyStyle ===');
+    
+    // Try index-based selection first (dropdown approach)
+    const bodyStyleSelected = await selectBodyStyle(pendingPost.bodyStyle);
+    
+    if (bodyStyleSelected) {
+      return true;
+    }
+    
+    // Fallback to text-based selection
+    console.log('Dropdown selection failed, trying text-based selection...');
+    const element = findElementByText([pendingPost.bodyStyle]);
+    if (element) {
+      simulateClick(element);
+      await sleep(500);
+      return true;
     }
     return false;
   }
@@ -2431,28 +3419,62 @@
 
   function waitForElement(selector, timeout = 5000) {
     return new Promise((resolve, reject) => {
+      // Check immediately
       const element = document.querySelector(selector);
-      if (element) {
+      if (element && isVisible(element)) {
         resolve(element);
         return;
       }
 
-      const observer = new MutationObserver(() => {
+      let checkInterval = null;
+      let observer = null;
+      const startTime = Date.now();
+
+      const checkElement = () => {
         const element = document.querySelector(selector);
-        if (element) {
-          observer.disconnect();
+        if (element && isVisible(element)) {
+          if (checkInterval) clearInterval(checkInterval);
+          if (observer) observer.disconnect();
           resolve(element);
+          return true;
         }
+        return false;
+      };
+
+      const cleanup = () => {
+        if (checkInterval) clearInterval(checkInterval);
+        if (observer) observer.disconnect();
+      };
+
+      // Check periodically
+      checkInterval = setInterval(() => {
+        if (checkElement()) return;
+        if (Date.now() - startTime >= timeout) {
+          cleanup();
+          reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+        }
+      }, 100);
+
+      observer = new MutationObserver(() => {
+        if (checkElement()) return;
       });
 
       observer.observe(document.body, {
         childList: true,
-        subtree: true
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class']
       });
 
       setTimeout(() => {
-        observer.disconnect();
-        reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+        cleanup();
+        // Final check before rejecting
+        const finalElement = document.querySelector(selector);
+        if (finalElement) {
+          resolve(finalElement);
+        } else {
+          reject(new Error(`Element ${selector} not found within ${timeout}ms`));
+        }
       }, timeout);
     });
   }
@@ -2510,14 +3532,21 @@
         const response = await fetch(sellingTabUrl);
         const html = await response.text();
         
+        // Get local copy to prevent null reference
+        const postData = pendingPost;
+        if (!postData) {
+          console.log('pendingPost is null, cannot verify post');
+          return false;
+        }
+        
         // Check if VIN or vehicle title appears in selling listings
-        if (pendingPost.vin && html.includes(pendingPost.vin)) {
+        if (postData.vin && html.includes(postData.vin)) {
           console.log('✓ Post verified in Selling tab by VIN');
           notifyPostSuccess(true);
           return true;
         }
         
-        const vehicleTitle = `${pendingPost.year} ${pendingPost.make} ${pendingPost.model}`;
+        const vehicleTitle = `${postData.year || ''} ${postData.make || ''} ${postData.model || ''}`.trim();
         if (html.includes(vehicleTitle)) {
           console.log('✓ Post verified in Selling tab by title');
           notifyPostSuccess(true);
@@ -2678,3 +3707,4 @@
   }
 
 })();
+

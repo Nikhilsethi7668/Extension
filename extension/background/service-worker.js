@@ -27,8 +27,104 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ success: true });
   }
 
+  // API: Fill form with test data
+  if (request.action === 'api_fillFormWithTestData') {
+    handleFillFormWithTestData(request.data, request.tabId)
+      .then(response => sendResponse(response))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Keep channel open for async response
+  }
+
+  // API: Fill form with test data from API endpoint
+  if (request.action === 'api_fillFormWithTestDataFromAPI') {
+    handleFillFormWithTestDataFromAPI(request.customData, request.tabId)
+      .then(response => sendResponse(response))
+      .catch(error => sendResponse({ success: false, error: error.message }));
+    return true; // Keep channel open for async response
+  }
+
   return true;
 });
+
+// Handle API call to fill form with test data
+async function handleFillFormWithTestData(testData, tabId = null) {
+  try {
+    // Get active tab if tabId not provided
+    let targetTabId = tabId;
+    if (!targetTabId) {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tabs && tabs.length > 0) {
+        targetTabId = tabs[0].id;
+      } else {
+        throw new Error('No active tab found');
+      }
+    }
+
+    // Send test data directly to content script
+    const response = await chrome.tabs.sendMessage(targetTabId, {
+      action: 'fillFormWithData',
+      data: testData
+    });
+
+    return response || { success: true, message: 'Test data sent to content script' };
+  } catch (error) {
+    console.error('Error in handleFillFormWithTestData:', error);
+    throw error;
+  }
+}
+
+// Handle API call to fill form with test data from API endpoint
+async function handleFillFormWithTestDataFromAPI(customData = null, tabId = null) {
+  try {
+    // Fetch test data from API
+    const API_BASE_URL = 'http://localhost:5001/api';
+    const url = `${API_BASE_URL}/test-data`;
+    const options = {
+      method: customData ? 'POST' : 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    };
+
+    if (customData) {
+      options.body = JSON.stringify(customData);
+    }
+
+    const response = await fetch(url, options);
+    
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    
+    if (!result.success || !result.data) {
+      throw new Error(result.message || 'Failed to get test data from API');
+    }
+
+    // Get active tab if tabId not provided
+    let targetTabId = tabId;
+    if (!targetTabId) {
+      const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (tabs && tabs.length > 0) {
+        targetTabId = tabs[0].id;
+      } else {
+        throw new Error('No active tab found');
+      }
+    }
+
+    // Send test data directly to content script
+    const contentResponse = await chrome.tabs.sendMessage(targetTabId, {
+      action: 'fillFormWithData',
+      data: result.data
+    });
+
+    return contentResponse || { success: true, message: 'Test data fetched from API and sent to content script' };
+  } catch (error) {
+    console.error('Error in handleFillFormWithTestDataFromAPI:', error);
+    throw error;
+  }
+}
 
 // On install
 chrome.runtime.onInstalled.addListener(() => {

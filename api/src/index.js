@@ -5,11 +5,11 @@ import morgan from 'morgan';
 import connectDB from './config/db.js';
 
 // Routes
-// Routes
 import authRoutes from './routes/auth.routes.js';
 import vehicleRoutes from './routes/vehicle.routes.js';
 import organizationRoutes from './routes/organization.routes.js';
 import userRoutes from './routes/user.routes.js';
+import testDataRoutes from './routes/testData.routes.js';
 
 dotenv.config();
 
@@ -28,6 +28,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/organizations', organizationRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/test-data', testDataRoutes);
 
 app.get('/', (req, res) => {
     res.send('FacebookMark API is running...');

@@ -6,7 +6,8 @@ const API_CONFIG = {
     validateKey: '/auth/validate-key',
     logActivity: '/logs/activity',
     editImage: '/images/edit',
-    generateDescription: '/openai/generate-description'
+    generateDescription: '/openai/generate-description',
+    testData: '/test-data'
   }
 };
 
@@ -15,6 +16,9 @@ let sessionId = generateSessionId();
 let scrapedData = null;
 let postingQueue = [];
 let imageEditQueue = {};
+let allVehicles = [];
+let currentPage = 1;
+const vehiclesPerPage = 10;
 
 function generateSessionId() {
   return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -201,12 +205,21 @@ async function validateSession(session) {
 function showLoginSection() {
   document.getElementById('loginSection').style.display = 'block';
   document.getElementById('mainControls').style.display = 'none';
+  document.getElementById('vehicleListingView').style.display = 'none';
 }
 
 function showMainControls() {
   document.getElementById('loginSection').style.display = 'none';
+  document.getElementById('vehicleListingView').style.display = 'none';
   document.getElementById('mainControls').style.display = 'block';
   updateStatusText();
+}
+
+function showVehicleListing() {
+  document.getElementById('mainControls').style.display = 'none';
+  document.getElementById('vehicleListingView').style.display = 'flex';
+  currentPage = 1;
+  loadVehicles();
 }
 
 function updateStatusText() {
@@ -361,6 +374,44 @@ function attachEventListeners() {
   if (testFillBtn) {
     testFillBtn.addEventListener('click', testFillFacebookForm);
   }
+
+  // Vehicle Listing
+  const viewVehiclesBtn = document.getElementById('viewVehiclesBtn');
+  const backToMainBtn = document.getElementById('backToMainBtn');
+  const vehicleSearch = document.getElementById('vehicleSearch');
+  const vehicleStatusFilter = document.getElementById('vehicleStatusFilter');
+  const prevPageBtn = document.getElementById('prevPageBtn');
+  const nextPageBtn = document.getElementById('nextPageBtn');
+
+  if (viewVehiclesBtn) {
+    viewVehiclesBtn.addEventListener('click', showVehicleListing);
+  }
+
+  if (backToMainBtn) {
+    backToMainBtn.addEventListener('click', showMainControls);
+  }
+
+  if (vehicleSearch) {
+    vehicleSearch.addEventListener('input', debounce(loadVehicles, 500));
+  }
+
+  if (vehicleStatusFilter) {
+    vehicleStatusFilter.addEventListener('change', loadVehicles);
+  }
+
+  if (prevPageBtn) {
+    prevPageBtn.addEventListener('click', () => {
+      currentPage--;
+      loadVehicles();
+    });
+  }
+
+  if (nextPageBtn) {
+    nextPageBtn.addEventListener('click', () => {
+      currentPage++;
+      loadVehicles();
+    });
+  }
 }
 
 // Test Fill Facebook Marketplace Form
@@ -401,22 +452,41 @@ async function testFillFacebookForm() {
         'Failed to open new tab. Please reload the extension.'
       );
       
-      // Wait a bit then inject script
+      // Wait for page to load, then fetch from API and fill
       setTimeout(async () => {
         try {
-          await executeTestFill(newTab.id);
+          // Wait for tab to be ready
+          let tabReady = false;
+          let attempts = 0;
+          while (!tabReady && attempts < 10) {
+            try {
+              const tab = await chrome.tabs.get(newTab.id);
+              if (tab.status === 'complete' && tab.url && tab.url.includes('facebook.com/marketplace/create')) {
+                tabReady = true;
+              } else {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                attempts++;
+              }
+            } catch (e) {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              attempts++;
+            }
+          }
+          
+          showNotification('Fetching test data from API...', 'info');
+          await fillFormWithDefaultTestData(newTab.id);
         } catch (error) {
           console.error('Error in delayed test fill:', error);
           showNotification('Error filling form: ' + error.message, 'error');
         }
-      }, 5000);
+      }, 3000);
       testBtn.disabled = false;
       testBtn.classList.remove('loading');
       return;
     }
 
-    showNotification('Filling form with test data...', 'info');
-    await executeTestFill(tab.id);
+    showNotification('Fetching test data from API...', 'info');
+    await fillFormWithDefaultTestData(tab.id);
 
   } catch (error) {
     console.error('Test fill error:', error);
@@ -441,8 +511,11 @@ async function executeTestFill(tabId) {
     description: 'Excellent condition 2023 Toyota Camry. Well maintained, single owner. All service records available. No accidents. Perfect for daily commute or family use. Contact for more details!',
     images: ['https://images.pexels.com/photos/112460/pexels-photo-112460.jpeg', 'https://images.pexels.com/photos/170811/pexels-photo-170811.jpeg'],
     exteriorColor: 'Black',
+    interiorColor: 'Grey',
     fuelType: 'Petrol',
-    condition: 'Excellent',
+    condition: 'Good',
+    bodyStyle: 'Saloon',
+    transmission: 'Automatic transmission',
     config: {
       category: 'Car/van',
     }
@@ -463,6 +536,229 @@ async function executeTestFill(tabId) {
     showNotification('Test data stored! Content script will auto-fill the form.', 'success');
   } catch (error) {
     console.error('Execute test fill error:', error);
+    throw error;
+  }
+}
+
+/**
+ * API for filling Facebook Marketplace forms with test data
+ * 
+ * USAGE EXAMPLES:
+ * 
+ * 1. From browser console (when popup is open):
+ *    fillFormWithDefaultTestData()
+ *    fillFormWithTestData({ year: '2023', make: 'Toyota', model: 'Camry', ... })
+ * 
+ * 2. From background script or external code:
+ *    chrome.runtime.sendMessage({
+ *      action: 'api_fillFormWithTestData',
+ *      data: { year: '2023', make: 'Toyota', ... },
+ *      tabId: 123  // optional
+ *    })
+ * 
+ * 3. Directly from popup script:
+ *    await fillFormWithTestData(testData, tabId)
+ * 
+ * This API bypasses chrome.storage.local and starts filling immediately without page reload.
+ */
+
+/**
+ * Fetch test data from API
+ * @param {Object} customData - Optional custom data to override defaults
+ * @returns {Promise<Object>} - Test data from API
+ */
+async function fetchTestDataFromAPI(customData = null) {
+  try {
+    const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.testData}`;
+    const options = {
+      method: customData ? 'POST' : 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    };
+
+    // Add body if custom data is provided
+    if (customData) {
+      options.body = JSON.stringify(customData);
+    }
+
+    const response = await fetch(url, options);
+    
+    if (!response.ok) {
+      throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    
+    if (result.success && result.data) {
+      return result.data;
+    } else {
+      throw new Error(result.message || 'Failed to get test data from API');
+    }
+  } catch (error) {
+    console.error('Error fetching test data from API:', error);
+    // Fallback to default test data if API fails
+    console.log('Falling back to default test data');
+   
+   
+  }
+}
+
+/**
+ * Convenience function to fill form with test data from API
+ * This bypasses chrome.storage.local and starts filling immediately
+ * @param {number} tabId - Optional tab ID, if not provided will get active tab
+ * @param {Object} customData - Optional custom data to send to API
+ * @returns {Promise<Object>} - Response from content script
+ */
+async function fillFormWithDefaultTestData(tabId = null, customData = null) {
+  // Fetch test data from API
+  const testData = await fetchTestDataFromAPI(customData);
+  return await fillFormWithTestData(testData, tabId);
+}
+
+/**
+ * Ensure content script is loaded in the tab
+ * @param {number} tabId - Tab ID to check/inject script
+ * @returns {Promise<void>}
+ */
+async function ensureContentScriptLoaded(tabId) {
+  try {
+    // First, try to ping the content script to see if it's loaded
+    try {
+      const pingResponse = await chrome.tabs.sendMessage(tabId, { action: 'ping' });
+      if (pingResponse && pingResponse.loaded) {
+        console.log('Content script already loaded');
+        return; // Content script is loaded
+      }
+    } catch (pingError) {
+      // Content script not loaded or not responding, continue to inject
+      console.log('Content script not responding, will inject...');
+    }
+
+    // Get tab URL to check if it's Facebook Marketplace
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab.url || !tab.url.includes('facebook.com/marketplace/create')) {
+      console.warn('Not on Facebook Marketplace create page:', tab.url);
+      // Don't throw, just return - the retry logic will handle it
+      return;
+    }
+
+    // Try to inject the content script
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        files: ['content/facebook-autofill.js']
+      });
+      console.log('Content script injected successfully');
+    } catch (injectError) {
+      // Script might already be injected, that's okay
+      if (!injectError.message.includes('Cannot access')) {
+        console.warn('Error injecting script (might already be injected):', injectError.message);
+      }
+    }
+
+    // Wait a bit for script to initialize
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Verify it's loaded by pinging again
+    let retries = 5;
+    while (retries > 0) {
+      try {
+        const verifyResponse = await chrome.tabs.sendMessage(tabId, { action: 'ping' });
+        if (verifyResponse && verifyResponse.loaded) {
+          console.log('Content script verified and ready');
+          return; // Successfully loaded
+        }
+      } catch (verifyError) {
+        retries--;
+        if (retries > 0) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        } else {
+          console.warn('Content script not responding after injection attempts');
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('Error ensuring content script loaded:', error);
+    // Don't throw, let the retry logic in fillFormWithTestData handle it
+  }
+}
+
+/**
+ * API function to send test data directly to content script and start filling immediately
+ * This bypasses chrome.storage.local and starts filling right away
+ * @param {Object} testData - The test data object to fill the form with
+ * @param {number} tabId - Optional tab ID, if not provided will get active tab
+ * @returns {Promise<Object>} - Response from content script
+ */
+async function fillFormWithTestData(testData, tabId = null) {
+  try {
+    // Check if extension context is valid
+    if (!isExtensionContextValid()) {
+      throw new Error('Extension context invalidated');
+    }
+
+    // Get active tab if tabId not provided
+    let targetTabId = tabId;
+    if (!targetTabId) {
+      const tabs = await safeChromeCall(
+        () => chrome.tabs.query({ active: true, currentWindow: true }),
+        'Failed to get active tab'
+      );
+      if (tabs && tabs.length > 0) {
+        targetTabId = tabs[0].id;
+      } else {
+        throw new Error('No active tab found');
+      }
+    }
+
+    // Ensure content script is loaded before sending message
+    await ensureContentScriptLoaded(targetTabId);
+
+    // Retry sending message with exponential backoff
+    let response = null;
+    let lastError = null;
+    const maxRetries = 5;
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        response = await safeChromeCall(
+          () => chrome.tabs.sendMessage(targetTabId, {
+            action: 'fillFormWithData',
+            data: testData
+          }),
+          'Failed to send test data to content script'
+        );
+        
+        if (response && response.success) {
+          showNotification(response.message || 'Test data sent! Form filling started.', 'success');
+          return response;
+        } else {
+          throw new Error(response?.error || 'Unknown error from content script');
+        }
+      } catch (error) {
+        lastError = error;
+        // If it's a connection error, wait and retry
+        if (error.message && error.message.includes('Receiving end does not exist')) {
+          if (attempt < maxRetries - 1) {
+            const delay = Math.min(1000 * Math.pow(2, attempt), 5000); // Exponential backoff, max 5s
+            console.log(`Content script not ready, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            
+            // Try to inject script again
+            await ensureContentScriptLoaded(targetTabId);
+            continue;
+          }
+        }
+        throw error;
+      }
+    }
+    
+    throw lastError || new Error('Failed to send message after retries');
+  } catch (error) {
+    console.error('Fill form with test data error:', error);
+    showNotification('Failed to send test data: ' + error.message, 'error');
     throw error;
   }
 }
@@ -1063,32 +1359,85 @@ async function postToFacebook(vehicleData = null) {
       return;
     }
 
-    // Store data for the Facebook autofill script
-    await safeChromeCall(
-      () => chrome.storage.local.set({
-        pendingPost: {
-          ...dataToPost,
-          description: document.getElementById('generatedDesc').value,
-          config: {
-            category: document.getElementById('vehicleCategory').value,
-            emoji: document.getElementById('emojiStyle').value,
-            whereToPost: document.getElementById('whereToPost').value,
-            distance: document.getElementById('distance').value,
-            groups: document.getElementById('fbGroups').value.split('\n').filter(g => g.trim())
-          }
-        }
-      }),
-      'Failed to save post data'
-    );
+    // Get form values with fallbacks
+    const generatedDescEl = document.getElementById('generatedDesc');
+    const vehicleCategoryEl = document.getElementById('vehicleCategory');
+    const emojiStyleEl = document.getElementById('emojiStyle');
+    const whereToPostEl = document.getElementById('whereToPost');
+    const distanceEl = document.getElementById('distance');
+    const fbGroupsEl = document.getElementById('fbGroups');
+
+    // Prepare post data
+    const postData = {
+      ...dataToPost,
+      description: generatedDescEl ? generatedDescEl.value : (dataToPost.description || dataToPost.aiContent?.description || ''),
+      config: {
+        category: vehicleCategoryEl ? vehicleCategoryEl.value : 'car',
+        emoji: emojiStyleEl ? emojiStyleEl.value : 'none',
+        whereToPost: whereToPostEl ? whereToPostEl.value : 'marketplace',
+        distance: distanceEl ? distanceEl.value : '20',
+        groups: fbGroupsEl ? fbGroupsEl.value.split('\n').filter(g => g.trim()) : []
+      }
+    };
 
     // Open Facebook Marketplace create listing page
     const marketplaceUrl = 'https://www.facebook.com/marketplace/create/vehicle';
-    await safeChromeCall(
+    const newTab = await safeChromeCall(
       () => chrome.tabs.create({ url: marketplaceUrl }),
       'Failed to open Facebook Marketplace. Please reload the extension.'
     );
 
-    showNotification('Navigate through the form. Auto-fill will activate automatically.', 'success');
+    // Wait for tab to load, then send data directly via message (not storage)
+    setTimeout(async () => {
+      try {
+        if (!isExtensionContextValid()) {
+          showNotification('Extension context invalidated. Please reload the extension.', 'error');
+          return;
+        }
+
+        // Wait for tab to be ready
+        let tabReady = false;
+        let attempts = 0;
+        while (!tabReady && attempts < 10) {
+          try {
+            const tab = await safeChromeCall(
+              () => chrome.tabs.get(newTab.id),
+              'Failed to check tab status'
+            );
+            if (tab.status === 'complete' && tab.url && tab.url.includes('facebook.com/marketplace/create')) {
+              tabReady = true;
+            } else {
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              attempts++;
+            }
+          } catch (e) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            attempts++;
+          }
+        }
+
+        // Ensure content script is loaded
+        await ensureContentScriptLoaded(newTab.id);
+
+        // Send data directly via message instead of storage
+        const response = await safeChromeCall(
+          () => chrome.tabs.sendMessage(newTab.id, {
+            action: 'fillFormWithData',
+            data: postData
+          }),
+          'Failed to send post data to content script'
+        );
+
+        if (response && response.success) {
+          showNotification('Post data sent! Form filling started.', 'success');
+        } else {
+          showNotification('Form filling initiated. Please wait...', 'info');
+        }
+      } catch (error) {
+        console.error('Error sending post data:', error);
+        showNotification('Error sending data. Please try again.', 'error');
+      }
+    }, 3000);
 
     // Log posting activity
     await logActivity('post_initiated', {
@@ -1264,6 +1613,260 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
+// ============ Vehicle Listing Functions ============
+
+async function loadVehicles() {
+  const container = document.getElementById('vehiclesContainer');
+  const paginationControls = document.getElementById('paginationControls');
+  
+  container.innerHTML = '<div class="loading-state">Loading vehicles...</div>';
+  paginationControls.style.display = 'none';
+
+  try {
+    if (!currentUser || !currentUser.apiKey) {
+      showNotification('Please log in first', 'error');
+      return;
+    }
+
+    const searchQuery = document.getElementById('vehicleSearch')?.value || '';
+    const statusFilter = document.getElementById('vehicleStatusFilter')?.value || '';
+
+    // Build query parameters
+    const params = new URLSearchParams();
+    if (searchQuery) params.append('search', searchQuery);
+    if (statusFilter) params.append('status', statusFilter);
+
+    const url = `${API_CONFIG.baseUrl}/vehicles${params.toString() ? '?' + params.toString() : ''}`;
+    
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': currentUser.apiKey
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to load vehicles: ${response.statusText}`);
+    }
+
+    allVehicles = await response.json();
+    
+    // Apply pagination
+    const totalPages = Math.ceil(allVehicles.length / vehiclesPerPage);
+    const startIndex = (currentPage - 1) * vehiclesPerPage;
+    const endIndex = startIndex + vehiclesPerPage;
+    const paginatedVehicles = allVehicles.slice(startIndex, endIndex);
+
+    // Update pagination controls
+    if (allVehicles.length > 0) {
+      paginationControls.style.display = 'flex';
+      document.getElementById('prevPageBtn').disabled = currentPage === 1;
+      document.getElementById('nextPageBtn').disabled = currentPage >= totalPages;
+      document.getElementById('pageInfo').textContent = `Page ${currentPage} of ${totalPages} (${allVehicles.length} total)`;
+    }
+
+    // Display vehicles
+    if (paginatedVehicles.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state">
+          <h3>No vehicles found</h3>
+          <p>Try adjusting your search or filters</p>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = '';
+    paginatedVehicles.forEach(vehicle => {
+      const card = createVehicleCard(vehicle);
+      container.appendChild(card);
+    });
+
+    // Attach event listeners to post buttons after cards are created
+    container.querySelectorAll('.post-vehicle-btn').forEach(button => {
+      button.addEventListener('click', (e) => {
+        const vehicleId = e.target.closest('.post-vehicle-btn').getAttribute('data-vehicle-id');
+        if (vehicleId) {
+          console.log('Post button clicked for vehicle ID:', vehicleId);
+          postVehicleById(vehicleId);
+        }
+      });
+    });
+
+  } catch (error) {
+    console.error('Error loading vehicles:', error);
+    container.innerHTML = `
+      <div class="empty-state">
+        <h3>Error loading vehicles</h3>
+        <p>${error.message}</p>
+      </div>
+    `;
+    showNotification('Failed to load vehicles: ' + error.message, 'error');
+  }
+}
+
+function createVehicleCard(vehicle) {
+  const card = document.createElement('div');
+  card.className = 'vehicle-card';
+
+  const imageUrl = vehicle.images && vehicle.images.length > 0 
+    ? vehicle.images[0] 
+    : '';
+
+  const statusClass = vehicle.status || 'available';
+  const statusLabel = {
+    'available': 'Available',
+    'posted': 'Posted',
+    'sold_pending_removal': 'Sold (Pending)',
+    'sold': 'Sold'
+  }[vehicle.status] || 'Available';
+
+  card.innerHTML = `
+    <div class="vehicle-card-image">
+      ${imageUrl ? `<img src="${imageUrl}" alt="${vehicle.year} ${vehicle.make} ${vehicle.model}" onerror="this.parentElement.innerHTML='No Image'">` : 'No Image'}
+    </div>
+    <div class="vehicle-card-content">
+      <div class="vehicle-card-title">${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}</div>
+      <div class="vehicle-card-details">
+        ${vehicle.trim ? `<div class="vehicle-card-detail-row"><span>Trim:</span><span>${vehicle.trim}</span></div>` : ''}
+        ${vehicle.mileage ? `<div class="vehicle-card-detail-row"><span>Mileage:</span><span>${vehicle.mileage.toLocaleString()} mi</span></div>` : ''}
+        ${vehicle.vin ? `<div class="vehicle-card-detail-row"><span>VIN:</span><span style="font-family: monospace; font-size: 11px;">${vehicle.vin}</span></div>` : ''}
+        ${vehicle.location ? `<div class="vehicle-card-detail-row"><span>Location:</span><span>${vehicle.location}</span></div>` : ''}
+      </div>
+      ${vehicle.price ? `<div class="vehicle-card-price">$${vehicle.price.toLocaleString()}</div>` : ''}
+      <span class="vehicle-card-status ${statusClass}">${statusLabel}</span>
+    </div>
+    <div class="vehicle-card-actions">
+      <button class="btn btn-primary post-vehicle-btn" data-vehicle-id="${vehicle._id}">
+        <span>📤</span>
+        <span>Post</span>
+      </button>
+    </div>
+  `;
+
+  return card;
+}
+
+async function postVehicleById(vehicleId) {
+  console.log('postVehicleById called with ID:', vehicleId);
+  
+  try {
+    if (!currentUser || !currentUser.apiKey) {
+      console.error('No user or API key found');
+      showNotification('Please log in first', 'error');
+      return;
+    }
+
+    // Disable button to prevent multiple clicks
+    const postButton = document.querySelector(`.post-vehicle-btn[data-vehicle-id="${vehicleId}"]`);
+    if (postButton) {
+      postButton.disabled = true;
+      postButton.classList.add('loading');
+      postButton.innerHTML = '<span>⏳</span><span>Loading...</span>';
+    }
+
+    showNotification('Loading vehicle data...', 'info');
+    console.log('Fetching vehicle data from:', `${API_CONFIG.baseUrl}/vehicles/${vehicleId}`);
+
+    // Fetch vehicle data by ID
+    const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${vehicleId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': currentUser.apiKey
+      }
+    });
+
+    console.log('API Response status:', response.status, response.statusText);
+
+    if (!response.ok) {
+      throw new Error(`Failed to load vehicle: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    console.log('API Response data:', result);
+
+    // Check if response is in the new format (with success and data)
+    if (!result.success || !result.data) {
+      console.error('Invalid response format:', result);
+      throw new Error('Invalid response format from server');
+    }
+
+    // Data is already formatted for posting (matches testData format)
+    const vehicleData = result.data;
+    console.log('Vehicle data received:', vehicleData);
+
+    // Use existing postToFacebook function - data is already in correct format
+    console.log('Calling postToFacebook with vehicle data');
+    await postToFacebook(vehicleData);
+
+    // Record posting action (don't wait for it)
+    fetch(`${API_CONFIG.baseUrl}/vehicles/${vehicleId}/posted`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': currentUser.apiKey
+      },
+      body: JSON.stringify({
+        platform: 'facebook_marketplace',
+        action: 'post',
+        listingUrl: '' // Will be updated when posting completes
+      })
+    }).catch(error => {
+      console.warn('Failed to record posting action:', error);
+    });
+
+    // Re-enable button after a delay
+    if (postButton) {
+      setTimeout(() => {
+        postButton.disabled = false;
+        postButton.classList.remove('loading');
+        postButton.innerHTML = '<span>📤</span><span>Post</span>';
+      }, 2000);
+    } else {
+      // Try to find button again if not found initially
+      const retryButton = document.querySelector(`.post-vehicle-btn[data-vehicle-id="${vehicleId}"]`);
+      if (retryButton) {
+        setTimeout(() => {
+          retryButton.disabled = false;
+          retryButton.classList.remove('loading');
+          retryButton.innerHTML = '<span>📤</span><span>Post</span>';
+        }, 2000);
+      }
+    }
+
+  } catch (error) {
+    console.error('Error posting vehicle:', error);
+    showNotification('Failed to post vehicle: ' + error.message, 'error');
+    
+    // Re-enable button on error
+    const postButton = document.querySelector(`.post-vehicle-btn[data-vehicle-id="${vehicleId}"]`);
+    if (postButton) {
+      postButton.disabled = false;
+      postButton.classList.remove('loading');
+      postButton.innerHTML = '<span>📤</span><span>Post</span>';
+    }
+  }
+}
+
+// Expose postVehicleById globally for onclick handlers
+if (typeof window !== 'undefined') {
+  window.postVehicleById = postVehicleById;
+}
+
 // ============ Message Listener for Content Scripts ============
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -1285,3 +1888,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     showNotification(request.message, 'info');
   }
 });
+
+// Expose API functions globally for console access
+if (typeof window !== 'undefined') {
+  window.fillFormWithTestData = fillFormWithTestData;
+  window.fillFormWithDefaultTestData = fillFormWithDefaultTestData;
+  window.fetchTestDataFromAPI = fetchTestDataFromAPI;
+  
+  console.log('API Functions exposed:');
+  console.log('  - fillFormWithTestData(testData, tabId?) - Fill form with custom test data');
+  console.log('  - fillFormWithDefaultTestData(tabId?, customData?) - Fill form with test data from API');
+  console.log('  - fetchTestDataFromAPI(customData?) - Fetch test data from API');
+}

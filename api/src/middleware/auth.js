@@ -12,24 +12,24 @@ export const protect = async (req, res, next) => {
 
             if (!user) {
                 res.status(401);
-                throw new Error('Invalid API Key');
+                return next(new Error('Invalid API Key'));
             }
 
             if (user.status !== 'active') {
                 res.status(403);
-                throw new Error('Your account is inactive');
+                return next(new Error('Your account is inactive'));
             }
 
             if (user.organization.status !== 'active') {
                 res.status(403);
-                throw new Error('Your organization is inactive');
+                return next(new Error('Your organization is inactive'));
             }
 
             req.user = user;
             return next();
         } catch (error) {
             res.status(error.statusCode || 401);
-            throw new Error(error.message || 'Not authorized, API Key failed');
+            return next(new Error(error.message || 'Not authorized, API Key failed'));
         }
     }
 
@@ -45,17 +45,17 @@ export const protect = async (req, res, next) => {
 
             if (!user) {
                 res.status(401);
-                throw new Error('User not found');
+                return next(new Error('User not found'));
             }
 
             if (user.status !== 'active') {
                 res.status(403);
-                throw new Error('Account inactive');
+                return next(new Error('Account inactive'));
             }
 
             if (user.organization.status !== 'active') {
                 res.status(403);
-                throw new Error('Organization inactive');
+                return next(new Error('Organization inactive'));
             }
 
             req.user = user;
@@ -63,13 +63,13 @@ export const protect = async (req, res, next) => {
         } catch (error) {
             console.error(error);
             res.status(401);
-            throw new Error('Not authorized, token failed');
+            return next(new Error('Not authorized, token failed'));
         }
     }
 
     if (!token && !apiKey) {
         res.status(401);
-        throw new Error('Not authorized, no token or API key');
+        return next(new Error('Not authorized, no token or API key'));
     }
 };
 
@@ -78,7 +78,7 @@ export const admin = (req, res, next) => {
         next();
     } else {
         res.status(401);
-        throw new Error('Not authorized as an admin');
+        return next(new Error('Not authorized as an admin'));
     }
 };
 
@@ -87,6 +87,6 @@ export const superAdmin = (req, res, next) => {
         next();
     } else {
         res.status(401);
-        throw new Error('Not authorized as a super admin');
+        return next(new Error('Not authorized as a super admin'));
     }
 };

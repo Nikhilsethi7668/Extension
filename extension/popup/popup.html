@@ -33,6 +33,38 @@
       </div>
     </div>
 
+    <!-- Vehicle Listing View (Hidden by default) -->
+    <div id="vehicleListingView" style="display: none;">
+      <div class="vehicle-listing-header">
+        <button class="btn btn-secondary btn-small" id="backToMainBtn">
+          <span>←</span>
+          <span>Back</span>
+        </button>
+        <h2>Available Vehicles</h2>
+      </div>
+      
+      <div class="vehicle-listing-controls">
+        <input type="text" id="vehicleSearch" class="input-field" placeholder="Search vehicles..." />
+        <select id="vehicleStatusFilter" class="input-field">
+          <option value="">All Status</option>
+          <option value="available">Available</option>
+          <option value="posted">Posted</option>
+          <option value="sold_pending_removal">Sold (Pending Removal)</option>
+          <option value="sold">Sold</option>
+        </select>
+      </div>
+
+      <div id="vehiclesContainer" class="vehicles-container">
+        <div class="loading-state">Loading vehicles...</div>
+      </div>
+
+      <div class="pagination-controls" id="paginationControls" style="display: none;">
+        <button class="btn btn-secondary" id="prevPageBtn" disabled>Previous</button>
+        <span id="pageInfo">Page 1 of 1</span>
+        <button class="btn btn-secondary" id="nextPageBtn" disabled>Next</button>
+      </div>
+    </div>
+
     <!-- Main Controls (Hidden until logged in) -->
     <div id="mainControls" style="display: none;">
       
@@ -49,6 +81,10 @@
           <span>Test Backend Connection</span>
         </button>
         <div id="connectionStatus"></div>
+        <button class="btn btn-secondary" id="viewVehiclesBtn" style="width: 100%; margin-top: 12px;">
+          <span>🚗</span>
+          <span>View Vehicles</span>
+        </button>
       </div>
 
       <!-- Vehicle Category Selection Row -->

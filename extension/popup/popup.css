@@ -675,3 +675,192 @@ select {
     opacity: 1;
   }
 }
+
+/* Vehicle Listing View */
+#vehicleListingView {
+  flex: 1;
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 100vh;
+}
+
+.vehicle-listing-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.vehicle-listing-header h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-main);
+  flex: 1;
+}
+
+.vehicle-listing-controls {
+  display: grid;
+  grid-template-columns: 1fr 150px;
+  gap: 12px;
+}
+
+.vehicles-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  flex: 1;
+  min-height: 400px;
+  padding: 8px;
+}
+
+.vehicle-card {
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  transition: all 0.3s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.vehicle-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--primary);
+}
+
+.vehicle-card-image {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  background: var(--bg-sub);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-sub);
+  font-size: 14px;
+}
+
+.vehicle-card-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.vehicle-card-content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+}
+
+.vehicle-card-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 4px;
+}
+
+.vehicle-card-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text-sub);
+}
+
+.vehicle-card-detail-row {
+  display: flex;
+  justify-content: space-between;
+}
+
+.vehicle-card-price {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--primary);
+  margin-top: 8px;
+}
+
+.vehicle-card-status {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  margin-top: 4px;
+}
+
+.vehicle-card-status.available {
+  background: rgba(16, 185, 129, 0.1);
+  color: var(--success);
+}
+
+.vehicle-card-status.posted {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--info);
+}
+
+.vehicle-card-status.sold_pending_removal {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--warning);
+}
+
+.vehicle-card-status.sold {
+  background: rgba(107, 114, 128, 0.1);
+  color: var(--secondary);
+}
+
+.vehicle-card-actions {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+}
+
+.vehicle-card-actions .btn {
+  flex: 1;
+  padding: 10px;
+  font-size: 13px;
+}
+
+.pagination-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+#pageInfo {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.loading-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 40px;
+  color: var(--text-sub);
+  font-size: 14px;
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 40px;
+  color: var(--text-sub);
+}
+
+.empty-state h3 {
+  font-size: 18px;
+  margin-bottom: 8px;
+  color: var(--text-main);
+}

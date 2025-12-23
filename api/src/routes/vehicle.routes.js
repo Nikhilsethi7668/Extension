@@ -60,6 +60,90 @@ router.get('/', protect, async (req, res) => {
     res.json(vehicles);
 });
 
+// @desc    Get a single vehicle by ID (formatted for posting)
+// @route   GET /api/vehicles/:id
+// @access  Protected
+router.get('/:id', protect, async (req, res, next) => {
+    try {
+        const vehicle = await Vehicle.findById(req.params.id).populate('organization').populate('assignedUser');
+
+        if (!vehicle) {
+            res.status(404);
+            return next(new Error('Vehicle not found'));
+        }
+
+        // Ensure vehicle belongs to user's organization
+        // Handle both populated and non-populated organization
+        const vehicleOrgId = vehicle.organization._id ? vehicle.organization._id.toString() : vehicle.organization.toString();
+        const userOrgId = req.user.organization._id ? req.user.organization._id.toString() : req.user.organization.toString();
+        
+        if (vehicleOrgId !== userOrgId) {
+            console.error('Organization mismatch:', {
+                vehicleOrgId,
+                userOrgId,
+                vehicleId: vehicle._id,
+                userId: req.user._id,
+                userRole: req.user.role
+            });
+            res.status(403);
+            return next(new Error('Not authorized to access this vehicle - organization mismatch'));
+        }
+
+        // Ensure user can access this vehicle (for agents, check if assigned)
+        if (req.user.role === 'agent') {
+            // If vehicle has an assignedUser, it must match the current user
+            if (vehicle.assignedUser) {
+                const assignedUserId = vehicle.assignedUser._id ? vehicle.assignedUser._id.toString() : vehicle.assignedUser.toString();
+                if (assignedUserId !== req.user._id.toString()) {
+                    res.status(403);
+                    return next(new Error('Not authorized to access this vehicle - not assigned to you'));
+                }
+            }
+            // If vehicle has no assignedUser, agents can still access it (unassigned vehicles)
+        }
+
+        // Transform vehicle data to match testData format for direct posting
+        const formattedData = {
+            year: vehicle.year ? String(vehicle.year) : '2024',
+            make: vehicle.make || 'Unknown',
+            model: vehicle.model || 'Unknown',
+            mileage: vehicle.mileage ? String(vehicle.mileage) : '0',
+            price: vehicle.price ? String(vehicle.price) : '0',
+            dealerAddress: vehicle.location || 'New York, NY',
+            title: vehicle.aiContent?.title || `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || 'Vehicle Listing',
+            description: vehicle.description || vehicle.aiContent?.description || 
+                `Excellent condition ${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}. Well maintained. All service records available. No accidents. Perfect for daily commute or family use. Contact for more details!`,
+            images: vehicle.images && vehicle.images.length > 0 
+                ? vehicle.images 
+                : [
+                    'https://images.pexels.com/photos/112460/pexels-photo-112460.jpeg',
+                    'https://images.pexels.com/photos/170811/pexels-photo-170811.jpeg'
+                ],
+            exteriorColor: vehicle.exteriorColor || 'Black',
+            interiorColor: vehicle.interiorColor || 'Grey',
+            fuelType: vehicle.fuelType || 'Petrol',
+            condition: vehicle.condition || 'Good',
+            bodyStyle: vehicle.bodyStyle || 'Saloon',
+            transmission: vehicle.transmission || 'Automatic transmission',
+            config: {
+                category: vehicle.bodyStyle === 'SUV' ? 'SUV' : 
+                         vehicle.bodyStyle === 'Truck' ? 'Truck' : 
+                         vehicle.bodyStyle === 'Van' ? 'Van' : 
+                         vehicle.bodyStyle === 'Motorcycle' ? 'Motorcycle' : 'Car/van'
+            }
+        };
+
+        // Return in same format as testData endpoint
+        res.json({
+            success: true,
+            data: formattedData
+        });
+    } catch (error) {
+        res.status(500);
+        return next(new Error(error.message));
+    }
+});
+
 // @desc    Scrape and create a vehicle
 // @route   POST /api/vehicles/scrape
 // @access  Protected/Admin
