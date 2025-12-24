@@ -391,6 +391,13 @@ function attachEventListeners() {
     backToMainBtn.addEventListener('click', showMainControls);
   }
 
+  if (document.getElementById('backToListFromImagesBtn')) {
+    document.getElementById('backToListFromImagesBtn').addEventListener('click', () => {
+      document.getElementById('vehicleImagesView').style.display = 'none';
+      document.getElementById('vehicleListingView').style.display = 'flex';
+    });
+  }
+
   if (vehicleSearch) {
     vehicleSearch.addEventListener('input', debounce(loadVehicles, 500));
   }
@@ -991,6 +998,9 @@ function createImageEditItem(imageUrl, index) {
         <button class="btn-clear-edit" data-index="${index}" style="display: none;">
           <span class="btn-icon">↺</span> Reset
         </button>
+        <button class="btn-remove-bg" data-index="${index}" title="Remove Background (Nano Banana)">
+          <span class="btn-icon">🍌</span> Remove BG
+        </button>
       </div>
       
       <div class="edit-status" id="status-${index}" style="display: none;"></div>
@@ -1133,6 +1143,107 @@ function clearImageEdit(index) {
     }
 
     showNotification('Edit cleared', 'info');
+  }
+}
+
+async function handleRemoveBackground(index) {
+  const editItem = document.getElementById(`image-edit-${index}`);
+  const removeBgBtn = editItem.querySelector('.btn-remove-bg');
+  const imageUrl = imageEditQueue[index]?.originalUrl || scrapedData.images[index]; // Fallback to original if not queued
+  
+  // Note: scrapedData.images array maps to index
+  // But wait, imageEditQueue keys are indices. 
+  // We should rely on scrapedData.images[index] for the source URL 
+  // unless we're chaining edits, but let's assume we operate on the original for now.
+  const sourceUrl = scrapedData.images[index];  
+
+  if (!sourceUrl) {
+    showNotification('Image URL not found', 'error');
+    return;
+  }
+
+  try {
+    removeBgBtn.disabled = true;
+    removeBgBtn.innerHTML = '<span class="editing-spinner"></span> Removing...';
+    
+    showNotification('Removing background...', 'info');
+
+    // Currently viewing a vehicle? We need the ID.
+    // scrapedData usually comes from scraping a page, so it might not have an ID yet if it's new.
+    // BUT the user request implies this is for "Vehicle Images on vehicle images page", which refers to `showVehicleImages(vehicleId)`.
+    // Let's check where `scrapedData` comes from. 
+    // If we are in `vehicleImagesView`, the images are passed to `displayImagesGallery`.
+    // `displayImagesGallery` uses `images` array.
+    // Wait, `createImageEditItem` uses `index`.
+    // The previous context showed `displayImagesGallery` iterates `images`.
+    // And `displayImagesGallery` was creating items differently:
+    /*
+    item.innerHTML = `
+      <img src="${imageUrl}" ...>
+      <div class="image-upload-overlay">...</div>
+    `;
+    */
+   
+    // Ah! `showVehicleImages` uses `displayImagesGallery` (lines 1965+).
+    // `displayScrapedData` uses `showImageEditingInterface` (lines 945+).
+    // The user said "Vehicle Images on vehicle images page". 
+    // This implies the `vehicleImagesView` (lines 81+ in HTML), which corresponds to `showVehicleImages` in JS.
+    // `displayImagesGallery` (line 1965) renders that view.
+    // `displayScrapedData` (line 914) renders `vehiclePreview` which has `imageGallery` AND `imageEditingContainer`.
+    
+    // The user requests: "on image i want a button... in api give data to nano banana... add that image url in vhivle data base".
+    // This confirms it's for the backend-stored vehicle, not the scraped preview.
+    // So I should modify `displayImagesGallery`, NOT `createImageEditItem` (which is for scraped preview editing).
+    
+    // RE-EVALUATION:
+    // I added the button to `createImageEditItem` in step 32. This affects the "preview" editing.
+    // The user likely wants it on the "Vehicle Images" page (backend data).
+    // so I should also add it to `displayImagesGallery`.
+    
+    // Let's implement `handleRemoveBackground` for the `displayImagesGallery` context.
+    // I'll need the `vehicleId`. `displayImagesGallery` only receives `images` array.
+    // I need to store `currentVehicleId` when `showVehicleImages` is called.
+    
+    // Strategy:
+    // 1. Update `showVehicleImages` to store `currentVehicleId`.
+    // 2. Update `displayImagesGallery` to add "Remove BG" button.
+    // 3. Implement `handleRemoveBackground` that uses `currentVehicleId`.
+
+    // First, let's revert or leave the change in `createImageEditItem` (it's fine to have it there too), 
+    // but the critical request is for the backend flow.
+    
+    // I'll define `handleRemoveBackground` specifically for the backend flow.
+    
+    // Let's fetch the vehicle ID.
+    // I'll look for a global variable or add one.
+    
+    const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${window.currentVehicleId}/remove-bg`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': currentUser.apiKey
+        },
+        body: JSON.stringify({ imageUrl: sourceUrl })
+    });
+    
+    const result = await response.json();
+    
+    if (result.success) {
+        showNotification('Background removed successfully!', 'success');
+        // Refresh images
+        showVehicleImages(window.currentVehicleId);
+    } else {
+        throw new Error(result.message || 'Failed to remove background');
+    }
+
+  } catch (error) {
+    console.error('Background removal error:', error);
+    showNotification('Error: ' + error.message, 'error');
+  } finally {
+    if (removeBgBtn) {
+        removeBgBtn.disabled = false;
+        removeBgBtn.innerHTML = '<span class="btn-icon">🍌</span> Remove BG';
+    }
   }
 }
 
@@ -1380,14 +1491,28 @@ async function postToFacebook(vehicleData = null) {
       }
     };
 
-    // Open Facebook Marketplace create listing page
+    // Check if we are already on the Facebook Marketplace create page
     const marketplaceUrl = 'https://www.facebook.com/marketplace/create/vehicle';
-    const newTab = await safeChromeCall(
-      () => chrome.tabs.create({ url: marketplaceUrl }),
-      'Failed to open Facebook Marketplace. Please reload the extension.'
-    );
+    let newTab = null;
+    
+    // Get the current active tab
+    const [activeTab] = await safeChromeCall(() => chrome.tabs.query({ active: true, currentWindow: true }));
+    
+    if (activeTab && activeTab.url && activeTab.url.includes('facebook.com/marketplace/create')) {
+      console.log('Reusing existing active tab:', activeTab.id);
+      newTab = activeTab;
+    } else {
+      console.log('Opening new Marketplace tab');
+      newTab = await safeChromeCall(
+        () => chrome.tabs.create({ url: marketplaceUrl }),
+        'Failed to open Facebook Marketplace. Please reload the extension.'
+      );
+    }
 
     // Wait for tab to load, then send data directly via message (not storage)
+    // Reduce timeout if reusing tab
+    const waitTime = newTab === activeTab ? 500 : 3000;
+    
     setTimeout(async () => {
       try {
         if (!isExtensionContextValid()) {
@@ -1407,37 +1532,41 @@ async function postToFacebook(vehicleData = null) {
             if (tab.status === 'complete' && tab.url && tab.url.includes('facebook.com/marketplace/create')) {
               tabReady = true;
             } else {
-              await new Promise(resolve => setTimeout(resolve, 1000));
+              await new Promise(resolve => setTimeout(resolve, 500));
               attempts++;
             }
           } catch (e) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            await new Promise(resolve => setTimeout(resolve, 500));
             attempts++;
           }
         }
+        if (tabReady) {
+          // Ensure content script is loaded
+          await ensureContentScriptLoaded(newTab.id);
 
-        // Ensure content script is loaded
-        await ensureContentScriptLoaded(newTab.id);
+          // Send data directly via message instead of storage
+          const response = await safeChromeCall(
+            () => chrome.tabs.sendMessage(newTab.id, {
+              action: 'fillFormWithData',
+              data: postData
+            }),
+            'Failed to send post data to content script'
+          );
 
-        // Send data directly via message instead of storage
-        const response = await safeChromeCall(
-          () => chrome.tabs.sendMessage(newTab.id, {
-            action: 'fillFormWithData',
-            data: postData
-          }),
-          'Failed to send post data to content script'
-        );
-
-        if (response && response.success) {
-          showNotification('Post data sent! Form filling started.', 'success');
+          if (response && response.success) {
+            showNotification('Post data sent! Form filling started.', 'success');
+          } else {
+            showNotification('Form filling initiated. Please wait...', 'info');
+          }
         } else {
-          showNotification('Form filling initiated. Please wait...', 'info');
+          showNotification('Timeout waiting for Facebook Marketplace to load', 'error');
         }
+
       } catch (error) {
         console.error('Error sending post data:', error);
         showNotification('Error sending data. Please try again.', 'error');
       }
-    }, 3000);
+    }, waitTime);
 
     // Log posting activity
     await logActivity('post_initiated', {
@@ -1695,13 +1824,23 @@ async function loadVehicles() {
       container.appendChild(card);
     });
 
-    // Attach event listeners to post buttons after cards are created
+    // Attach event listeners to post and image buttons after cards are created
     container.querySelectorAll('.post-vehicle-btn').forEach(button => {
       button.addEventListener('click', (e) => {
         const vehicleId = e.target.closest('.post-vehicle-btn').getAttribute('data-vehicle-id');
         if (vehicleId) {
           console.log('Post button clicked for vehicle ID:', vehicleId);
           postVehicleById(vehicleId);
+        }
+      });
+    });
+
+    container.querySelectorAll('.images-vehicle-btn').forEach(button => {
+      button.addEventListener('click', (e) => {
+        const vehicleId = e.target.closest('.images-vehicle-btn').getAttribute('data-vehicle-id');
+        if (vehicleId) {
+          console.log('Images button clicked for vehicle ID:', vehicleId);
+          showVehicleImages(vehicleId);
         }
       });
     });
@@ -1745,6 +1884,14 @@ function createVehicleCard(vehicle) {
         ${vehicle.mileage ? `<div class="vehicle-card-detail-row"><span>Mileage:</span><span>${vehicle.mileage.toLocaleString()} mi</span></div>` : ''}
         ${vehicle.vin ? `<div class="vehicle-card-detail-row"><span>VIN:</span><span style="font-family: monospace; font-size: 11px;">${vehicle.vin}</span></div>` : ''}
         ${vehicle.location ? `<div class="vehicle-card-detail-row"><span>Location:</span><span>${vehicle.location}</span></div>` : ''}
+        
+        <div class="ai-prompt-wrapper">
+          <span class="ai-prompt-label">Use AI Prompt</span>
+          <label class="toggle-switch">
+            <input type="checkbox" class="ai-prompt-toggle" data-vehicle-id="${vehicle._id}" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
       </div>
       ${vehicle.price ? `<div class="vehicle-card-price">$${vehicle.price.toLocaleString()}</div>` : ''}
       <span class="vehicle-card-status ${statusClass}">${statusLabel}</span>
@@ -1753,6 +1900,10 @@ function createVehicleCard(vehicle) {
       <button class="btn btn-primary post-vehicle-btn" data-vehicle-id="${vehicle._id}">
         <span>📤</span>
         <span>Post</span>
+      </button>
+      <button class="btn btn-secondary images-vehicle-btn" data-vehicle-id="${vehicle._id}">
+        <span>🖼️</span>
+        <span>Images</span>
       </button>
     </div>
   `;
@@ -1781,8 +1932,19 @@ async function postVehicleById(vehicleId) {
     showNotification('Loading vehicle data...', 'info');
     console.log('Fetching vehicle data from:', `${API_CONFIG.baseUrl}/vehicles/${vehicleId}`);
 
+    // Check AI prompt toggle and get value
+    const toggle = document.querySelector(`.ai-prompt-toggle[data-vehicle-id="${vehicleId}"]`);
+    const globalPrompt = document.getElementById('globalAiPrompt');
+    let fetchUrl = `${API_CONFIG.baseUrl}/vehicles/${vehicleId}`;
+    
+    if (toggle && toggle.checked && globalPrompt && globalPrompt.value.trim()) {
+      const prompt = encodeURIComponent(globalPrompt.value.trim());
+      fetchUrl += `?ai_prompt=${prompt}`;
+      console.log('Adding AI prompt to request:', globalPrompt.value.trim());
+    }
+
     // Fetch vehicle data by ID
-    const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${vehicleId}`, {
+    const response = await fetch(fetchUrl, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
@@ -1861,6 +2023,198 @@ async function postVehicleById(vehicleId) {
     }
   }
 }
+
+async function showVehicleImages(vehicleId) {
+  try {
+    if (!currentUser || !currentUser.apiKey) {
+      showNotification('Please log in first', 'error');
+      return;
+    }
+
+    // Show loading state and switch view
+    document.getElementById('vehicleListingView').style.display = 'none';
+    document.getElementById('vehicleImagesView').style.display = 'flex';
+    const gallery = document.getElementById('imagesGallery');
+    gallery.innerHTML = '<div class="loading-state">Loading images...</div>';
+    
+    // Store current vehicle ID for image operations
+    window.currentVehicleId = vehicleId;
+
+    // Fetch vehicle data to get images
+    const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${vehicleId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': currentUser.apiKey
+      }
+    });
+
+    if (!response.ok) throw new Error('Failed to load vehicle images');
+    
+    const result = await response.json();
+    if (!result.success || !result.data || !result.data.images) {
+      throw new Error('No images found for this vehicle');
+    }
+
+    displayImagesGallery(result.data.images);
+  } catch (error) {
+    console.error('Error loading images:', error);
+    showNotification(error.message, 'error');
+    // Go back on error
+    document.getElementById('vehicleImagesView').style.display = 'none';
+    document.getElementById('vehicleListingView').style.display = 'flex';
+  }
+}
+
+function displayImagesGallery(images) {
+  const gallery = document.getElementById('imagesGallery');
+  gallery.innerHTML = '';
+
+  if (images.length === 0) {
+    gallery.innerHTML = '<div class="empty-state"><h3>No images available</h3></div>';
+    return;
+  }
+
+  images.forEach((imageUrl, index) => {
+    const item = document.createElement('div');
+    item.className = 'gallery-item';
+    item.innerHTML = `
+      <img src="${imageUrl}" alt="Vehicle Image ${index + 1}" onerror="this.src='icons/icon48.png'">
+      <div class="image-upload-overlay">
+        <div class="overlay-buttons">
+          <button class="upload-single-btn" data-url="${imageUrl}" title="Upload to Facebook">
+            <span>📤</span>
+          </button>
+          <button class="remove-bg-btn-gallery" data-url="${imageUrl}" title="Remove Background (Nano Banana)">
+            <span>🍌</span>
+          </button>
+        </div>
+      </div>
+    `;
+
+    // Attach click listener for upload
+    const uploadBtn = item.querySelector('.upload-single-btn');
+    uploadBtn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const url = e.target.closest('.upload-single-btn').getAttribute('data-url');
+      if (url) {
+        await uploadIndividualImage(url, uploadBtn);
+      }
+    });
+
+    // Attach click listener for remove bg
+    const removeBgBtn = item.querySelector('.remove-bg-btn-gallery');
+    removeBgBtn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const url = removeBgBtn.getAttribute('data-url');
+        if (url) {
+            await removeVehicleImageBackground(url, removeBgBtn);
+        }
+    });
+
+    gallery.appendChild(item);
+  });
+}
+
+async function removeVehicleImageBackground(imageUrl, button) {
+    if (!window.currentVehicleId) {
+        showNotification('Vehicle ID missing', 'error');
+        return;
+    }
+
+    try {
+        // Ask for user instructions
+        const userPrompt = prompt('Enter AI editing instructions (e.g., "Remove background", "Make it a sunny day"):', 'Remove background');
+        if (!userPrompt) return; // User cancelled
+
+        button.disabled = true;
+        const originalContent = button.innerHTML;
+        button.innerHTML = '<span>⏳</span>';
+        
+        showNotification('Processing image with AI...', 'info');
+
+        const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${window.currentVehicleId}/remove-bg`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': currentUser.apiKey
+            },
+            body: JSON.stringify({ 
+                imageUrl: imageUrl,
+                prompt: userPrompt
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            showNotification('Background removed successfully!', 'success');
+            // Refresh images
+            showVehicleImages(window.currentVehicleId);
+        } else {
+            throw new Error(result.message || 'Failed to remove background');
+        }
+
+    } catch (error) {
+        console.error('Background removal error:', error);
+        showNotification('Error: ' + error.message, 'error');
+        button.innerHTML = '<span>❌</span>';
+        setTimeout(() => {
+            button.disabled = false;
+            button.innerHTML = '<span>🍌</span>';
+        }, 2000);
+    }
+}
+
+async function uploadIndividualImage(imageUrl, button) {
+  try {
+    // Show loading state on button
+    const originalContent = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<span>⏳</span><span>...</span>';
+
+    // Get active tab
+    const [tab] = await safeChromeCall(() => chrome.tabs.query({ active: true, currentWindow: true }));
+    
+    if (!tab || !tab.url.includes('facebook.com/marketplace/create')) {
+      showNotification('Please open a Facebook Marketplace listing page first', 'warning');
+      button.disabled = false;
+      button.innerHTML = originalContent;
+      return;
+    }
+
+    // Ensure content script is loaded and responsive
+    await ensureContentScriptLoaded(tab.id);
+
+    // Send message to content script
+    const response = await safeChromeCall(() => chrome.tabs.sendMessage(tab.id, {
+      action: 'uploadSpecificImage',
+      imageUrl: imageUrl
+    }));
+
+    if (response && response.success) {
+      button.classList.add('success');
+      button.innerHTML = '<span>✅</span><span>Sent</span>';
+      showNotification('Image upload initiated', 'success');
+    } else {
+      throw new Error(response?.message || 'Failed to initiate upload');
+    }
+
+    // Reset button after delay
+    setTimeout(() => {
+      button.classList.remove('success');
+      button.disabled = false;
+      button.innerHTML = originalContent;
+    }, 2000);
+
+  } catch (error) {
+    console.error('Individual upload error:', error);
+    showNotification(error.message, 'error');
+    button.disabled = false;
+    button.innerHTML = '<span>❌</span><span>Retry</span>';
+  }
+}
+
 
 // Expose postVehicleById globally for onclick handlers
 if (typeof window !== 'undefined') {

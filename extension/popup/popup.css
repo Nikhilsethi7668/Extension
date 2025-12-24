@@ -9,29 +9,29 @@
   --danger: #ef4444;
   --warning: #f59e0b;
   --info: #3b82f6;
-  
+
   --bg-main: #ffffff;
   --bg-sub: #f8fafc;
   --bg-dark: #0c0c0c;
   --bg-card: #ffffff;
-  
+
   --text-main: #1e293b;
   --text-sub: #64748b;
   --text-light: #94a3b8;
-  
+
   --border: #e2e8f0;
   --border-light: #f1f5f9;
   --border-dark: #cbd5e1;
-  
+
   --radius: 12px;
   --radius-sm: 8px;
   --radius-lg: 16px;
-  
+
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
-  
+
   --gradient-primary: linear-gradient(135deg, #0f62fe 0%, #0043ce 100%);
   --gradient-success: linear-gradient(135deg, #10b981 0%, #059669 100%);
 }
@@ -186,8 +186,15 @@ body {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
 }
 
 /* Buttons */
@@ -558,7 +565,9 @@ select {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Empty States */
@@ -578,6 +587,7 @@ select {
     opacity: 0;
     transform: translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -593,7 +603,7 @@ select {
   .config-row {
     grid-template-columns: 1fr;
   }
-  
+
   .button-group {
     grid-template-columns: 1fr;
   }
@@ -670,6 +680,7 @@ select {
     transform: translateX(100%);
     opacity: 0;
   }
+
   to {
     transform: translateX(0);
     opacity: 1;
@@ -863,4 +874,272 @@ select {
   font-size: 18px;
   margin-bottom: 8px;
   color: var(--text-main);
+}
+
+/* Image Gallery System */
+.images-gallery {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 16px;
+  overflow-y: auto;
+  max-height: calc(100vh - 150px);
+  justify-content: center;
+  align-content: flex-start;
+}
+
+.gallery-item {
+  position: relative;
+  width: calc(50% - 12px);
+  height: 120px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-sub);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  transition: all 0.2s ease;
+}
+
+.gallery-item:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--primary);
+}
+
+.gallery-item img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.image-upload-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 0.2s ease;
+}
+
+.gallery-item:hover .image-upload-overlay {
+  opacity: 1;
+}
+
+.overlay-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.upload-single-btn {
+  background: var(--primary);
+  color: white;
+  border: none;
+  width: 36px;
+  /* Make square for consistency in row */
+  height: 36px;
+  border-radius: var(--radius-sm);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(15, 98, 254, 0.3);
+  transform: scale(0.9);
+  transition: all 0.2s ease;
+  padding: 0;
+  /* Override padding since we want icon only or centered */
+}
+
+/* Remove text span from upload button via CSS if needed, or rely on HTML change */
+.upload-single-btn span:nth-child(2) {
+  display: none;
+  /* Hide text label to save space in gallery grid */
+}
+
+.remove-bg-btn-gallery {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: white;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+  font-size: 16px;
+  transform: scale(0.9);
+}
+
+.gallery-item:hover .upload-single-btn,
+.gallery-item:hover .remove-bg-btn-gallery {
+  transform: scale(1);
+}
+
+.upload-single-btn:hover {
+  background: var(--primary-dark);
+  transform: scale(1.1) !important;
+}
+
+.remove-bg-btn-gallery:hover {
+  background: #f1f5f9;
+  transform: scale(1.1) !important;
+}
+
+.upload-single-btn.success {
+  background: var(--success);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+/* Hide listed sections when gallery is open */
+#vehicleImagesView {
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-main);
+  animation: fadeIn 0.3s ease-out;
+}
+
+.vehicle-listing-header {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-main);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+/* Premium Input Fields */
+.input-with-icon {
+  position: relative;
+  width: 100%;
+}
+
+.input-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 16px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.input-with-icon .input-field {
+  padding-left: 40px !important;
+  /* Make space for icon */
+  height: 48px;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-main);
+  box-shadow: var(--shadow-sm);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Specific Style for AI Prompt */
+.ai-input-wrapper .input-field {
+  background: linear-gradient(to right, rgba(66, 133, 244, 0.03), rgba(66, 133, 244, 0.08));
+  border-color: rgba(66, 133, 244, 0.3);
+}
+
+.ai-input-wrapper .input-field:focus {
+  background: white;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(66, 133, 244, 0.15);
+  transform: translateY(-1px);
+}
+
+/* Specific Style for Search */
+.search-input-wrapper .input-field:focus {
+  border-color: var(--text-sub);
+  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.05);
+}
+
+/* Adjust grid layout to handle wrappers */
+.vehicle-listing-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Global AI Prompt Styles - Override/Update */
+#globalAiPrompt {
+  /* Previously styled by ID, now handled by wrapper class mostly, but keeping border radius clean */
+  border-radius: var(--radius);
+}
+
+/* AI Prompt Toggle Switch */
+.ai-prompt-wrapper {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ai-prompt-label {
+  font-size: 12px;
+  color: var(--text-sub);
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 20px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #ccc;
+  -webkit-transition: .4s;
+  transition: .4s;
+  border-radius: 34px;
+}
+
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 14px;
+  width: 14px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  -webkit-transition: .4s;
+  transition: .4s;
+  border-radius: 50%;
+}
+
+input:checked+.slider {
+  background-color: var(--primary);
+}
+
+input:focus+.slider {
+  box-shadow: 0 0 1px var(--primary);
+}
+
+input:checked+.slider:before {
+  -webkit-transform: translateX(14px);
+  -ms-transform: translateX(14px);
+  transform: translateX(14px);
 }
