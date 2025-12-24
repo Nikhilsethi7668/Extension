@@ -107,6 +107,22 @@
       return true; // Keep channel open for async response
     }
     
+    if (request.action === 'uploadSpecificImage') {
+      console.log('Received individual image upload request:', request.imageUrl);
+      
+      const fileInput = document.querySelector('input[type="file"][accept*="image"]');
+      if (!fileInput) {
+        sendResponse({ success: false, message: 'File input not found on page' });
+        return true;
+      }
+
+      uploadImage(fileInput, request.imageUrl, Date.now())
+        .then(() => sendResponse({ success: true }))
+        .catch(err => sendResponse({ success: false, message: err.message }));
+        
+      return true;
+    }
+    
     return false;
   });
 
@@ -341,11 +357,13 @@
         if (bodyStyleFilled) filledFields.add('bodyStyle');
       }
       
+      /* 
       // Handle images (only once)
       if (!filledFields.has('images') && postData?.images && postData.images.length > 0) {
         await handleImages();
         filledFields.add('images');
       }
+      */
       
       // Notify user of progress
       sendProgressUpdate('Auto-fill in progress...');

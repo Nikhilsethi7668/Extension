@@ -1,7 +1,8 @@
 import express from 'express';
 import Vehicle from '../models/Vehicle.js';
 import { protect, admin } from '../middleware/auth.js';
-import { generateVehicleContent } from '../services/ai.service.js';
+import { generateVehicleContent, processImageWithGemini } from '../services/ai.service.js';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import { scrapeVehicle } from '../services/scraper.service.js';
 
 const router = express.Router();
@@ -104,12 +105,12 @@ router.get('/:id', protect, async (req, res, next) => {
 
         // Transform vehicle data to match testData format for direct posting
         const formattedData = {
-            year: vehicle.year ? String(vehicle.year) : '2024',
-            make: vehicle.make || 'Unknown',
-            model: vehicle.model || 'Unknown',
+            year: vehicle.year ? String(vehicle.year) : ' ',
+            make: vehicle.make || ' ',
+            model: vehicle.model || ' ',
             mileage: vehicle.mileage ? String(vehicle.mileage) : '0',
             price: vehicle.price ? String(vehicle.price) : '0',
-            dealerAddress: vehicle.location || 'New York, NY',
+            dealerAddress: vehicle.location || ' ',
             title: vehicle.aiContent?.title || `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || 'Vehicle Listing',
             description: vehicle.description || vehicle.aiContent?.description || 
                 `Excellent condition ${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}. Well maintained. All service records available. No accidents. Perfect for daily commute or family use. Contact for more details!`,
@@ -119,12 +120,12 @@ router.get('/:id', protect, async (req, res, next) => {
                     'https://images.pexels.com/photos/112460/pexels-photo-112460.jpeg',
                     'https://images.pexels.com/photos/170811/pexels-photo-170811.jpeg'
                 ],
-            exteriorColor: vehicle.exteriorColor || 'Black',
-            interiorColor: vehicle.interiorColor || 'Grey',
-            fuelType: vehicle.fuelType || 'Petrol',
-            condition: vehicle.condition || 'Good',
-            bodyStyle: vehicle.bodyStyle || 'Saloon',
-            transmission: vehicle.transmission || 'Automatic transmission',
+            exteriorColor: vehicle.exteriorColor || '',
+            interiorColor: vehicle.interiorColor || '',
+            fuelType: vehicle.fuelType || ' ',
+            condition: vehicle.condition || ' ',
+            bodyStyle: vehicle.bodyStyle || ' ',
+            transmission: vehicle.transmission || ' ',
             config: {
                 category: vehicle.bodyStyle === 'SUV' ? 'SUV' : 
                          vehicle.bodyStyle === 'Truck' ? 'Truck' : 
@@ -132,6 +133,61 @@ router.get('/:id', protect, async (req, res, next) => {
                          vehicle.bodyStyle === 'Motorcycle' ? 'Motorcycle' : 'Car/van'
             }
         };
+
+        // Handle AI Enhancement if query parameter is present
+        if (req.query.ai_prompt && process.env.GEMINI_API_KEY) {
+            try {
+                console.log('Enhancing content with Gemini AI using prompt:', req.query.ai_prompt);
+                
+                const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+                const model = genAI.getGenerativeModel({
+                    model: "gemini-flash-latest",
+                });
+
+                const prompt = `
+                    You are an expert car salesman copywriting assistant. 
+                    I need you to write a catchy title and a detailed, selling description for a vehicle listing on Facebook Marketplace.
+                    
+                    Vehicle Details:
+                    Year: ${formattedData.year}
+                    Make: ${formattedData.make}
+                    Model: ${formattedData.model}
+                    Mileage: ${formattedData.mileage}
+                    Price: ${formattedData.price}
+                    Condition: ${formattedData.condition}
+                    
+                    User specific instructions: ${req.query.ai_prompt}
+                    
+                    Return ONLY a JSON object with this exact structure (no markdown, no backticks):
+                    {
+                        "title": "Your catchy title here",
+                        "description": "Your detailed selling description here"
+                    }
+                `;
+
+                const result = await model.generateContent(prompt);
+                const response = result.response;
+                const text = response.text().trim().replace(/^```json/, '').replace(/```$/, '');
+                
+                try {
+                    const enhancedContent = JSON.parse(text);
+                    if (enhancedContent.title) formattedData.title = enhancedContent.title;
+                    if (enhancedContent.description) formattedData.description = enhancedContent.description;
+                    console.log('Content enhanced successfully');
+                } catch (parseError) {
+                    console.error('Failed to parse AI response:', parseError);
+                    // Fallback using regex if JSON parse fails
+                    const titleMatch = text.match(/"title":\s*"([^"]+)"/);
+                    const descMatch = text.match(/"description":\s*"([^"]+)"/);
+                    if (titleMatch) formattedData.title = titleMatch[1];
+                    if (descMatch) formattedData.description = descMatch[1];
+                }
+
+            } catch (aiError) {
+                console.error('Gemini API enhancement failed:', aiError);
+                // Continue without enhancement, returning original data
+            }
+        }
 
         // Return in same format as testData endpoint
         res.json({
@@ -193,6 +249,63 @@ router.post('/:id/generate-ai', protect, async (req, res) => {
         res.json(vehicle);
     } catch (error) {
         res.status(500).json({ message: 'AI Generation failed' });
+    }
+});
+
+// @desc    Remove background from a vehicle image (Nano Banana Integration)
+// @route   POST /api/vehicles/:id/remove-bg
+// @access  Protected
+router.post('/:id/remove-bg', protect, async (req, res) => {
+    const { imageUrl, prompt } = req.body; // Accept prompt from user
+    const vehicle = await Vehicle.findById(req.params.id);
+
+    if (!vehicle) {
+        res.status(404);
+        throw new Error('Vehicle not found');
+    }
+
+    // Authorization Check
+    if (req.user.role === 'agent' && vehicle.assignedUser.toString() !== req.user._id.toString()) {
+        res.status(403);
+        throw new Error('Not authorized to access this vehicle');
+    }
+
+    if (!imageUrl) {
+        res.status(400);
+        throw new Error('Image URL is required');
+    }
+
+    try {
+        console.log(`Processing background removal for image: ${imageUrl} with prompt: ${prompt || 'Default'}`);
+        
+        // Use AI Service with Gemini 2.5 Flash
+        const aiResult = await processImageWithGemini(imageUrl, prompt);
+        const processedImageUrl = aiResult.processedUrl;
+
+        // Update the image in the vehicle record
+        const imageIndex = vehicle.images.indexOf(imageUrl);
+        if (imageIndex > -1) {
+            vehicle.images[imageIndex] = processedImageUrl;
+        } else {
+            vehicle.images.push(processedImageUrl);
+        }
+
+        await vehicle.save();
+        
+        res.json({
+            success: true,
+            data: {
+                originalUrl: imageUrl,
+                processedUrl: processedImageUrl,
+                vehicle: vehicle,
+                provider: aiResult.provider,
+                aiResponse: aiResult.aiResponse
+            }
+        });
+
+    } catch (error) {
+        console.error('Background removal failed:', error);
+        res.status(500).json({ message: 'Background removal failed', error: error.message });
     }
 });
 
