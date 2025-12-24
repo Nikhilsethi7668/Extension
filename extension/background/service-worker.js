@@ -91,13 +91,13 @@ async function handleFillFormWithTestDataFromAPI(customData = null, tabId = null
     }
 
     const response = await fetch(url, options);
-    
+
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status} ${response.statusText}`);
     }
 
     const result = await response.json();
-    
+
     if (!result.success || !result.data) {
       throw new Error(result.message || 'Failed to get test data from API');
     }

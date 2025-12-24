@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import {
     Box, Button, Typography, Paper, Table, TableBody, TableCell,
     TableContainer, TableHead, TableRow, Dialog, DialogTitle,
-    DialogContent, TextField, DialogActions, Chip
+    DialogContent, TextField, DialogActions, Chip, InputAdornment, TablePagination,
+    IconButton, Tooltip
 } from '@mui/material';
-import { Plus } from 'lucide-react';
+import { Plus, Search, RefreshCw, X, Eye, ExternalLink, Image as ImageIcon } from 'lucide-react';
 import apiClient from '../config/axios';
 import Layout from '../components/Layout';
 
@@ -16,23 +17,59 @@ const Inventory = () => {
     const [selectedVehicle, setSelectedVehicle] = useState(null);
     const [detailOpen, setDetailOpen] = useState(false);
 
+    // Pagination & Search State
+    const [page, setPage] = useState(0); // MUI is 0-indexed
+    const [rowsPerPage, setRowsPerPage] = useState(50);
+    const [totalVehicles, setTotalVehicles] = useState(0);
+    const [search, setSearch] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
+
+    // Debounce Search
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(search);
+            setPage(0); // Reset to first page on new search
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [search]);
+
     const fetchVehicles = async () => {
-        const { data } = await apiClient.get('/api/vehicles');
-        setVehicles(data);
+        setLoading(true);
+        try {
+            const { data } = await apiClient.get('/vehicles', {
+                params: {
+                    page: page + 1, // API is 1-indexed
+                    limit: rowsPerPage,
+                    search: debouncedSearch
+                }
+            });
+
+            if (data.vehicles) {
+                setVehicles(data.vehicles);
+                setTotalVehicles(data.total);
+            } else {
+                setVehicles(Array.isArray(data) ? data : []);
+                setTotalVehicles(Array.isArray(data) ? data.length : 0);
+            }
+        } catch (error) {
+            console.error('Error fetching vehicles:', error);
+        } finally {
+            setLoading(false);
+        }
     };
 
     useEffect(() => {
         fetchVehicles();
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [page, rowsPerPage, debouncedSearch]);
 
     const handleScrape = async () => {
         setLoading(true);
         try {
             const urls = scrapeUrl.split('\n').filter(u => u.trim());
-
             if (urls.length === 0) return;
 
-            const { data } = await apiClient.post('/api/vehicles/scrape-bulk', { urls });
+            const { data } = await apiClient.post('/vehicles/scrape-bulk', { urls });
 
             if (data.failed > 0) {
                 const errors = data.items.filter(i => i.status === 'failed').map(i => i.url + ': ' + i.error).join('\n');
@@ -57,103 +94,184 @@ const Inventory = () => {
         setDetailOpen(true);
     };
 
+    const handleChangePage = (event, newPage) => {
+        setPage(newPage);
+    };
+
+    const handleChangeRowsPerPage = (event) => {
+        setRowsPerPage(parseInt(event.target.value, 10));
+        setPage(0);
+    };
+
+    const clearSearch = () => {
+        setSearch('');
+        setDebouncedSearch('');
+        setPage(0);
+    };
+
     return (
         <Layout title="Vehicle Inventory">
-            <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
-                <Button
-                    variant="contained"
-                    startIcon={<Plus size={18} />}
-                    onClick={() => setOpen(true)}
-                >
-                    Add Vehicle (Scrape)
-                </Button>
-            </Box>
+            <Paper className="glass" sx={{ p: 2, mb: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, minWidth: '300px' }}>
+                    <TextField
+                        placeholder="Search by Make, Model, VIN..."
+                        variant="outlined"
+                        size="small"
+                        fullWidth
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        InputProps={{
+                            startAdornment: (
+                                <InputAdornment position="start">
+                                    <Search size={18} color="#94a3b8" />
+                                </InputAdornment>
+                            ),
+                            endAdornment: search && (
+                                <InputAdornment position="end">
+                                    <IconButton size="small" onClick={clearSearch}>
+                                        <X size={16} />
+                                    </IconButton>
+                                </InputAdornment>
+                            ),
+                            sx: { bgcolor: 'background.paper' }
+                        }}
+                    />
+                </Box>
 
-            <TableContainer component={Paper}>
-                <Table>
-                    <TableHead>
-                        <TableRow>
-                            <TableCell>Image</TableCell>
-                            <TableCell>Vehicle</TableCell>
-                            <TableCell>VIN</TableCell>
-                            <TableCell>Price</TableCell>
-                            <TableCell>Status</TableCell>
-                            <TableCell>Actions</TableCell>
-                        </TableRow>
-                    </TableHead>
-                    <TableBody>
-                        {vehicles.map((v) => (
-                            <TableRow
-                                key={v._id}
-                                sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
-                                onClick={() => handleViewVehicle(v)}
-                            >
-                                <TableCell>
-                                    {v.images && v.images.length > 0 ? (
-                                        <img
-                                            src={v.images[0]}
-                                            alt={`${v.year} ${v.make} ${v.model}`}
-                                            style={{
-                                                width: '80px',
-                                                height: '60px',
-                                                objectFit: 'cover',
-                                                borderRadius: '4px'
-                                            }}
-                                        />
-                                    ) : (
-                                        <Box
-                                            sx={{
-                                                width: '80px',
-                                                height: '60px',
-                                                bgcolor: 'grey.200',
-                                                borderRadius: '4px',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                color: 'grey.500'
-                                            }}
-                                        >
-                                            No Image
-                                        </Box>
-                                    )}
-                                </TableCell>
-                                <TableCell>
-                                    <Typography variant="subtitle2">{v.year} {v.make} {v.model}</Typography>
-                                    <Typography variant="caption" color="textSecondary">{v.trim}</Typography>
-                                </TableCell>
-                                <TableCell>{v.vin || 'N/A'}</TableCell>
-                                <TableCell>${v.price?.toLocaleString() || 'N/A'}</TableCell>
-                                <TableCell>
-                                    <Chip
-                                        label={v.status}
-                                        size="small"
-                                        color={v.status === 'posted' ? 'success' : 'default'}
-                                    />
-                                </TableCell>
-                                <TableCell onClick={(e) => e.stopPropagation()}>
-                                    <Button size="small" onClick={() => handleViewVehicle(v)}>View</Button>
-                                </TableCell>
+                <Box sx={{ display: 'flex', gap: 1.5 }}>
+                    <Button
+                        variant="outlined"
+                        color="secondary"
+                        onClick={fetchVehicles}
+                        startIcon={<RefreshCw size={18} />}
+                    >
+                        Refresh
+                    </Button>
+                    <Button
+                        variant="contained"
+                        onClick={() => setOpen(true)}
+                        startIcon={<Plus size={18} />}
+                    >
+                        Import Vehicle
+                    </Button>
+                </Box>
+            </Paper>
+
+            <Paper className="glass" sx={{ overflow: 'hidden' }}>
+                <TableContainer sx={{ maxHeight: 'calc(100vh - 280px)' }}>
+                    <Table stickyHeader>
+                        <TableHead>
+                            <TableRow>
+                                <TableCell width={100}>Image</TableCell>
+                                <TableCell>Vehicle Info</TableCell>
+                                <TableCell>VIN</TableCell>
+                                <TableCell>Price</TableCell>
+                                <TableCell>Status</TableCell>
+                                <TableCell align="right">Actions</TableCell>
                             </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-            </TableContainer>
+                        </TableHead>
+                        <TableBody>
+                            {loading ? (
+                                <TableRow>
+                                    <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
+                                        <Typography color="text.secondary">Loading inventory...</Typography>
+                                    </TableCell>
+                                </TableRow>
+                            ) : vehicles.length === 0 ? (
+                                <TableRow>
+                                    <TableCell colSpan={6} align="center" sx={{ py: 6 }}>
+                                        <Typography color="text.secondary">No vehicles found matching your criteria.</Typography>
+                                    </TableCell>
+                                </TableRow>
+                            ) : (
+                                vehicles.map((v) => (
+                                    <TableRow
+                                        key={v._id}
+                                        hover
+                                        sx={{ cursor: 'pointer', '&:last-child td, &:last-child th': { border: 0 } }}
+                                        onClick={() => handleViewVehicle(v)}
+                                    >
+                                        <TableCell>
+                                            {v.images && v.images.length > 0 ? (
+                                                <img
+                                                    src={v.images[0]}
+                                                    alt="vehicle"
+                                                    style={{ width: 64, height: 48, objectFit: 'cover', borderRadius: 6 }}
+                                                />
+                                            ) : (
+                                                <Box sx={{ width: 64, height: 48, bgcolor: 'background.paper', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <ImageIcon size={20} color="#555" />
+                                                </Box>
+                                            )}
+                                        </TableCell>
+                                        <TableCell>
+                                            <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                                                {v.year} {v.make} {v.model}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                                {v.trim}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
+                                                {v.vin || '-'}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Typography variant="body2" sx={{ fontWeight: 600, color: 'success.light' }}>
+                                                ${v.price?.toLocaleString() || 'N/A'}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Chip
+                                                label={v.status}
+                                                size="small"
+                                                variant={v.status === 'posted' ? 'filled' : 'outlined'}
+                                                color={v.status === 'posted' ? 'success' : v.status === 'sold' ? 'error' : 'default'}
+                                                sx={{ textTransform: 'capitalize' }}
+                                            />
+                                        </TableCell>
+                                        <TableCell align="right">
+                                            <Tooltip title="View Details">
+                                                <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleViewVehicle(v); }}>
+                                                    <Eye size={18} />
+                                                </IconButton>
+                                            </Tooltip>
+                                        </TableCell>
+                                    </TableRow>
+                                ))
+                            )}
+                        </TableBody>
+                    </Table>
+                </TableContainer>
+                <TablePagination
+                    rowsPerPageOptions={[25, 50, 100]}
+                    component="div"
+                    count={totalVehicles}
+                    rowsPerPage={rowsPerPage}
+                    page={page}
+                    onPageChange={handleChangePage}
+                    onRowsPerPageChange={handleChangeRowsPerPage}
+                    sx={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}
+                />
+            </Paper>
 
+            {/* Import Dialog */}
             <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
-                <DialogTitle>Import Vehicles from URLs</DialogTitle>
+                <DialogTitle>Import Vehicles</DialogTitle>
                 <DialogContent>
-                    <Typography variant="body2" sx={{ mb: 2 }}>
-                        Paste URLs from Autotrader, Cars.com, etc. (One per line)
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Paste scraping URLs (one per line)
                     </Typography>
                     <TextField
                         autoFocus
                         fullWidth
                         multiline
                         rows={6}
-                        label="Listing URLs"
-                        placeholder="https://www.autotrader.com/...\nhttps://www.cars.com/..."
+                        placeholder="https://www.autotrader.com/..."
                         value={scrapeUrl}
                         onChange={(e) => setScrapeUrl(e.target.value)}
+                        variant="outlined"
                     />
                 </DialogContent>
                 <DialogActions>
@@ -168,84 +286,68 @@ const Inventory = () => {
                 </DialogActions>
             </Dialog>
 
-            {/* Vehicle Detail Modal */}
+            {/* Detail Dialog */}
             <Dialog open={detailOpen} onClose={() => setDetailOpen(false)} maxWidth="md" fullWidth>
                 {selectedVehicle && (
                     <>
-                        <DialogTitle>
-                            {selectedVehicle.year} {selectedVehicle.make} {selectedVehicle.model} {selectedVehicle.trim}
+                        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Box>
+                                {selectedVehicle.year} {selectedVehicle.make} {selectedVehicle.model}
+                                <Typography variant="caption" display="block" color="text.secondary">
+                                    Trim: {selectedVehicle.trim}
+                                </Typography>
+                            </Box>
+                            <Box>
+                                <Chip
+                                    label={selectedVehicle.status}
+                                    color={selectedVehicle.status === 'posted' ? 'success' : 'default'}
+                                    size="small"
+                                    sx={{ mr: 1 }}
+                                />
+                                {selectedVehicle.sourceUrl && (
+                                    <IconButton component="a" href={selectedVehicle.sourceUrl} target="_blank" size="small">
+                                        <ExternalLink size={18} />
+                                    </IconButton>
+                                )}
+                            </Box>
                         </DialogTitle>
-                        <DialogContent>
-                            {/* Image Gallery */}
+                        <DialogContent dividers>
+                            {/* Images */}
                             {selectedVehicle.images && selectedVehicle.images.length > 0 && (
-                                <Box sx={{ mb: 3 }}>
-                                    <Box sx={{
-                                        display: 'grid',
-                                        gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-                                        gap: 2
-                                    }}>
-                                        {selectedVehicle.images.map((img, idx) => (
-                                            <img
-                                                key={idx}
-                                                src={img}
-                                                alt={`${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model} - ${idx + 1}`}
-                                                style={{
-                                                    width: '100%',
-                                                    height: '150px',
-                                                    objectFit: 'cover',
-                                                    borderRadius: '8px'
-                                                }}
-                                            />
-                                        ))}
+                                <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', pb: 2, mb: 2 }}>
+                                    {selectedVehicle.images.map((img, idx) => (
+                                        <Box key={idx} sx={{ flexShrink: 0, width: 200, height: 150, borderRadius: 2, overflow: 'hidden' }}>
+                                            <img src={img} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        </Box>
+                                    ))}
+                                </Box>
+                            )}
+
+                            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
+                                <Box>
+                                    <Typography variant="overline" color="text.secondary">Vehicle Details</Typography>
+                                    <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <Typography variant="body2" color="text.secondary">VIN</Typography>
+                                            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{selectedVehicle.vin}</Typography>
+                                        </Box>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <Typography variant="body2" color="text.secondary">Mileage</Typography>
+                                            <Typography variant="body2">{selectedVehicle.mileage?.toLocaleString() || '-'}</Typography>
+                                        </Box>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <Typography variant="body2" color="text.secondary">Price</Typography>
+                                            <Typography variant="body2" fontWeight={600} color="success.light">${selectedVehicle.price?.toLocaleString() || '-'}</Typography>
+                                        </Box>
                                     </Box>
                                 </Box>
-                            )}
-
-                            {/* Vehicle Details */}
-                            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 2 }}>
                                 <Box>
-                                    <Typography variant="caption" color="textSecondary">VIN</Typography>
-                                    <Typography variant="body1">{selectedVehicle.vin || 'N/A'}</Typography>
-                                </Box>
-                                <Box>
-                                    <Typography variant="caption" color="textSecondary">Price</Typography>
-                                    <Typography variant="body1">${selectedVehicle.price?.toLocaleString() || 'N/A'}</Typography>
-                                </Box>
-                                <Box>
-                                    <Typography variant="caption" color="textSecondary">Mileage</Typography>
-                                    <Typography variant="body1">{selectedVehicle.mileage?.toLocaleString() || 'N/A'} miles</Typography>
-                                </Box>
-                                <Box>
-                                    <Typography variant="caption" color="textSecondary">Status</Typography>
-                                    <Chip
-                                        label={selectedVehicle.status}
-                                        size="small"
-                                        color={selectedVehicle.status === 'posted' ? 'success' : 'default'}
-                                    />
+                                    <Typography variant="overline" color="text.secondary">Description</Typography>
+                                    <Typography variant="body2" sx={{ mt: 1, maxHeight: 150, overflowY: 'auto' }}>
+                                        {selectedVehicle.description || 'No description available.'}
+                                    </Typography>
                                 </Box>
                             </Box>
-
-                            {/* Description */}
-                            {selectedVehicle.description && (
-                                <Box sx={{ mb: 2 }}>
-                                    <Typography variant="caption" color="textSecondary">Description</Typography>
-                                    <Typography variant="body2" sx={{ mt: 1 }}>
-                                        {selectedVehicle.description}
-                                    </Typography>
-                                </Box>
-                            )}
-
-                            {/* Source URL */}
-                            {selectedVehicle.sourceUrl && (
-                                <Box>
-                                    <Typography variant="caption" color="textSecondary">Source</Typography>
-                                    <Typography variant="body2" sx={{ mt: 1 }}>
-                                        <a href={selectedVehicle.sourceUrl} target="_blank" rel="noopener noreferrer">
-                                            View Original Listing
-                                        </a>
-                                    </Typography>
-                                </Box>
-                            )}
                         </DialogContent>
                         <DialogActions>
                             <Button onClick={() => setDetailOpen(false)}>Close</Button>

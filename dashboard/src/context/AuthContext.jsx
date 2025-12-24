@@ -17,7 +17,14 @@ export const AuthProvider = ({ children }) => {
     }, []);
 
     const login = async (email, password) => {
-        const { data } = await apiClient.post('/api/auth/login', { email, password });
+        const { data } = await apiClient.post('/auth/login', { email, password });
+        setUser(data);
+        localStorage.setItem('user', JSON.stringify(data));
+        return data;
+    };
+
+    const loginWithApiKey = async (apiKey) => {
+        const { data } = await apiClient.post('/auth/dashboard-api-login', { apiKey });
         setUser(data);
         localStorage.setItem('user', JSON.stringify(data));
         return data;
@@ -29,7 +36,7 @@ export const AuthProvider = ({ children }) => {
     };
 
     return (
-        <AuthContext.Provider value={{ user, login, logout, loading }}>
+        <AuthContext.Provider value={{ user, login, loginWithApiKey, logout, loading }}>
             {children}
         </AuthContext.Provider>
     );

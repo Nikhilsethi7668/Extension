@@ -35,6 +35,7 @@ router.post('/login', async (req, res) => {
                 email: user.email,
                 role: user.role,
                 organization: user.organization,
+                needsPasswordChange: user.needsPasswordChange,
                 token: generateToken(user._id),
             });
         } else {
@@ -48,7 +49,88 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// @desc    Agent login with token only
+// @desc    Dashboard login with API Key (User or Org)
+// @route   POST /api/auth/dashboard-api-login
+// @access  Public
+router.post('/dashboard-api-login', async (req, res) => {
+    try {
+        const { apiKey } = req.body;
+
+        if (!apiKey) {
+            res.status(400);
+            throw new Error('API Key is required');
+        }
+
+        let user = await User.findOne({ apiKey }).populate('organization');
+
+        // Case 1: User API Key (Agent)
+        if (user) {
+            if (user.status !== 'active') {
+                res.status(403);
+                throw new Error('Your account is inactive');
+            }
+            if (user.organization.status !== 'active') {
+                res.status(403);
+                throw new Error('Your organization is inactive');
+            }
+            if (user.organization.apiKeyStatus !== 'active') {
+                res.status(403);
+                throw new Error('Organization access is disabled');
+            }
+        }
+
+        // Case 2: Organization API Key (Org Admin)
+        else {
+            const org = await Organization.findOne({ apiKey });
+
+            if (org) {
+                if (org.status !== 'active') {
+                    res.status(403);
+                    throw new Error('Organization is inactive');
+                }
+                if (org.apiKeyStatus !== 'active') {
+                    res.status(403);
+                    throw new Error('Organization API Key is inactive');
+                }
+
+                // Find the Org Admin for this organization
+                user = await User.findOne({
+                    organization: org._id,
+                    role: 'org_admin'
+                }).populate('organization');
+
+                if (!user) {
+                    res.status(404);
+                    throw new Error('No Administrator account found for this Organization');
+                }
+            } else {
+                res.status(401);
+                throw new Error('Invalid API Key');
+            }
+        }
+
+        // Common Success Response
+        user.lastLogin = new Date();
+        await user.save();
+
+        res.json({
+            _id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            organization: user.organization,
+            needsPasswordChange: user.needsPasswordChange,
+            token: generateToken(user._id),
+        });
+
+    } catch (error) {
+        res.status(res.statusCode || 500).json({
+            message: error.message,
+        });
+    }
+});
+
+// @desc    Agent login with token only (Legacy/Extension)
 // @route   POST /api/auth/agent-login
 // @access  Public
 router.post('/agent-login', async (req, res) => {
@@ -132,6 +214,7 @@ router.post('/setup', async (req, res) => {
     const org = await Organization.create({
         name: orgName,
         slug: orgName.toLowerCase().replace(/ /g, '-'),
+        apiKey: uuidv4(),
     });
 
     const user = await User.create({
@@ -154,6 +237,28 @@ router.post('/setup', async (req, res) => {
     } else {
         res.status(400);
         throw new Error('Invalid user data');
+    }
+});
+
+// @desc    Update password
+// @route   PUT /api/auth/update-password
+// @access  Private
+router.put('/update-password', protect, async (req, res) => {
+    try {
+        const { password } = req.body;
+        const user = await User.findById(req.user._id);
+
+        if (user) {
+            user.password = password;
+            user.needsPasswordChange = false;
+            await user.save();
+            res.json({ message: 'Password updated successfully' });
+        } else {
+            res.status(404);
+            throw new Error('User not found');
+        }
+    } catch (error) {
+        res.status(400).json({ message: error.message });
     }
 });
 

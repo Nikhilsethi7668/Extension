@@ -1,5 +1,6 @@
 import express from 'express';
 import User from '../models/User.js';
+import Organization from '../models/Organization.js';
 import { protect, admin } from '../middleware/auth.js';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -59,6 +60,21 @@ router.post('/', protect, admin, async (req, res) => {
         if (userExists) {
             res.status(400);
             throw new Error('User with this email already exists');
+        }
+
+        // Check Max Agent Limit (Hierarchical System Rule)
+        // Find org to check limits
+        const org = await Organization.findById(organizationId);
+        if (!org) {
+            res.status(400);
+            throw new Error('Organization not found');
+        }
+
+        const currentAgentCount = await User.countDocuments({ organization: organizationId, role: 'agent' });
+
+        if (currentAgentCount >= org.maxAgents) {
+            res.status(400);
+            throw new Error('Maximum agent limit reached. Please delete an existing agent or request a limit increase.');
         }
 
         // Generate API Key for agents

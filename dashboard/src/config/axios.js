@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Get base URL from environment variable or use default
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5001/api';
 
 // Create axios instance with base URL
 const apiClient = axios.create({
@@ -20,10 +20,15 @@ apiClient.interceptors.request.use(
                 const user = JSON.parse(storedUser);
                 if (user.token) {
                     config.headers.Authorization = `Bearer ${user.token}`;
+                    console.log('Axios Interceptor: Token attached to request to', config.url);
+                } else {
+                    console.error('Axios Interceptor: User object found but token is missing', user);
                 }
             } catch (error) {
                 console.error('Error parsing user from localStorage:', error);
             }
+        } else {
+            console.warn('Axios Interceptor: No user found in localStorage');
         }
         return config;
     },

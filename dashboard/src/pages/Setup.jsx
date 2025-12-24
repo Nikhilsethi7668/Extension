@@ -16,7 +16,7 @@ const Setup = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         try {
-            await apiClient.post('/api/auth/setup', formData);
+            await apiClient.post('/auth/setup', formData);
             navigate('/login');
         } catch (err) {
             setError(err.response?.data?.message || 'Setup failed');

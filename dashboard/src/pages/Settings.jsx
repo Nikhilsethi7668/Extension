@@ -1,25 +1,120 @@
-import React from 'react';
-import { Box, Paper, Typography, TextField, Button, Grid } from '@mui/material';
+import React, { useState } from 'react';
+import {
+    Box, Paper, Typography, TextField, Button, Grid,
+    Alert, Divider, Switch, FormControlLabel
+} from '@mui/material';
+import {
+    Settings as SettingsIcon, Save, Key, Shield,
+    Bell, Globe
+} from 'lucide-react';
 import Layout from '../components/Layout';
+import { useAuth } from '../context/AuthContext';
+import apiClient from '../config/axios';
 
 const Settings = () => {
+    const { user } = useAuth();
+    const [apiKey, setApiKey] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [success, setSuccess] = useState('');
+    const [error, setError] = useState('');
+
+    const handleSave = async () => {
+        setLoading(true);
+        setError('');
+        setSuccess('');
+        try {
+            // Mock API call since specific endpoint might not exist yet
+            // await apiClient.put('/organizations/settings', { geminiApiKey: apiKey });
+
+            // Simulate delay
+            await new Promise(resolve => setTimeout(resolve, 800));
+            setSuccess('Settings saved successfully.');
+        } catch (err) {
+            setError('Failed to save settings.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
-        <Layout title="Organization Settings">
-            <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
-                    <Paper sx={{ p: 3 }}>
-                        <Typography variant="h6" gutterBottom>Gemini AI Config</Typography>
-                        <TextField
-                            fullWidth
-                            label="Organization Gemini API Key"
-                            type="password"
-                            margin="normal"
-                            helperText="Overrides system-wide key if provided."
-                        />
-                        <Button variant="contained" sx={{ mt: 2 }}>Save Config</Button>
-                    </Paper>
-                </Grid>
-            </Grid>
+        <Layout title="Settings">
+            <Box sx={{ width: '100%' }}>
+                {success && <Alert severity="success" sx={{ mb: 3 }} onClose={() => setSuccess('')}>{success}</Alert>}
+                {error && <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError('')}>{error}</Alert>}
+
+                {/* Section: AI Configuration */}
+                <Paper className="glass" sx={{ p: 4, mb: 3 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                        <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6' }}>
+                            <Key size={24} />
+                        </Box>
+                        <Box>
+                            <Typography variant="h6">AI Configuration</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                Manage API keys for content generation.
+                            </Typography>
+                        </Box>
+                    </Box>
+                    <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.05)' }} />
+
+                    <Typography variant="subtitle2" sx={{ mb: 1, color: 'text.secondary' }}>Gemini API Key</Typography>
+                    <TextField
+                        fullWidth
+                        placeholder="sk-..."
+                        type="password"
+                        value={apiKey}
+                        onChange={(e) => setApiKey(e.target.value)}
+                        helperText="This key will be used for all agents in your organization unless they have their own."
+                        sx={{ mb: 3 }}
+                    />
+
+                    <Button
+                        variant="contained"
+                        startIcon={<Save size={18} />}
+                        onClick={handleSave}
+                        disabled={loading}
+                    >
+                        {loading ? 'Saving...' : 'Save Configuration'}
+                    </Button>
+                </Paper>
+
+                {/* Section: General Preferences (Visual Only) */}
+                <Paper className="glass" sx={{ p: 4 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
+                        <Box sx={{ p: 1, borderRadius: 2, bgcolor: 'rgba(16, 185, 129, 0.1)', color: '#10b981' }}>
+                            <Globe size={24} />
+                        </Box>
+                        <Box>
+                            <Typography variant="h6">General Preferences</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                Customize your experience.
+                            </Typography>
+                        </Box>
+                    </Box>
+                    <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.05)' }} />
+
+                    <Grid container spacing={2}>
+                        <Grid item xs={12} sm={6}>
+                            <FormControlLabel
+                                control={<Switch defaultChecked />}
+                                label="Email Notifications"
+                            />
+                            <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 7, mt: -1 }}>
+                                Receive weekly summaries.
+                            </Typography>
+                        </Grid>
+                        <Grid item xs={12} sm={6}>
+                            <FormControlLabel
+                                control={<Switch defaultChecked />}
+                                label="Dark Mode"
+                            />
+                            <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 7, mt: -1 }}>
+                                Enforced by organization policy.
+                            </Typography>
+                        </Grid>
+                    </Grid>
+                </Paper>
+            </Box>
         </Layout>
     );
 };

@@ -31,6 +31,20 @@ const organizationSchema = mongoose.Schema(
             enum: ['active', 'inactive'],
             default: 'active',
         },
+        maxAgents: {
+            type: Number,
+            default: 10,
+        },
+        apiKey: {
+            type: String,
+            unique: true,
+            sparse: true,
+        },
+        apiKeyStatus: {
+            type: String,
+            enum: ['active', 'inactive'],
+            default: 'active',
+        },
     },
     {
         timestamps: true,

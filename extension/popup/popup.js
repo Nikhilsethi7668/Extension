@@ -39,7 +39,7 @@ async function safeChromeCall(apiCall, errorMessage = 'Extension context invalid
   if (!isExtensionContextValid()) {
     throw new Error(errorMessage);
   }
-  
+
   try {
     return await apiCall();
   } catch (error) {
@@ -172,7 +172,7 @@ async function logout() {
 async function validateSession(session) {
   try {
     if (!session || !session.apiKey) return false;
-    
+
     // Use the validate-key endpoint with API key in header
     const response = await fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.validateKey, {
       method: 'GET',
@@ -181,7 +181,7 @@ async function validateSession(session) {
         'x-api-key': session.apiKey
       }
     });
-    
+
     if (response.ok) {
       const data = await response.json();
       // Update user info if needed
@@ -230,12 +230,12 @@ function updateStatusText() {
 
 function showNotification(message, type = 'info') {
   console.log(`[${type.toUpperCase()}] ${message}`);
-  
+
   // Create toast notification
   const toast = document.createElement('div');
   toast.className = `toast ${type}`;
   toast.textContent = message;
-  
+
   // Add to body or create notification container
   let container = document.getElementById('notification-host');
   if (!container) {
@@ -243,15 +243,15 @@ function showNotification(message, type = 'info') {
     container.id = 'notification-host';
     document.body.appendChild(container);
   }
-  
+
   container.appendChild(toast);
-  
+
   // Remove after 3 seconds
   setTimeout(() => {
     toast.style.animation = 'slideIn 0.3s ease-out reverse';
     setTimeout(() => toast.remove(), 300);
   }, 3000);
-  
+
   // Also show Chrome notification for important messages
   if (type === 'error' || type === 'success') {
     if (isExtensionContextValid()) {
@@ -310,7 +310,7 @@ function attachEventListeners() {
   const addToQueueBtn = document.getElementById('addToQueueBtn');
   const clearQueueBtn = document.getElementById('clearQueueBtn');
   const postAllBtn = document.getElementById('postAllBtn');
-  
+
   if (addToQueueBtn) {
     addToQueueBtn.addEventListener('click', addToQueue);
   }
@@ -331,7 +331,7 @@ function attachEventListeners() {
   const batchEditBtn = document.getElementById('batchEditBtn');
   const clearEditsBtn = document.getElementById('clearEditsBtn');
   const cropResizeBtn = document.getElementById('cropResizeBtn');
-  
+
   if (batchEditBtn) {
     batchEditBtn.addEventListener('click', batchEditImages);
   }
@@ -434,7 +434,7 @@ async function testFillFacebookForm() {
       () => chrome.tabs.query({ active: true, currentWindow: true }),
       'Failed to access tabs. Please reload the extension.'
     );
-    
+
     if (!tab) {
       showNotification('No active tab found', 'error');
       testBtn.disabled = false;
@@ -451,7 +451,7 @@ async function testFillFacebookForm() {
         () => chrome.tabs.create({ url: marketplaceUrl }),
         'Failed to open new tab. Please reload the extension.'
       );
-      
+
       // Wait for page to load, then fetch from API and fill
       setTimeout(async () => {
         try {
@@ -472,7 +472,7 @@ async function testFillFacebookForm() {
               attempts++;
             }
           }
-          
+
           showNotification('Fetching test data from API...', 'info');
           await fillFormWithDefaultTestData(newTab.id);
         } catch (error) {
@@ -583,13 +583,13 @@ async function fetchTestDataFromAPI(customData = null) {
     }
 
     const response = await fetch(url, options);
-    
+
     if (!response.ok) {
       throw new Error(`API request failed: ${response.status} ${response.statusText}`);
     }
 
     const result = await response.json();
-    
+
     if (result.success && result.data) {
       return result.data;
     } else {
@@ -599,8 +599,8 @@ async function fetchTestDataFromAPI(customData = null) {
     console.error('Error fetching test data from API:', error);
     // Fallback to default test data if API fails
     console.log('Falling back to default test data');
-   
-   
+
+
   }
 }
 
@@ -720,7 +720,7 @@ async function fillFormWithTestData(testData, tabId = null) {
     let response = null;
     let lastError = null;
     const maxRetries = 5;
-    
+
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         response = await safeChromeCall(
@@ -730,7 +730,7 @@ async function fillFormWithTestData(testData, tabId = null) {
           }),
           'Failed to send test data to content script'
         );
-        
+
         if (response && response.success) {
           showNotification(response.message || 'Test data sent! Form filling started.', 'success');
           return response;
@@ -745,7 +745,7 @@ async function fillFormWithTestData(testData, tabId = null) {
             const delay = Math.min(1000 * Math.pow(2, attempt), 5000); // Exponential backoff, max 5s
             console.log(`Content script not ready, retrying in ${delay}ms... (attempt ${attempt + 1}/${maxRetries})`);
             await new Promise(resolve => setTimeout(resolve, delay));
-            
+
             // Try to inject script again
             await ensureContentScriptLoaded(targetTabId);
             continue;
@@ -754,7 +754,7 @@ async function fillFormWithTestData(testData, tabId = null) {
         throw error;
       }
     }
-    
+
     throw lastError || new Error('Failed to send message after retries');
   } catch (error) {
     console.error('Fill form with test data error:', error);
@@ -767,7 +767,7 @@ async function fillFormWithTestData(testData, tabId = null) {
 async function testConnection() {
   const statusDiv = document.getElementById('connectionStatus');
   const testBtn = document.getElementById('testConnectionBtn');
-  
+
   statusDiv.className = 'info';
   statusDiv.innerHTML = '⏳ Testing connection...';
   testBtn.disabled = true;
@@ -1517,7 +1517,7 @@ async function logActivity(action, details) {
     const headers = {
       'Content-Type': 'application/json'
     };
-    
+
     // Use API key if available, otherwise use JWT token
     if (currentUser?.apiKey) {
       headers['x-api-key'] = currentUser.apiKey;
@@ -1630,7 +1630,7 @@ function debounce(func, wait) {
 async function loadVehicles() {
   const container = document.getElementById('vehiclesContainer');
   const paginationControls = document.getElementById('paginationControls');
-  
+
   container.innerHTML = '<div class="loading-state">Loading vehicles...</div>';
   paginationControls.style.display = 'none';
 
@@ -1649,7 +1649,7 @@ async function loadVehicles() {
     if (statusFilter) params.append('status', statusFilter);
 
     const url = `${API_CONFIG.baseUrl}/vehicles${params.toString() ? '?' + params.toString() : ''}`;
-    
+
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -1663,7 +1663,7 @@ async function loadVehicles() {
     }
 
     allVehicles = await response.json();
-    
+
     // Apply pagination
     const totalPages = Math.ceil(allVehicles.length / vehiclesPerPage);
     const startIndex = (currentPage - 1) * vehiclesPerPage;
@@ -1722,8 +1722,8 @@ function createVehicleCard(vehicle) {
   const card = document.createElement('div');
   card.className = 'vehicle-card';
 
-  const imageUrl = vehicle.images && vehicle.images.length > 0 
-    ? vehicle.images[0] 
+  const imageUrl = vehicle.images && vehicle.images.length > 0
+    ? vehicle.images[0]
     : '';
 
   const statusClass = vehicle.status || 'available';
@@ -1762,7 +1762,7 @@ function createVehicleCard(vehicle) {
 
 async function postVehicleById(vehicleId) {
   console.log('postVehicleById called with ID:', vehicleId);
-  
+
   try {
     if (!currentUser || !currentUser.apiKey) {
       console.error('No user or API key found');
@@ -1851,7 +1851,7 @@ async function postVehicleById(vehicleId) {
   } catch (error) {
     console.error('Error posting vehicle:', error);
     showNotification('Failed to post vehicle: ' + error.message, 'error');
-    
+
     // Re-enable button on error
     const postButton = document.querySelector(`.post-vehicle-btn[data-vehicle-id="${vehicleId}"]`);
     if (postButton) {
@@ -1894,7 +1894,7 @@ if (typeof window !== 'undefined') {
   window.fillFormWithTestData = fillFormWithTestData;
   window.fillFormWithDefaultTestData = fillFormWithDefaultTestData;
   window.fetchTestDataFromAPI = fetchTestDataFromAPI;
-  
+
   console.log('API Functions exposed:');
   console.log('  - fillFormWithTestData(testData, tabId?) - Fill form with custom test data');
   console.log('  - fillFormWithDefaultTestData(tabId?, customData?) - Fill form with test data from API');
