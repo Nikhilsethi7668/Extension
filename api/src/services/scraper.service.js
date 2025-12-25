@@ -103,6 +103,72 @@ export const scrapeVehicle = async (url) => {
                         vehicle.mileage = mileageValue;
                     }
 
+                    // Location
+                    if (v.location) {
+                        if (typeof v.location === 'string') {
+                            vehicle.location = v.location;
+                        } else if (v.location.city && v.location.state) {
+                            vehicle.location = `${v.location.city}, ${v.location.state}${v.location.zipCode ? ' ' + v.location.zipCode : ''}`;
+                        }
+                    } else if (v.dealer?.location) {
+                        const loc = v.dealer.location;
+                        if (typeof loc === 'string') {
+                            vehicle.location = loc;
+                        } else if (loc.city && loc.state) {
+                            vehicle.location = `${loc.city}, ${loc.state}${loc.zipCode ? ' ' + loc.zipCode : ''}`;
+                        }
+                    }
+
+                    // Condition (New/Used)
+                    if (v.condition) {
+                        vehicle.condition = typeof v.condition === 'object' ? v.condition.name : v.condition;
+                    } else if (v.isNew !== undefined) {
+                        vehicle.condition = v.isNew ? 'New' : 'Used';
+                    }
+
+                    // Fuel Type
+                    if (v.fuelType) {
+                        vehicle.fuelType = typeof v.fuelType === 'object' ? v.fuelType.name : v.fuelType;
+                    } else if (v.engine) {
+                        const engine = typeof v.engine === 'string' ? v.engine : v.engine.name || '';
+                        const engineLower = engine.toLowerCase();
+                        if (engineLower.includes('diesel')) vehicle.fuelType = 'Diesel';
+                        else if (engineLower.includes('electric') || engineLower.includes('ev')) vehicle.fuelType = 'Electric';
+                        else if (engineLower.includes('plug') || engineLower.includes('phev')) vehicle.fuelType = 'Plug-in hybrid';
+                        else if (engineLower.includes('hybrid')) vehicle.fuelType = 'Hybrid';
+                        else if (engineLower.includes('flex')) vehicle.fuelType = 'Flex';
+                        else if (engineLower.includes('gas') || engineLower.includes('petrol')) vehicle.fuelType = 'Petrol';
+                    }
+
+                    // Transmission
+                    if (v.transmission) {
+                        const trans = typeof v.transmission === 'object' ? v.transmission.name : v.transmission;
+                        const transLower = trans.toLowerCase();
+                        if (transLower.includes('automatic') || transLower.includes('auto')) {
+                            vehicle.transmission = 'Automatic transmission';
+                        } else if (transLower.includes('manual')) {
+                            vehicle.transmission = 'Manual transmission';
+                        } else {
+                            vehicle.transmission = trans;
+                        }
+                    }
+
+                    // Exterior Color
+                    if (v.exteriorColor) {
+                        vehicle.exteriorColor = typeof v.exteriorColor === 'object' ? v.exteriorColor.name : v.exteriorColor;
+                    }
+
+                    // Interior Color
+                    if (v.interiorColor) {
+                        vehicle.interiorColor = typeof v.interiorColor === 'object' ? v.interiorColor.name : v.interiorColor;
+                    }
+
+                    // Body Style
+                    if (v.bodyStyle) {
+                        vehicle.bodyStyle = typeof v.bodyStyle === 'object' ? v.bodyStyle.name : v.bodyStyle;
+                    } else if (v.vehicleStyle) {
+                        vehicle.bodyStyle = typeof v.vehicleStyle === 'object' ? v.vehicleStyle.name : v.vehicleStyle;
+                    }
 
                     // Description - fullDescription has complete text
                     if (v.fullDescription) {
@@ -134,6 +200,95 @@ export const scrapeVehicle = async (url) => {
 
             } catch (e) {
                 console.error('Error parsing Next.js data:', e);
+            }
+        }
+
+        // ============ HTML FALLBACK EXTRACTION ============
+        // If location or fuel type not found in JSON, extract from HTML
+
+        // Extract Location from HTML (e.g., "Miami, FL 33143 (0 mi away)")
+        if (!vehicle.location) {
+            try {
+                // Strategy 1: Look for location text pattern with city, state, zip
+                const locationText = $('body').text();
+                const locationMatch = locationText.match(/([A-Z][a-z]+(?:\s[A-Z][a-z]+)*),\s([A-Z]{2})\s(\d{5})(?:\s\(\d+\smi\saway\))?/);
+                if (locationMatch) {
+                    vehicle.location = `${locationMatch[1]}, ${locationMatch[2]} ${locationMatch[3]}`;
+                    console.log('Location extracted from HTML:', vehicle.location);
+                }
+
+                // Strategy 2: Look for dealer location in heading
+                if (!vehicle.location) {
+                    $('h1, h2, h3, .heading-3, [data-cmp="heading"]').each((i, el) => {
+                        const text = $(el).text();
+                        const match = text.match(/([A-Z][a-z]+(?:\s[A-Z][a-z]+)*),\s([A-Z]{2})\s(\d{5})/);
+                        if (match) {
+                            vehicle.location = `${match[1]}, ${match[2]} ${match[3]}`;
+                            console.log('Location extracted from heading:', vehicle.location);
+                            return false; // break
+                        }
+                    });
+                }
+            } catch (e) {
+                console.error('Error extracting location from HTML:', e);
+            }
+        }
+
+        // Extract Fuel Type from HTML specs section
+        if (!vehicle.fuelType) {
+            try {
+                // Look for engine/fuel info in specs sections
+                const specsText = $('[data-cmp="subheading"]:contains("Specs")').parent().text();
+
+                if (specsText.toLowerCase().includes('diesel')) {
+                    vehicle.fuelType = 'Diesel';
+                } else if (specsText.toLowerCase().includes('electric') || specsText.toLowerCase().includes('ev motor')) {
+                    vehicle.fuelType = 'Electric';
+                } else if (specsText.toLowerCase().includes('plug-in') || specsText.toLowerCase().includes('phev')) {
+                    vehicle.fuelType = 'Plug-in hybrid';
+                } else if (specsText.toLowerCase().includes('hybrid')) {
+                    vehicle.fuelType = 'Hybrid';
+                } else if (specsText.toLowerCase().includes('flex fuel')) {
+                    vehicle.fuelType = 'Flex';
+                } else if (specsText.toLowerCase().includes('gas') || specsText.toLowerCase().includes('petrol') || specsText.toLowerCase().includes('gasoline')) {
+                    vehicle.fuelType = 'Petrol';
+                }
+
+                if (vehicle.fuelType) {
+                    console.log('Fuel type extracted from HTML specs:', vehicle.fuelType);
+                }
+
+                // Fallback: Check vehicle description for fuel type keywords
+                if (!vehicle.fuelType && vehicle.description) {
+                    const descLower = vehicle.description.toLowerCase();
+                    if (descLower.includes('diesel')) vehicle.fuelType = 'Diesel';
+                    else if (descLower.includes('electric') || descLower.includes('ev')) vehicle.fuelType = 'Electric';
+                    else if (descLower.includes('hybrid')) vehicle.fuelType = 'Hybrid';
+
+                    if (vehicle.fuelType) {
+                        console.log('Fuel type extracted from description:', vehicle.fuelType);
+                    }
+                }
+            } catch (e) {
+                console.error('Error extracting fuel type from HTML:', e);
+            }
+        }
+
+        // Extract Condition from HTML if not found
+        if (!vehicle.condition) {
+            try {
+                const bodyText = $('body').text();
+                if (bodyText.toLowerCase().includes('new arrival') || bodyText.toLowerCase().includes('brand new')) {
+                    vehicle.condition = 'New';
+                } else if (bodyText.toLowerCase().includes('used') || bodyText.toLowerCase().includes('pre-owned')) {
+                    vehicle.condition = 'Used';
+                }
+
+                if (vehicle.condition) {
+                    console.log('Condition extracted from HTML:', vehicle.condition);
+                }
+            } catch (e) {
+                console.error('Error extracting condition from HTML:', e);
             }
         }
 

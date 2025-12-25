@@ -5,7 +5,7 @@ import {
     DialogContent, TextField, DialogActions, Chip, InputAdornment, TablePagination,
     IconButton, Tooltip
 } from '@mui/material';
-import { Plus, Search, RefreshCw, X, Eye, ExternalLink, Image as ImageIcon } from 'lucide-react';
+import { Plus, Search, RefreshCw, X, Eye, ExternalLink, Image as ImageIcon, Trash2 } from 'lucide-react';
 import apiClient from '../config/axios';
 import Layout from '../components/Layout';
 
@@ -109,6 +109,46 @@ const Inventory = () => {
         setPage(0);
     };
 
+    const handleDeleteVehicle = async (vehicleId) => {
+        if (!window.confirm('Are you sure you want to delete this vehicle? This action cannot be undone.')) {
+            return;
+        }
+
+        setLoading(true);
+        try {
+            await apiClient.delete(`/vehicles/${vehicleId}`);
+            alert('Vehicle deleted successfully!');
+            fetchVehicles();
+        } catch (error) {
+            console.error('Error deleting vehicle:', error);
+            alert('Failed to delete vehicle: ' + (error.response?.data?.message || error.message));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleDeleteAll = async () => {
+        if (!window.confirm('⚠️ WARNING: This will delete ALL your vehicles! This action cannot be undone. Are you absolutely sure?')) {
+            return;
+        }
+
+        if (!window.confirm('This is your last chance. Delete ALL vehicles permanently?')) {
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const { data } = await apiClient.delete('/vehicles');
+            alert(`✅ Deleted ${data.deletedCount} vehicles successfully!`);
+            fetchVehicles();
+        } catch (error) {
+            console.error('Error deleting all vehicles:', error);
+            alert('Failed to delete vehicles: ' + (error.response?.data?.message || error.message));
+        } finally {
+            setLoading(false);
+        }
+    };
+
     return (
         <Layout title="Vehicle Inventory">
             <Paper className="glass" sx={{ p: 2, mb: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
@@ -139,6 +179,15 @@ const Inventory = () => {
                 </Box>
 
                 <Box sx={{ display: 'flex', gap: 1.5 }}>
+                    <Button
+                        variant="outlined"
+                        color="error"
+                        onClick={handleDeleteAll}
+                        startIcon={<Trash2 size={18} />}
+                        disabled={loading || vehicles.length === 0}
+                    >
+                        Delete All
+                    </Button>
                     <Button
                         variant="outlined"
                         color="secondary"
@@ -235,6 +284,15 @@ const Inventory = () => {
                                             <Tooltip title="View Details">
                                                 <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleViewVehicle(v); }}>
                                                     <Eye size={18} />
+                                                </IconButton>
+                                            </Tooltip>
+                                            <Tooltip title="Delete Vehicle">
+                                                <IconButton
+                                                    size="small"
+                                                    color="error"
+                                                    onClick={(e) => { e.stopPropagation(); handleDeleteVehicle(v._id); }}
+                                                >
+                                                    <Trash2 size={18} />
                                                 </IconButton>
                                             </Tooltip>
                                         </TableCell>

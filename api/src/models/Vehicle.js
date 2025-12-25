@@ -26,6 +26,12 @@ const vehicleSchema = mongoose.Schema(
         description: String,
         images: [String], // URLs to images
         sourceUrl: String,
+        fuelType: String,
+        condition: String, // New/Used
+        transmission: String,
+        exteriorColor: String,
+        interiorColor: String,
+        bodyStyle: String,
         status: {
             type: String,
             enum: ['available', 'posted', 'sold_pending_removal', 'sold'],

@@ -44,6 +44,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use('/uploads', express.static(path.join(__dirname, '../../public/uploads')));
 
+app.get('/api/health', (req, res) => {
+    res.json({ status: 'ok', message: 'Backend is running' });
+});
+
 app.get('/', (req, res) => {
     res.send('FacebookMark API is running...');
 });

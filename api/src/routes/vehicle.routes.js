@@ -207,7 +207,7 @@ router.get('/:id', protect, async (req, res, next) => {
         if (req.query.ai_prompt && process.env.GEMINI_API_KEY) {
             try {
                 console.log('Enhancing content with Gemini AI using prompt:', req.query.ai_prompt);
-                
+
                 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
                 const model = genAI.getGenerativeModel({
                     model: "gemini-flash-latest",
@@ -237,7 +237,7 @@ router.get('/:id', protect, async (req, res, next) => {
                 const result = await model.generateContent(prompt);
                 const response = result.response;
                 const text = response.text().trim().replace(/^```json/, '').replace(/```$/, '');
-                
+
                 try {
                     const enhancedContent = JSON.parse(text);
                     if (enhancedContent.title) formattedData.title = enhancedContent.title;
@@ -355,7 +355,7 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
 
     try {
         console.log(`Processing background removal for image: ${imageUrl} with prompt: ${prompt || 'Default'}`);
-        
+
         // Use AI Service with Gemini 2.5 Flash
         const aiResult = await processImageWithGemini(imageUrl, prompt);
         const processedImageUrl = aiResult.processedUrl;
@@ -369,7 +369,7 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
         }
 
         await vehicle.save();
-        
+
         res.json({
             success: true,
             data: {
@@ -559,6 +559,67 @@ router.post('/scrape-bulk', protect, async (req, res) => {
     }
 
     res.json(results);
+});
+
+// @desc    Delete a single vehicle
+// @route   DELETE /api/vehicles/:id
+// @access  Protected
+router.delete('/:id', protect, async (req, res) => {
+    try {
+        const vehicle = await Vehicle.findById(req.params.id);
+
+        if (!vehicle) {
+            res.status(404);
+            throw new Error('Vehicle not found');
+        }
+
+        // Authorization check
+        const vehicleOrgId = vehicle.organization._id ? vehicle.organization._id.toString() : vehicle.organization.toString();
+        const userOrgId = req.user.organization._id ? req.user.organization._id.toString() : req.user.organization.toString();
+
+        if (vehicleOrgId !== userOrgId) {
+            res.status(403);
+            throw new Error('Not authorized to delete this vehicle');
+        }
+
+        // Agents can only delete their own assigned vehicles
+        if (req.user.role === 'agent' && vehicle.assignedUser) {
+            const assignedUserId = vehicle.assignedUser._id ? vehicle.assignedUser._id.toString() : vehicle.assignedUser.toString();
+            if (assignedUserId !== req.user._id.toString()) {
+                res.status(403);
+                throw new Error('Not authorized to delete this vehicle');
+            }
+        }
+
+        await vehicle.deleteOne();
+        res.json({ success: true, message: 'Vehicle deleted successfully' });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// @desc    Delete all vehicles for an organization
+// @route   DELETE /api/vehicles
+// @access  Protected
+router.delete('/', protect, async (req, res) => {
+    try {
+        const query = { organization: req.user.organization._id };
+
+        // Agents can only delete their own assigned vehicles
+        if (req.user.role === 'agent') {
+            query.assignedUser = req.user._id;
+        }
+
+        const result = await Vehicle.deleteMany(query);
+
+        res.json({
+            success: true,
+            message: `Deleted ${result.deletedCount} vehicles successfully`,
+            deletedCount: result.deletedCount
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
 });
 
 export default router;

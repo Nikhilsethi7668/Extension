@@ -391,6 +391,11 @@ function attachEventListeners() {
     backToMainBtn.addEventListener('click', showMainControls);
   }
 
+  const deleteAllVehiclesBtn = document.getElementById('deleteAllVehiclesBtn');
+  if (deleteAllVehiclesBtn) {
+    deleteAllVehiclesBtn.addEventListener('click', deleteAllVehicles);
+  }
+
   if (document.getElementById('backToListFromImagesBtn')) {
     document.getElementById('backToListFromImagesBtn').addEventListener('click', () => {
       document.getElementById('vehicleImagesView').style.display = 'none';
@@ -833,6 +838,19 @@ async function scrapeCurrentPage() {
       return;
     }
 
+    // Detect if this is a listing page (search results) or detail page
+    const isListingPage = tab.url.includes('/all-cars') ||
+      tab.url.includes('/cars-for-sale/searchresults') ||
+      tab.url.includes('/searchresults.action');
+
+    if (isListingPage) {
+      // Use bulk scrape API for listing pages
+      showNotification('Detected listing page. Starting bulk scrape...', 'info');
+      await bulkScrapeFromUrl(tab.url);
+      return;
+    }
+
+    // Single vehicle scrape using content script
     showNotification(`Scraping from ${scraperType}...`, 'info');
     document.getElementById('vehiclePreview').style.display = 'none';
 
@@ -908,6 +926,59 @@ async function scrapeCurrentPage() {
   } catch (error) {
     console.error('Scraping error:', error);
     showNotification('Error scraping data: ' + error.message, 'error');
+  }
+}
+
+async function bulkScrapeFromUrl(url) {
+  try {
+    if (!currentUser || !currentUser.apiKey) {
+      showNotification('Please log in first', 'error');
+      return;
+    }
+
+    showNotification('Scanning listing page for vehicles...', 'info');
+
+    const response = await fetch(API_CONFIG.baseUrl + '/vehicles/scrape-bulk', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': currentUser.apiKey
+      },
+      body: JSON.stringify({
+        urls: [url]
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Bulk scrape failed: ${response.statusText}`);
+    }
+
+    const results = await response.json();
+
+    const successCount = results.success || 0;
+    const failedCount = results.failed || 0;
+    const totalProcessed = results.total || 0;
+
+    if (successCount > 0) {
+      showNotification(`✅ Scraped ${successCount} vehicles successfully! ${failedCount > 0 ? `(${failedCount} failed)` : ''}`, 'success');
+
+      // Refresh vehicle list to show newly scraped vehicles
+      await loadVehicles();
+
+      // Switch to vehicle listing view
+      showView('vehicleListingView');
+    } else if (failedCount > 0) {
+      showNotification(`⚠️ All ${failedCount} vehicles failed to scrape. Check console for details.`, 'error');
+      console.error('Bulk scrape results:', results.items);
+    } else {
+      showNotification('No vehicles found on this listing page', 'warning');
+    }
+
+    console.log('Bulk scrape complete:', results);
+
+  } catch (error) {
+    console.error('Bulk scrape error:', error);
+    showNotification('Bulk scrape failed: ' + error.message, 'error');
   }
 }
 
@@ -1150,12 +1221,12 @@ async function handleRemoveBackground(index) {
   const editItem = document.getElementById(`image-edit-${index}`);
   const removeBgBtn = editItem.querySelector('.btn-remove-bg');
   const imageUrl = imageEditQueue[index]?.originalUrl || scrapedData.images[index]; // Fallback to original if not queued
-  
+
   // Note: scrapedData.images array maps to index
   // But wait, imageEditQueue keys are indices. 
   // We should rely on scrapedData.images[index] for the source URL 
   // unless we're chaining edits, but let's assume we operate on the original for now.
-  const sourceUrl = scrapedData.images[index];  
+  const sourceUrl = scrapedData.images[index];
 
   if (!sourceUrl) {
     showNotification('Image URL not found', 'error');
@@ -1165,7 +1236,7 @@ async function handleRemoveBackground(index) {
   try {
     removeBgBtn.disabled = true;
     removeBgBtn.innerHTML = '<span class="editing-spinner"></span> Removing...';
-    
+
     showNotification('Removing background...', 'info');
 
     // Currently viewing a vehicle? We need the ID.
@@ -1183,27 +1254,27 @@ async function handleRemoveBackground(index) {
       <div class="image-upload-overlay">...</div>
     `;
     */
-   
+
     // Ah! `showVehicleImages` uses `displayImagesGallery` (lines 1965+).
     // `displayScrapedData` uses `showImageEditingInterface` (lines 945+).
     // The user said "Vehicle Images on vehicle images page". 
     // This implies the `vehicleImagesView` (lines 81+ in HTML), which corresponds to `showVehicleImages` in JS.
     // `displayImagesGallery` (line 1965) renders that view.
     // `displayScrapedData` (line 914) renders `vehiclePreview` which has `imageGallery` AND `imageEditingContainer`.
-    
+
     // The user requests: "on image i want a button... in api give data to nano banana... add that image url in vhivle data base".
     // This confirms it's for the backend-stored vehicle, not the scraped preview.
     // So I should modify `displayImagesGallery`, NOT `createImageEditItem` (which is for scraped preview editing).
-    
+
     // RE-EVALUATION:
     // I added the button to `createImageEditItem` in step 32. This affects the "preview" editing.
     // The user likely wants it on the "Vehicle Images" page (backend data).
     // so I should also add it to `displayImagesGallery`.
-    
+
     // Let's implement `handleRemoveBackground` for the `displayImagesGallery` context.
     // I'll need the `vehicleId`. `displayImagesGallery` only receives `images` array.
     // I need to store `currentVehicleId` when `showVehicleImages` is called.
-    
+
     // Strategy:
     // 1. Update `showVehicleImages` to store `currentVehicleId`.
     // 2. Update `displayImagesGallery` to add "Remove BG" button.
@@ -1211,29 +1282,29 @@ async function handleRemoveBackground(index) {
 
     // First, let's revert or leave the change in `createImageEditItem` (it's fine to have it there too), 
     // but the critical request is for the backend flow.
-    
+
     // I'll define `handleRemoveBackground` specifically for the backend flow.
-    
+
     // Let's fetch the vehicle ID.
     // I'll look for a global variable or add one.
-    
+
     const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${window.currentVehicleId}/remove-bg`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': currentUser.apiKey
-        },
-        body: JSON.stringify({ imageUrl: sourceUrl })
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': currentUser.apiKey
+      },
+      body: JSON.stringify({ imageUrl: sourceUrl })
     });
-    
+
     const result = await response.json();
-    
+
     if (result.success) {
-        showNotification('Background removed successfully!', 'success');
-        // Refresh images
-        showVehicleImages(window.currentVehicleId);
+      showNotification('Background removed successfully!', 'success');
+      // Refresh images
+      showVehicleImages(window.currentVehicleId);
     } else {
-        throw new Error(result.message || 'Failed to remove background');
+      throw new Error(result.message || 'Failed to remove background');
     }
 
   } catch (error) {
@@ -1241,8 +1312,8 @@ async function handleRemoveBackground(index) {
     showNotification('Error: ' + error.message, 'error');
   } finally {
     if (removeBgBtn) {
-        removeBgBtn.disabled = false;
-        removeBgBtn.innerHTML = '<span class="btn-icon">🍌</span> Remove BG';
+      removeBgBtn.disabled = false;
+      removeBgBtn.innerHTML = '<span class="btn-icon">🍌</span> Remove BG';
     }
   }
 }
@@ -1494,10 +1565,10 @@ async function postToFacebook(vehicleData = null) {
     // Check if we are already on the Facebook Marketplace create page
     const marketplaceUrl = 'https://www.facebook.com/marketplace/create/vehicle';
     let newTab = null;
-    
+
     // Get the current active tab
     const [activeTab] = await safeChromeCall(() => chrome.tabs.query({ active: true, currentWindow: true }));
-    
+
     if (activeTab && activeTab.url && activeTab.url.includes('facebook.com/marketplace/create')) {
       console.log('Reusing existing active tab:', activeTab.id);
       newTab = activeTab;
@@ -1512,7 +1583,7 @@ async function postToFacebook(vehicleData = null) {
     // Wait for tab to load, then send data directly via message (not storage)
     // Reduce timeout if reusing tab
     const waitTime = newTab === activeTab ? 500 : 3000;
-    
+
     setTimeout(async () => {
       try {
         if (!isExtensionContextValid()) {
@@ -1791,7 +1862,10 @@ async function loadVehicles() {
       throw new Error(`Failed to load vehicles: ${response.statusText}`);
     }
 
-    allVehicles = await response.json();
+    const responseData = await response.json();
+
+    // Extract vehicles array from response object
+    allVehicles = Array.isArray(responseData) ? responseData : (responseData.vehicles || []);
 
     // Apply pagination
     const totalPages = Math.ceil(allVehicles.length / vehiclesPerPage);
@@ -1841,6 +1915,16 @@ async function loadVehicles() {
         if (vehicleId) {
           console.log('Images button clicked for vehicle ID:', vehicleId);
           showVehicleImages(vehicleId);
+        }
+      });
+    });
+
+    container.querySelectorAll('.delete-vehicle-btn').forEach(button => {
+      button.addEventListener('click', (e) => {
+        const vehicleId = e.target.closest('.delete-vehicle-btn').getAttribute('data-vehicle-id');
+        if (vehicleId) {
+          console.log('Delete button clicked for vehicle ID:', vehicleId);
+          deleteVehicle(vehicleId);
         }
       });
     });
@@ -1905,6 +1989,10 @@ function createVehicleCard(vehicle) {
         <span>🖼️</span>
         <span>Images</span>
       </button>
+      <button class="btn btn-danger delete-vehicle-btn" data-vehicle-id="${vehicle._id}">
+        <span>🗑️</span>
+        <span>Delete</span>
+      </button>
     </div>
   `;
 
@@ -1936,7 +2024,7 @@ async function postVehicleById(vehicleId) {
     const toggle = document.querySelector(`.ai-prompt-toggle[data-vehicle-id="${vehicleId}"]`);
     const globalPrompt = document.getElementById('globalAiPrompt');
     let fetchUrl = `${API_CONFIG.baseUrl}/vehicles/${vehicleId}`;
-    
+
     if (toggle && toggle.checked && globalPrompt && globalPrompt.value.trim()) {
       const prompt = encodeURIComponent(globalPrompt.value.trim());
       fetchUrl += `?ai_prompt=${prompt}`;
@@ -2036,7 +2124,7 @@ async function showVehicleImages(vehicleId) {
     document.getElementById('vehicleImagesView').style.display = 'flex';
     const gallery = document.getElementById('imagesGallery');
     gallery.innerHTML = '<div class="loading-state">Loading images...</div>';
-    
+
     // Store current vehicle ID for image operations
     window.currentVehicleId = vehicleId;
 
@@ -2050,7 +2138,7 @@ async function showVehicleImages(vehicleId) {
     });
 
     if (!response.ok) throw new Error('Failed to load vehicle images');
-    
+
     const result = await response.json();
     if (!result.success || !result.data || !result.data.images) {
       throw new Error('No images found for this vehicle');
@@ -2105,11 +2193,11 @@ function displayImagesGallery(images) {
     // Attach click listener for remove bg
     const removeBgBtn = item.querySelector('.remove-bg-btn-gallery');
     removeBgBtn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const url = removeBgBtn.getAttribute('data-url');
-        if (url) {
-            await removeVehicleImageBackground(url, removeBgBtn);
-        }
+      e.stopPropagation();
+      const url = removeBgBtn.getAttribute('data-url');
+      if (url) {
+        await removeVehicleImageBackground(url, removeBgBtn);
+      }
     });
 
     gallery.appendChild(item);
@@ -2117,53 +2205,53 @@ function displayImagesGallery(images) {
 }
 
 async function removeVehicleImageBackground(imageUrl, button) {
-    if (!window.currentVehicleId) {
-        showNotification('Vehicle ID missing', 'error');
-        return;
+  if (!window.currentVehicleId) {
+    showNotification('Vehicle ID missing', 'error');
+    return;
+  }
+
+  try {
+    // Ask for user instructions
+    const userPrompt = prompt('Enter AI editing instructions (e.g., "Remove background", "Make it a sunny day"):', 'Remove background');
+    if (!userPrompt) return; // User cancelled
+
+    button.disabled = true;
+    const originalContent = button.innerHTML;
+    button.innerHTML = '<span>⏳</span>';
+
+    showNotification('Processing image with AI...', 'info');
+
+    const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${window.currentVehicleId}/remove-bg`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': currentUser.apiKey
+      },
+      body: JSON.stringify({
+        imageUrl: imageUrl,
+        prompt: userPrompt
+      })
+    });
+
+    const result = await response.json();
+
+    if (result.success) {
+      showNotification('Background removed successfully!', 'success');
+      // Refresh images
+      showVehicleImages(window.currentVehicleId);
+    } else {
+      throw new Error(result.message || 'Failed to remove background');
     }
 
-    try {
-        // Ask for user instructions
-        const userPrompt = prompt('Enter AI editing instructions (e.g., "Remove background", "Make it a sunny day"):', 'Remove background');
-        if (!userPrompt) return; // User cancelled
-
-        button.disabled = true;
-        const originalContent = button.innerHTML;
-        button.innerHTML = '<span>⏳</span>';
-        
-        showNotification('Processing image with AI...', 'info');
-
-        const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${window.currentVehicleId}/remove-bg`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': currentUser.apiKey
-            },
-            body: JSON.stringify({ 
-                imageUrl: imageUrl,
-                prompt: userPrompt
-            })
-        });
-        
-        const result = await response.json();
-        
-        if (result.success) {
-            showNotification('Background removed successfully!', 'success');
-            // Refresh images
-            showVehicleImages(window.currentVehicleId);
-        } else {
-            throw new Error(result.message || 'Failed to remove background');
-        }
-
-    } catch (error) {
-        console.error('Background removal error:', error);
-        showNotification('Error: ' + error.message, 'error');
-        button.innerHTML = '<span>❌</span>';
-        setTimeout(() => {
-            button.disabled = false;
-            button.innerHTML = '<span>🍌</span>';
-        }, 2000);
-    }
+  } catch (error) {
+    console.error('Background removal error:', error);
+    showNotification('Error: ' + error.message, 'error');
+    button.innerHTML = '<span>❌</span>';
+    setTimeout(() => {
+      button.disabled = false;
+      button.innerHTML = '<span>🍌</span>';
+    }, 2000);
+  }
 }
 
 async function uploadIndividualImage(imageUrl, button) {
@@ -2175,7 +2263,7 @@ async function uploadIndividualImage(imageUrl, button) {
 
     // Get active tab
     const [tab] = await safeChromeCall(() => chrome.tabs.query({ active: true, currentWindow: true }));
-    
+
     if (!tab || !tab.url.includes('facebook.com/marketplace/create')) {
       showNotification('Please open a Facebook Marketplace listing page first', 'warning');
       button.disabled = false;
@@ -2215,6 +2303,97 @@ async function uploadIndividualImage(imageUrl, button) {
   }
 }
 
+
+
+
+// ============ Delete Vehicle Functions ============
+
+async function deleteVehicle(vehicleId) {
+  if (!confirm('Are you sure you want to delete this vehicle? This action cannot be undone.')) {
+    return;
+  }
+
+  try {
+    if (!currentUser || !currentUser.apiKey) {
+      showNotification('Please log in first', 'error');
+      return;
+    }
+
+    showNotification('Deleting vehicle...', 'info');
+
+    const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${vehicleId}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': currentUser.apiKey
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to delete vehicle: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+
+    if (result.success) {
+      showNotification('✅ Vehicle deleted successfully!', 'success');
+      // Reload the vehicles list
+      await loadVehicles();
+    } else {
+      throw new Error(result.message || 'Failed to delete vehicle');
+    }
+
+  } catch (error) {
+    console.error('Delete error:', error);
+    showNotification('Failed to delete vehicle: ' + error.message, 'error');
+  }
+}
+
+async function deleteAllVehicles() {
+  if (!confirm('⚠️ WARNING: This will delete ALL your vehicles! This action cannot be undone. Are you absolutely sure?')) {
+    return;
+  }
+
+  // Double confirmation for safety
+  if (!confirm('This is your last chance. Delete ALL vehicles permanently?')) {
+    return;
+  }
+
+  try {
+    if (!currentUser || !currentUser.apiKey) {
+      showNotification('Please log in first', 'error');
+      return;
+    }
+
+    showNotification('Deleting all vehicles...', 'info');
+
+    const response = await fetch(`${API_CONFIG.baseUrl}/vehicles`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': currentUser.apiKey
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to delete vehicles: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+
+    if (result.success) {
+      showNotification(`✅ Deleted ${result.deletedCount} vehicles successfully!`, 'success');
+      // Reload the vehicles list (should be empty now)
+      await loadVehicles();
+    } else {
+      throw new Error(result.message || 'Failed to delete vehicles');
+    }
+
+  } catch (error) {
+    console.error('Delete all error:', error);
+    showNotification('Failed to delete vehicles: ' + error.message, 'error');
+  }
+}
 
 // Expose postVehicleById globally for onclick handlers
 if (typeof window !== 'undefined') {
