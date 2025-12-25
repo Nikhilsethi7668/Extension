@@ -10,6 +10,8 @@ import vehicleRoutes from './routes/vehicle.routes.js';
 import organizationRoutes from './routes/organization.routes.js';
 import userRoutes from './routes/user.routes.js';
 import testDataRoutes from './routes/testData.routes.js';
+import logsRoutes from './routes/logs.routes.js';
+import dashboardRoutes from './routes/dashboard.routes.js';
 
 dotenv.config();
 
@@ -32,6 +34,8 @@ app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/organizations', organizationRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/test-data', testDataRoutes);
+app.use('/api/logs', logsRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 // Static File Serving (for generated images)
 import path from 'path';

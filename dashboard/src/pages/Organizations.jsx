@@ -57,6 +57,9 @@ const Organizations = () => {
         maxAgents: 10
     });
     const [apiKeyCopied, setApiKeyCopied] = useState(null);
+    const [regeneratedKey, setRegeneratedKey] = useState(null);
+    const [showKeyDialog, setShowKeyDialog] = useState(false);
+    const [confirmDialog, setConfirmDialog] = useState({ open: false, org: null });
 
     useEffect(() => {
         fetchOrganizations();
@@ -114,13 +117,26 @@ const Organizations = () => {
     };
 
     const handleRegenerateKey = async (org) => {
-        if (!window.confirm('Are you sure? This will invalidate the old key immediately.')) return;
+        console.log('Regenerate clicked for org:', org.name);
+        // Show confirmation dialog instead of window.confirm
+        setConfirmDialog({ open: true, org });
+    };
+
+    const confirmRegenerate = async () => {
+        const org = confirmDialog.org;
+        setConfirmDialog({ open: false, org: null });
+
         try {
-            await apiClient.put(`/organizations/${org._id}/regenerate-api-key`);
-            setSuccess('API Key regenerated');
+            console.log('Making API call to regenerate key...');
+            const { data } = await apiClient.put(`/organizations/${org._id}/regenerate-api-key`);
+            console.log('API response:', data);
+            setRegeneratedKey(data.apiKey);
+            setShowKeyDialog(true);
+            console.log('Dialog should now be visible');
             fetchOrganizations();
         } catch (err) {
-            setError('Failed to regenerate key');
+            console.error('Regenerate error:', err);
+            setError('Failed to regenerate key: ' + (err.response?.data?.message || err.message));
         }
     };
 
@@ -149,7 +165,7 @@ const Organizations = () => {
                 </Button>
             </Box>
 
-            <TableContainer component={Paper} sx={{ bgcolor: '#161616' }}>
+            <TableContainer component={Paper} className="glass">
                 {loading ? (
                     <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress /></Box>
                 ) : (
@@ -293,6 +309,102 @@ const Organizations = () => {
                 <DialogActions>
                     <Button onClick={() => setOpenEditDialog(false)}>Cancel</Button>
                     <Button onClick={handleUpdateLimit} variant="contained">Update</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Confirm Regenerate Dialog */}
+            <Dialog open={confirmDialog.open} onClose={() => setConfirmDialog({ open: false, org: null })}>
+                <DialogTitle>Confirm API Key Regeneration</DialogTitle>
+                <DialogContent>
+                    <Alert severity="warning" sx={{ mb: 2 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                            ⚠️ This will invalidate the old key immediately!
+                        </Typography>
+                        <Typography variant="caption">
+                            Any applications using the current API key will stop working until updated with the new key.
+                        </Typography>
+                    </Alert>
+                    <Typography variant="body2">
+                        Are you sure you want to regenerate the API key for <strong>{confirmDialog.org?.name}</strong>?
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setConfirmDialog({ open: false, org: null })}>
+                        Cancel
+                    </Button>
+                    <Button onClick={confirmRegenerate} variant="contained" color="error">
+                        Yes, Regenerate Key
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+
+            {/* Regenerated API Key Dialog */}
+            <Dialog
+                open={showKeyDialog}
+                onClose={() => setShowKeyDialog(false)}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle sx={{ pb: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <CheckCircle size={24} color="#10b981" />
+                        <Typography variant="h6">API Key Regenerated Successfully</Typography>
+                    </Box>
+                </DialogTitle>
+                <DialogContent>
+                    <Alert severity="warning" sx={{ mb: 2 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>
+                            ⚠️ Important: Copy this key now!
+                        </Typography>
+                        <Typography variant="caption">
+                            This is the only time you'll see the full key. The old key has been invalidated immediately.
+                        </Typography>
+                    </Alert>
+
+                    <Box
+                        sx={{
+                            p: 2,
+                            bgcolor: 'rgba(59, 130, 246, 0.1)',
+                            border: '1px solid rgba(59, 130, 246, 0.3)',
+                            borderRadius: 2,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 2
+                        }}
+                    >
+                        <Typography
+                            variant="body2"
+                            sx={{
+                                fontFamily: 'monospace',
+                                wordBreak: 'break-all',
+                                flexGrow: 1
+                            }}
+                        >
+                            {regeneratedKey}
+                        </Typography>
+                        <Tooltip title={apiKeyCopied === regeneratedKey ? "Copied!" : "Copy to clipboard"}>
+                            <IconButton
+                                onClick={() => handleCopyKey(regeneratedKey)}
+                                sx={{
+                                    bgcolor: 'primary.main',
+                                    color: 'white',
+                                    '&:hover': { bgcolor: 'primary.dark' }
+                                }}
+                            >
+                                <Copy size={18} />
+                            </IconButton>
+                        </Tooltip>
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button
+                        onClick={() => setShowKeyDialog(false)}
+                        variant="contained"
+                    >
+                        I've Copied the Key
+                    </Button>
                 </DialogActions>
             </Dialog>
         </Layout>

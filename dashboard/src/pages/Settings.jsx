@@ -9,10 +9,12 @@ import {
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import { useAuth } from '../context/AuthContext';
+import { useThemeMode } from '../context/ThemeContext';
 import apiClient from '../config/axios';
 
 const Settings = () => {
     const { user } = useAuth();
+    const { isDark, toggleTheme } = useThemeMode();
     const [apiKey, setApiKey] = useState('');
     const [loading, setLoading] = useState(false);
     const [success, setSuccess] = useState('');
@@ -105,11 +107,11 @@ const Settings = () => {
                         </Grid>
                         <Grid item xs={12} sm={6}>
                             <FormControlLabel
-                                control={<Switch defaultChecked />}
+                                control={<Switch checked={isDark} onChange={toggleTheme} />}
                                 label="Dark Mode"
                             />
                             <Typography variant="caption" display="block" color="text.secondary" sx={{ ml: 7, mt: -1 }}>
-                                Enforced by organization policy.
+                                {isDark ? 'Using dark theme' : 'Using light theme'}
                             </Typography>
                         </Grid>
                     </Grid>

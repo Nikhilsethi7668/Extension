@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme, CssBaseline, GlobalStyles } from '@mui/material';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ThemeModeProvider, useThemeMode } from './context/ThemeContext';
 
 // Pages
 import Login from './pages/Login';
@@ -14,10 +15,10 @@ import Settings from './pages/Settings';
 import Setup from './pages/Setup';
 import UpdatePassword from './pages/UpdatePassword';
 
-// --- Premium Dark Theme Configuration ---
-const theme = createTheme({
+// --- Theme Configuration Function ---
+const getTheme = (mode) => createTheme({
   palette: {
-    mode: 'dark',
+    mode: mode,
     primary: {
       main: '#3b82f6', // Bright, modern blue
       light: '#60a5fa',
@@ -29,19 +30,26 @@ const theme = createTheme({
       light: '#a78bfa',
       dark: '#7c3aed',
     },
-    background: {
+    background: mode === 'dark' ? {
       default: '#0b0e14', // Very deep blue-black
       paper: '#151a23',   // Slightly lighter for cards
       glass: 'rgba(21, 26, 35, 0.7)', // For glassmorphism
+    } : {
+      default: '#f8fafc', // Light gray background
+      paper: '#ffffff',   // White for cards
+      glass: 'rgba(255, 255, 255, 0.7)', // Light glassmorphism
     },
-    text: {
+    text: mode === 'dark' ? {
       primary: '#e2e8f0', // Cool white
       secondary: '#94a3b8', // Cool gray
+    } : {
+      primary: '#1e293b', // Dark gray
+      secondary: '#64748b', // Medium gray
     },
-    divider: 'rgba(148, 163, 184, 0.1)',
+    divider: mode === 'dark' ? 'rgba(148, 163, 184, 0.1)' : 'rgba(15, 23, 42, 0.08)',
     action: {
-      hover: 'rgba(59, 130, 246, 0.08)',
-      selected: 'rgba(59, 130, 246, 0.12)',
+      hover: mode === 'dark' ? 'rgba(59, 130, 246, 0.08)' : 'rgba(59, 130, 246, 0.04)',
+      selected: mode === 'dark' ? 'rgba(59, 130, 246, 0.12)' : 'rgba(59, 130, 246, 0.08)',
     },
   },
   shape: {
@@ -65,7 +73,7 @@ const theme = createTheme({
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
         body {
           scrollbar-width: thin;
-          scrollbar-color: #334155 transparent;
+          scrollbar-color: ${mode === 'dark' ? '#334155 transparent' : '#cbd5e1 transparent'};
         }
         ::-webkit-scrollbar {
           width: 6px;
@@ -75,7 +83,7 @@ const theme = createTheme({
           background: transparent;
         }
         ::-webkit-scrollbar-thumb {
-          background-color: #334155;
+          background-color: ${mode === 'dark' ? '#334155' : '#cbd5e1'};
           border-radius: 20px;
         }
       `,
@@ -84,15 +92,21 @@ const theme = createTheme({
       styleOverrides: {
         root: {
           backgroundImage: 'none',
-          '&.glass': {
+          '&.glass': mode === 'dark' ? {
             background: 'rgba(21, 26, 35, 0.7)',
             backdropFilter: 'blur(12px)',
             border: '1px solid rgba(255, 255, 255, 0.05)',
+          } : {
+            background: 'rgba(255, 255, 255, 0.7)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(15, 23, 42, 0.08)',
           },
         },
         elevation1: {
-          boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
-          border: '1px solid rgba(255, 255, 255, 0.05)',
+          boxShadow: mode === 'dark'
+            ? '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            : '0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06)',
+          border: mode === 'dark' ? '1px solid rgba(255, 255, 255, 0.05)' : '1px solid rgba(15, 23, 42, 0.08)',
         },
       },
     },
@@ -113,17 +127,17 @@ const theme = createTheme({
     MuiTableCell: {
       styleOverrides: {
         root: {
-          borderBottom: '1px solid rgba(148, 163, 184, 0.08)',
+          borderBottom: mode === 'dark' ? '1px solid rgba(148, 163, 184, 0.08)' : '1px solid rgba(15, 23, 42, 0.08)',
           paddingTop: '16px',
           paddingBottom: '16px',
         },
         head: {
-          color: '#94a3b8',
+          color: mode === 'dark' ? '#94a3b8' : '#64748b',
           fontWeight: 600,
           fontSize: '0.75rem',
           textTransform: 'uppercase',
           letterSpacing: '0.05em',
-          backgroundColor: '#151a23', // Match paper bg
+          backgroundColor: mode === 'dark' ? '#151a23' : '#ffffff',
         },
       },
     },
@@ -137,8 +151,8 @@ const theme = createTheme({
     MuiDialog: {
       styleOverrides: {
         paper: {
-          background: '#151a23',
-          border: '1px solid rgba(255, 255, 255, 0.08)',
+          background: mode === 'dark' ? '#151a23' : '#ffffff',
+          border: mode === 'dark' ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(15, 23, 42, 0.08)',
         }
       }
     }
@@ -157,7 +171,11 @@ const AdminRoute = ({ children }) => {
   return user && user.role !== 'agent' ? children : <Navigate to="/" />;
 };
 
-function App() {
+// Themed App component that uses the context
+const ThemedApp = () => {
+  const { mode } = useThemeMode();
+  const theme = useMemo(() => getTheme(mode), [mode]);
+
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -193,6 +211,14 @@ function App() {
         </Router>
       </AuthProvider>
     </ThemeProvider>
+  );
+};
+
+function App() {
+  return (
+    <ThemeModeProvider>
+      <ThemedApp />
+    </ThemeModeProvider>
   );
 }
 
