@@ -260,7 +260,7 @@ const Logs = () => {
                     )}
 
                     {/* Smart Search - Only for non-agents */}
-                    {user && user.role !== 'agent' && (
+                    {/* {user && user.role !== 'agent' && (
                         <TextField
                             placeholder="Search by user or vehicle..."
                             size="small"
@@ -271,7 +271,7 @@ const Logs = () => {
                                 startAdornment: <InputAdornment position="start"><Search size={16} /></InputAdornment>
                             }}
                         />
-                    )}
+                    )} */}
 
                     {/* Clear Filters Button */}
                     {hasActiveFilters && (
