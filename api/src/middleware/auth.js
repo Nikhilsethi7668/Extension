@@ -8,7 +8,34 @@ export const protect = async (req, res, next) => {
     const apiKey = req.headers['x-api-key'];
     if (apiKey) {
         try {
-            const user = await User.findOne({ apiKey }).populate('organization');
+            // First try to find a user directly (Agent)
+            let user = await User.findOne({ apiKey }).populate('organization');
+
+            // If not found, check if it's an Organization API Key (Org Admin)
+            if (!user) {
+                // Dynamic import to avoid circular dependency if possible, or just use registered model
+                // Assuming Organization is imported above
+                const Organization = (await import('../models/Organization.js')).default;
+                const org = await Organization.findOne({ apiKey });
+
+                if (org) {
+                    // Check org status
+                    if (org.status !== 'active') {
+                        res.status(403);
+                        return next(new Error('Organization is inactive'));
+                    }
+                    if (org.apiKeyStatus !== 'active') {
+                        res.status(403);
+                        return next(new Error('Organization API Key is inactive'));
+                    }
+
+                    // Find the Org Admin
+                    user = await User.findOne({
+                        organization: org._id,
+                        role: 'org_admin'
+                    }).populate('organization');
+                }
+            }
 
             if (!user) {
                 res.status(401);
@@ -20,7 +47,7 @@ export const protect = async (req, res, next) => {
                 return next(new Error('Your account is inactive'));
             }
 
-            if (user.organization.status !== 'active') {
+            if (user.organization && user.organization.status !== 'active') {
                 res.status(403);
                 return next(new Error('Your organization is inactive'));
             }

@@ -13,6 +13,7 @@ const Inventory = () => {
     const [vehicles, setVehicles] = useState([]);
     const [open, setOpen] = useState(false);
     const [scrapeUrl, setScrapeUrl] = useState('');
+    const [maxVehicles, setMaxVehicles] = useState(''); // New state for limit
     const [loading, setLoading] = useState(false);
     const [selectedVehicle, setSelectedVehicle] = useState(null);
     const [detailOpen, setDetailOpen] = useState(false);
@@ -69,7 +70,9 @@ const Inventory = () => {
             const urls = scrapeUrl.split('\n').filter(u => u.trim());
             if (urls.length === 0) return;
 
-            const { data } = await apiClient.post('/vehicles/scrape-bulk', { urls });
+            const limit = parseInt(maxVehicles) || null;
+
+            const { data } = await apiClient.post('/vehicles/scrape-bulk', { urls, limit });
 
             if (data.failed > 0) {
                 const errors = data.items.filter(i => i.status === 'failed').map(i => i.url + ': ' + i.error).join('\n');
@@ -80,6 +83,7 @@ const Inventory = () => {
 
             setOpen(false);
             setScrapeUrl('');
+            setMaxVehicles(''); // Reset limit
             fetchVehicles();
         } catch (err) {
             console.error(err);
@@ -331,6 +335,17 @@ const Inventory = () => {
                         onChange={(e) => setScrapeUrl(e.target.value)}
                         variant="outlined"
                     />
+                    <TextField
+                        margin="dense"
+                        label="Max Vehicles (Optional)"
+                        placeholder="e.g. 50"
+                        fullWidth
+                        type="number"
+                        value={maxVehicles}
+                        onChange={(e) => setMaxVehicles(e.target.value)}
+                        variant="outlined"
+                        sx={{ mt: 2 }}
+                    />
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setOpen(false)}>Cancel</Button>
@@ -396,6 +411,14 @@ const Inventory = () => {
                                         <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                                             <Typography variant="body2" color="text.secondary">Price</Typography>
                                             <Typography variant="body2" fontWeight={600} color="success.light">${selectedVehicle.price?.toLocaleString() || '-'}</Typography>
+                                        </Box>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <Typography variant="body2" color="text.secondary">Location</Typography>
+                                            <Typography variant="body2">{selectedVehicle.location || '-'}</Typography>
+                                        </Box>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                            <Typography variant="body2" color="text.secondary">Fuel Type</Typography>
+                                            <Typography variant="body2">{selectedVehicle.fuelType || '-'}</Typography>
                                         </Box>
                                     </Box>
                                 </Box>

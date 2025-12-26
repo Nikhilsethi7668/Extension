@@ -1,7 +1,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 
-export const scrapeVehicle = async (url) => {
+export const scrapeVehicle = async (url, options = {}) => {
     try {
         const { data } = await axios.get(url, {
             headers: {
@@ -38,7 +38,64 @@ export const scrapeVehicle = async (url) => {
             }
 
             if (vehicleUrls.length > 0) {
-                return { type: 'expanded_search', urls: [...new Set(vehicleUrls)] };
+                let distinctUrls = [...new Set(vehicleUrls)];
+
+                // --- Pagination Logic ---
+                // If we have a limit and haven't reached it, fetch next pages
+                let pageNum = 1;
+                const pageSize = vehicleUrls.length; // Approximate page size from first page
+                let offset = pageSize;
+
+                while (options.limit && distinctUrls.length < options.limit) {
+                    try {
+                        console.log(`Pagination: Fetching offset ${offset} (Current: ${distinctUrls.length}/${options.limit})...`);
+
+                        const nextUrl = new URL(url);
+                        nextUrl.searchParams.set('firstRecord', offset.toString());
+
+                        const { data: nextData } = await axios.get(nextUrl.toString(), {
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8'
+                            }
+                        });
+
+                        const $next = cheerio.load(nextData);
+                        const nextDataScript = $next('#__NEXT_DATA__').html();
+
+                        let newUrlsFound = [];
+
+                        if (nextDataScript) {
+                            const json = JSON.parse(nextDataScript);
+                            const eggsState = json.props?.pageProps?.__eggsState;
+                            if (eggsState?.inventory) {
+                                Object.values(eggsState.inventory).forEach(v => {
+                                    if (v.id) newUrlsFound.push(`https://www.autotrader.com/cars-for-sale/vehicle/${v.id}`);
+                                });
+                            }
+                        }
+
+                        if (newUrlsFound.length === 0) {
+                            console.log('Pagination: No more vehicles found on next page.');
+                            break;
+                        }
+
+                        distinctUrls = [...new Set([...distinctUrls, ...newUrlsFound])];
+                        offset += newUrlsFound.length; // Increment offset by actual count found
+
+                        // Safety break (avoid infinite loops if size doesn't change)
+                        if (pageNum++ > 20) break;
+
+                    } catch (err) {
+                        console.error('Pagination Error:', err.message);
+                        break;
+                    }
+                }
+
+                if (options.limit && distinctUrls.length > options.limit) {
+                    distinctUrls = distinctUrls.slice(0, options.limit);
+                }
+                return { type: 'expanded_search', urls: distinctUrls };
             } else {
                 throw new Error('Could not extract vehicle URLs');
             }
@@ -209,6 +266,17 @@ export const scrapeVehicle = async (url) => {
         // Extract Location from HTML (e.g., "Miami, FL 33143 (0 mi away)")
         if (!vehicle.location) {
             try {
+                // Strategy 0: Specific Selector from User HTML
+                const locationContainer = $('[data-cmp="listingTitleContainer"]');
+                if (locationContainer.length) {
+                    const text = locationContainer.text();
+                    const match = text.match(/([A-Z][a-z]+(?:\s[A-Z][a-z]+)*),\s([A-Z]{2})\s(\d{5})/);
+                    if (match) {
+                        vehicle.location = `${match[1]}, ${match[2]} ${match[3]}`;
+                        console.log('Location extracted from selector:', vehicle.location);
+                    }
+                }
+
                 // Strategy 1: Look for location text pattern with city, state, zip
                 const locationText = $('body').text();
                 const locationMatch = locationText.match(/([A-Z][a-z]+(?:\s[A-Z][a-z]+)*),\s([A-Z]{2})\s(\d{5})(?:\s\(\d+\smi\saway\))?/);
@@ -237,6 +305,13 @@ export const scrapeVehicle = async (url) => {
         // Extract Fuel Type from HTML specs section
         if (!vehicle.fuelType) {
             try {
+                // Strategy 0: Specific Selector
+                const fuelTypeDiv = $('div:contains("Fuel Type") + div, [data-cmp="fuelType"]');
+                if (fuelTypeDiv.length && fuelTypeDiv.text().trim()) {
+                    vehicle.fuelType = fuelTypeDiv.text().trim();
+                    console.log('Fuel type extracted from selector:', vehicle.fuelType);
+                }
+
                 // Look for engine/fuel info in specs sections
                 const specsText = $('[data-cmp="subheading"]:contains("Specs")').parent().text();
 

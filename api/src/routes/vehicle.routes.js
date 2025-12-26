@@ -416,7 +416,7 @@ router.post('/:id/posted', protect, async (req, res) => {
 // @route   POST /api/vehicles/scrape-bulk
 // @access  Protected
 router.post('/scrape-bulk', protect, async (req, res) => {
-    const { urls, assignedUserId } = req.body;
+    const { urls, assignedUserId, limit } = req.body;
 
     if (!urls || !Array.isArray(urls)) {
         res.status(400);
@@ -433,8 +433,16 @@ router.post('/scrape-bulk', protect, async (req, res) => {
     // Process with a queue to support dynamic expansion
     const queue = [...urls];
     const processed = new Set();
+    let totalScrapedCount = 0; // Track total vehicles scraped if limit is applied globally (optional, but per-URL limit is easier here)
 
     while (queue.length > 0) {
+        // Global limit check (if user intends limit to be "total vehicles imported")
+        // The user said "if present vehicle are not as much as required so should scrap as much as possible so equals to that inpyt number"
+        // This implies a total count limit for the session.
+        if (limit && totalScrapedCount >= limit) {
+            break;
+        }
+
         const url = queue.shift();
 
         if (!url || typeof url !== 'string') continue;
@@ -443,10 +451,13 @@ router.post('/scrape-bulk', protect, async (req, res) => {
         if (!trimmedUrl) continue;
         if (processed.has(trimmedUrl)) continue;
 
+        // If we are scraping a SEARCH page, we might get many vehicles. We need to tell the scraper how many we still need.
+        const remainingLimit = limit ? (limit - totalScrapedCount) : null;
+
         processed.add(trimmedUrl);
 
         try {
-            const result = await scrapeVehicle(trimmedUrl);
+            const result = await scrapeVehicle(trimmedUrl, { limit: remainingLimit });
 
             // Handle Bulk Vehicles (Search Page with Full Data)
             if (result.type === 'bulk_vehicles') {
@@ -486,6 +497,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
                             });
 
                             results.success++;
+                            totalScrapedCount++;
                             results.items.push({
                                 url: vehicleData.sourceUrl,
                                 status: 'success',
@@ -550,6 +562,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
             });
 
             results.success++;
+            totalScrapedCount++;
             results.items.push({ url: trimmedUrl, status: 'success', vehicleId: vehicle._id, title: `${vehicle.year} ${vehicle.make} ${vehicle.model}` });
 
         } catch (error) {

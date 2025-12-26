@@ -2,7 +2,7 @@
 const API_CONFIG = {
   baseUrl: 'http://localhost:5001/api',
   endpoints: {
-    agentLogin: '/auth/agent-login',
+    agentLogin: '/auth/dashboard-api-login',
     validateKey: '/auth/validate-key',
     logActivity: '/logs/activity',
     editImage: '/images/edit',
@@ -111,7 +111,7 @@ async function loadUserSession() {
   }
 }
 
-// Login function - Token-based for agents
+// Login function - Token-based for agents and admins
 async function login() {
   const apiToken = document.getElementById('apiToken').value.trim();
   const loginBtn = document.getElementById('loginBtn');
@@ -129,7 +129,7 @@ async function login() {
     const response = await fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.agentLogin, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: apiToken })
+      body: JSON.stringify({ apiKey: apiToken }) // Changed: expects apiKey, not token
     });
 
     const data = await response.json();
@@ -148,7 +148,13 @@ async function login() {
       showMainControls();
       showNotification('Logged in successfully!', 'success');
     } else {
-      showNotification(data.message || 'Login failed', 'error');
+      console.error('Login Failed Response:', response.status, data);
+      let errorMsg = data.message || 'Login failed';
+      if (response.status === 404) errorMsg = 'Login endpoint not found (404)';
+      if (response.status === 401) errorMsg = 'Invalid API Key (401)';
+      if (response.status === 403) errorMsg = 'Account Inactive (403)';
+
+      showNotification(errorMsg, 'error');
     }
   } catch (error) {
     console.error('Login error:', error);
@@ -1550,8 +1556,15 @@ async function postToFacebook(vehicleData = null) {
     const fbGroupsEl = document.getElementById('fbGroups');
 
     // Prepare post data
+    // Prepare post data with cleaning
+    const cleanValue = (val) => (val && val.trim() !== '' ? val : null);
+
     const postData = {
       ...dataToPost,
+      transmission: cleanValue(dataToPost.transmission),
+      bodyStyle: cleanValue(dataToPost.bodyStyle),
+      condition: cleanValue(dataToPost.condition),
+      fuelType: cleanValue(dataToPost.fuelType),
       description: generatedDescEl ? generatedDescEl.value : (dataToPost.description || dataToPost.aiContent?.description || ''),
       config: {
         category: vehicleCategoryEl ? vehicleCategoryEl.value : 'car',
@@ -1958,41 +1971,47 @@ function createVehicleCard(vehicle) {
   }[vehicle.status] || 'Available';
 
   card.innerHTML = `
-    <div class="vehicle-card-image">
-      ${imageUrl ? `<img src="${imageUrl}" alt="${vehicle.year} ${vehicle.make} ${vehicle.model}" onerror="this.parentElement.innerHTML='No Image'">` : 'No Image'}
-    </div>
-    <div class="vehicle-card-content">
-      <div class="vehicle-card-title">${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}</div>
-      <div class="vehicle-card-details">
-        ${vehicle.trim ? `<div class="vehicle-card-detail-row"><span>Trim:</span><span>${vehicle.trim}</span></div>` : ''}
-        ${vehicle.mileage ? `<div class="vehicle-card-detail-row"><span>Mileage:</span><span>${vehicle.mileage.toLocaleString()} mi</span></div>` : ''}
-        ${vehicle.vin ? `<div class="vehicle-card-detail-row"><span>VIN:</span><span style="font-family: monospace; font-size: 11px;">${vehicle.vin}</span></div>` : ''}
-        ${vehicle.location ? `<div class="vehicle-card-detail-row"><span>Location:</span><span>${vehicle.location}</span></div>` : ''}
-        
-        <div class="ai-prompt-wrapper">
-          <span class="ai-prompt-label">Use AI Prompt</span>
-          <label class="toggle-switch">
-            <input type="checkbox" class="ai-prompt-toggle" data-vehicle-id="${vehicle._id}" checked>
-            <span class="slider"></span>
-          </label>
-        </div>
+    <div class="vehicle-card-header-row">
+       <span class="vehicle-card-title-text">${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}</span>
+       <span class="vehicle-card-status ${statusClass}">${statusLabel}</span>
+    </div >
+    <div class="vehicle-card-body-row">
+      <div class="vehicle-card-image">
+        ${imageUrl ? `<img src="${imageUrl}" alt="${vehicle.year} ${vehicle.make} ${vehicle.model}" class="vehicle-img">` : '<div class="no-image">No Image</div>'}
       </div>
-      ${vehicle.price ? `<div class="vehicle-card-price">$${vehicle.price.toLocaleString()}</div>` : ''}
-      <span class="vehicle-card-status ${statusClass}">${statusLabel}</span>
-    </div>
-    <div class="vehicle-card-actions">
-      <button class="btn btn-primary post-vehicle-btn" data-vehicle-id="${vehicle._id}">
-        <span>📤</span>
-        <span>Post</span>
-      </button>
-      <button class="btn btn-secondary images-vehicle-btn" data-vehicle-id="${vehicle._id}">
-        <span>🖼️</span>
-        <span>Images</span>
-      </button>
-      <button class="btn btn-danger delete-vehicle-btn" data-vehicle-id="${vehicle._id}">
-        <span>🗑️</span>
-        <span>Delete</span>
-      </button>
+      <div class="vehicle-card-content">
+        <div class="vehicle-card-details">
+          ${vehicle.trim ? `<div class="vehicle-card-detail-row"><span>Trim:</span><span>${vehicle.trim}</span></div>` : ''}
+          ${vehicle.mileage ? `<div class="vehicle-card-detail-row"><span>Mileage:</span><span>${vehicle.mileage.toLocaleString()} mi</span></div>` : ''}
+          ${vehicle.vin ? `<div class="vehicle-card-detail-row"><span>VIN:</span><span style="font-family: monospace; font-size: 11px;">${vehicle.vin}</span></div>` : ''}
+          ${vehicle.location ? `<div class="vehicle-card-detail-row"><span>Location:</span><span>${vehicle.location}</span></div>` : ''}
+          ${vehicle.fuelType ? `<div class="vehicle-card-detail-row"><span>Fuel:</span><span>${vehicle.fuelType}</span></div>` : ''}
+          ${vehicle.condition ? `<div class="vehicle-card-detail-row"><span>Condition:</span><span>${vehicle.condition}</span></div>` : ''}
+
+          <div class="ai-prompt-wrapper">
+            <span class="ai-prompt-label">Use AI Prompt</span>
+            <label class="toggle-switch">
+              <input type="checkbox" class="ai-prompt-toggle" data-vehicle-id="${vehicle._id}" checked>
+                <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+        ${vehicle.price ? `<div class="vehicle-card-price">$${vehicle.price.toLocaleString()}</div>` : ''}
+      </div>
+      <div class="vehicle-card-actions">
+        <button class="btn btn-primary post-vehicle-btn" data-vehicle-id="${vehicle._id}">
+          <span>📤</span>
+          <span>Post</span>
+        </button>
+        <button class="btn btn-secondary images-vehicle-btn" data-vehicle-id="${vehicle._id}">
+          <span>🖼️</span>
+          <span>Images</span>
+        </button>
+        <button class="btn btn-danger delete-vehicle-btn" data-vehicle-id="${vehicle._id}">
+          <span>🗑️</span>
+          <span>Delete</span>
+        </button>
+      </div>
     </div>
   `;
 
@@ -2018,16 +2037,16 @@ async function postVehicleById(vehicleId) {
     }
 
     showNotification('Loading vehicle data...', 'info');
-    console.log('Fetching vehicle data from:', `${API_CONFIG.baseUrl}/vehicles/${vehicleId}`);
+    console.log('Fetching vehicle data from:', `${API_CONFIG.baseUrl} /vehicles/${vehicleId} `);
 
     // Check AI prompt toggle and get value
-    const toggle = document.querySelector(`.ai-prompt-toggle[data-vehicle-id="${vehicleId}"]`);
+    const toggle = document.querySelector(`.ai - prompt - toggle[data - vehicle - id="${vehicleId}"]`);
     const globalPrompt = document.getElementById('globalAiPrompt');
-    let fetchUrl = `${API_CONFIG.baseUrl}/vehicles/${vehicleId}`;
+    let fetchUrl = `${API_CONFIG.baseUrl} /vehicles/${vehicleId} `;
 
     if (toggle && toggle.checked && globalPrompt && globalPrompt.value.trim()) {
       const prompt = encodeURIComponent(globalPrompt.value.trim());
-      fetchUrl += `?ai_prompt=${prompt}`;
+      fetchUrl += `? ai_prompt = ${prompt} `;
       console.log('Adding AI prompt to request:', globalPrompt.value.trim());
     }
 
@@ -2043,7 +2062,7 @@ async function postVehicleById(vehicleId) {
     console.log('API Response status:', response.status, response.statusText);
 
     if (!response.ok) {
-      throw new Error(`Failed to load vehicle: ${response.statusText}`);
+      throw new Error(`Failed to load vehicle: ${response.statusText} `);
     }
 
     const result = await response.json();
@@ -2064,7 +2083,7 @@ async function postVehicleById(vehicleId) {
     await postToFacebook(vehicleData);
 
     // Record posting action (don't wait for it)
-    fetch(`${API_CONFIG.baseUrl}/vehicles/${vehicleId}/posted`, {
+    fetch(`${API_CONFIG.baseUrl} /vehicles/${vehicleId}/posted`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -734,41 +734,82 @@ select {
 }
 
 .vehicles-container {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* Center the cards */
   gap: 16px;
   flex: 1;
   min-height: 400px;
-  padding: 8px;
+  padding: 8px 0;
+  /* Removing side padding to let cards define their width */
+}
+
+/* Vehicle Card - Premium Horizontal Layout */
+.vehicle-card-header-row {
+  padding: 8px 12px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 40px;
+}
+
+.vehicle-card-title-text {
+  font-weight: 700;
+  color: #1e293b;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .vehicle-card {
-  background: var(--bg-card);
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
+  width: 95%;
+  /* User requested 90% of extension width */
+  max-width: 600px;
+  /* Optional max-width for very wide screens */
+  background: white;
+  border-radius: 12px;
+  border: 1px solid #f1f5f9;
+
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  /* Subtle shadow */
   overflow: hidden;
-  transition: all 0.3s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
   display: flex;
   flex-direction: column;
+  /* Changed to column to stack header and body */
+  height: 200px;
+  /* Increased height for header + content */
+  margin-bottom: 16px;
+  position: relative;
+}
+
+/* New Container for Body Content (Image + Details) */
+.vehicle-card-body-row {
+  display: flex;
+  flex: 1;
+  flex-direction: row;
+  overflow: hidden;
+  height: calc(100% - 40px);
+  /* Subtract header height */
 }
 
 .vehicle-card:hover {
   transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
   border-color: var(--primary);
 }
 
+/* 1. Left - Image Area */
 .vehicle-card-image {
-  width: 100%;
-  height: 180px;
-  object-fit: cover;
-  background: var(--bg-sub);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-sub);
-  font-size: 14px;
+  flex: 0 0 140px;
+  /* Fixed width */
+  height: 100%;
+  position: relative;
+  background: #f8fafc;
 }
 
 .vehicle-card-image img {
@@ -777,69 +818,131 @@ select {
   object-fit: cover;
 }
 
+/* 2. Middle - Content Area */
 .vehicle-card-content {
-  padding: 16px;
+  flex: 1;
+  /* Takes remaining space */
+  padding: 12px 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  flex: 1;
+  justify-content: space-between;
+  overflow: hidden;
+  border-right: 1px solid #f1f5f9;
 }
 
 .vehicle-card-title {
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 700;
-  color: var(--text-main);
+  color: #1e293b;
   margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .vehicle-card-details {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
-  color: var(--text-sub);
+  gap: 3px;
+  font-size: 12px;
+  color: #64748b;
 }
 
 .vehicle-card-detail-row {
   display: flex;
-  justify-content: space-between;
+  gap: 6px;
 }
 
 .vehicle-card-price {
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--primary);
-  margin-top: 8px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f62fe;
+  /* Primary Blue */
+  margin-top: auto;
 }
 
 .vehicle-card-status {
-  display: inline-block;
-  padding: 4px 8px;
-  border-radius: var(--radius-sm);
-  font-size: 11px;
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
   font-weight: 600;
-  text-transform: uppercase;
-  margin-top: 4px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(4px);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  z-index: 2;
 }
 
 .vehicle-card-status.available {
-  background: rgba(16, 185, 129, 0.1);
-  color: var(--success);
+  color: #10b981;
 }
 
 .vehicle-card-status.posted {
-  background: rgba(59, 130, 246, 0.1);
-  color: var(--info);
-}
-
-.vehicle-card-status.sold_pending_removal {
-  background: rgba(245, 158, 11, 0.1);
-  color: var(--warning);
+  color: #3b82f6;
 }
 
 .vehicle-card-status.sold {
-  background: rgba(107, 114, 128, 0.1);
-  color: var(--secondary);
+  color: #ef4444;
+}
+
+/* 3. Right - Action Bar (Vertical Stack) */
+.vehicle-card-actions {
+  flex: 0 0 60px;
+  /* Narrow vertical strip */
+  display: flex;
+  flex-direction: column;
+  background: #f8fafc;
+  border-left: 1px solid #f1f5f9;
+}
+
+.vehicle-card-actions .btn {
+  flex: 1;
+  /* Distribute height equally */
+  border: none;
+  background: transparent;
+  border-radius: 0;
+  border-bottom: 1px solid #e2e8f0;
+  /* Icon centering */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  gap: 4px;
+  transition: all 0.2s;
+  color: #64748b;
+}
+
+.vehicle-card-actions .btn:last-child {
+  border-bottom: none;
+}
+
+.vehicle-card-actions .btn:hover {
+  background: #fff;
+  color: var(--primary);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.vehicle-card-actions .btn.delete-vehicle-btn:hover {
+  color: #ef4444;
+  box-shadow: inset 3px 0 0 #ef4444;
+}
+
+.vehicle-card-actions .btn span:first-child {
+  font-size: 18px;
+  /* Larger Icon */
+}
+
+.vehicle-card-actions .btn span:last-child {
+  font-size: 9px;
+  /* Tiny Label */
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+color: var(--secondary);
 }
 
 .vehicle-card-actions {

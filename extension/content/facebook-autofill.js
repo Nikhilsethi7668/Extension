@@ -2734,59 +2734,96 @@
     // Find condition dropdown - look for label with "Vehicle condition" text
     let dropdown = null;
 
-    // Strategy 1: Find label[role="combobox"] directly that contains "Vehicle condition" span
+    // Strategy 1: Find label[role="combobox"] directly that contains "Condition" text
     const allComboboxLabels = document.querySelectorAll('label[role="combobox"][aria-haspopup="listbox"]');
     for (const label of allComboboxLabels) {
       const labelText = label.textContent || '';
-      if (labelText.toLowerCase().includes('condition') && labelText.toLowerCase().includes('vehicle')) {
+      const ariaLabel = label.getAttribute('aria-label') || '';
+
+      // Check both text and aria-label
+      if ((labelText.toLowerCase().includes('condition') && labelText.toLowerCase().includes('vehicle')) ||
+        (ariaLabel.toLowerCase().includes('condition') && ariaLabel.toLowerCase().includes('vehicle'))) {
         dropdown = label;
-        console.log('Found condition label combobox directly');
+        console.log('Found "Vehicle condition" label combobox directly');
         break;
+      }
+
+      // Fallback: just "condition" if strict match fails (but prioritize stricter matches first)
+      if (!dropdown && (labelText.toLowerCase().trim() === 'condition' || ariaLabel.toLowerCase().trim() === 'condition')) {
+        // Store potential match but verify strict ones first
+        // Actually, let's just use it if we haven't found a better one by the end of loop
       }
     }
 
-    // Strategy 2: Find span with "Vehicle condition" text and look for nearby combobox/dropdown
+    // Strategy 1.5: Retry with just "Condition" if not found
     if (!dropdown) {
-      const conditionSpans = Array.from(document.querySelectorAll('span')).filter(span => {
-        const text = span.textContent || '';
-        return text.toLowerCase().includes('condition') && text.toLowerCase().includes('vehicle');
-      });
-
-      for (const span of conditionSpans) {
-        const parent = span.closest('div');
-        if (parent) {
-          const labelCombobox = parent.querySelector('label[role="combobox"][aria-haspopup="listbox"]');
-          if (labelCombobox) {
-            dropdown = labelCombobox;
-            break;
-          }
-
-          const divCombobox = parent.querySelector('div[role="combobox"][aria-haspopup="listbox"]');
-          if (divCombobox) {
-            dropdown = divCombobox;
-            break;
-          }
-
-          const clickableDiv = parent.querySelector('div[tabindex="-1"]');
-          if (clickableDiv) {
-            const comboboxParent = clickableDiv.closest('[role="combobox"]');
-            if (comboboxParent) {
-              dropdown = comboboxParent;
-            } else {
-              dropdown = clickableDiv;
-            }
+      for (const label of allComboboxLabels) {
+        const labelText = label.textContent || '';
+        const ariaLabel = label.getAttribute('aria-label') || '';
+        if (labelText.toLowerCase().includes('condition') || ariaLabel.toLowerCase().includes('condition')) {
+          // Exclude "Air conditioning" or unrelated
+          if (!labelText.toLowerCase().includes('air') && !ariaLabel.toLowerCase().includes('air')) {
+            dropdown = label;
+            console.log('Found "Condition" label combobox (relaxed match)');
             break;
           }
         }
       }
     }
 
-    // Strategy 3: Find by label with "Vehicle condition" text
+    // Strategy 2: Find span with "Condition" text and look for nearby combobox/dropdown
+    if (!dropdown) {
+      const conditionSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+        const text = (span.textContent || '').toLowerCase();
+        return text.includes('condition') && !text.includes('air'); // Filter 'air conditioning'
+      });
+
+      // Sort spans: prefer "vehicle condition" over "condition"
+      conditionSpans.sort((a, b) => {
+        const aText = (a.textContent || '').toLowerCase();
+        const bText = (b.textContent || '').toLowerCase();
+        const aHasVehicle = aText.includes('vehicle');
+        const bHasVehicle = bText.includes('vehicle');
+        if (aHasVehicle && !bHasVehicle) return -1;
+        if (!aHasVehicle && bHasVehicle) return 1;
+        return 0;
+      });
+
+      for (const span of conditionSpans) {
+        const parent = span.closest('div'); // Look up tree
+        if (parent) {
+          // Look for sibling or child combobox
+          const labelCombobox = parent.parentElement?.querySelector('label[role="combobox"][aria-haspopup="listbox"]');
+          if (labelCombobox) {
+            dropdown = labelCombobox;
+            break;
+          }
+
+          // Look inside parent
+          const internalCombobox = parent.querySelector('div[role="combobox"], label[role="combobox"]');
+          if (internalCombobox) {
+            dropdown = internalCombobox;
+            break;
+          }
+
+          // Interactive DIV navigation
+          // Facebook sometimes uses a div with tabindex="0" or "-1" as the trigger
+          const clickableDiv = parent.parentElement?.querySelector('div[tabindex="0"], div[tabindex="-1"]');
+          if (clickableDiv && clickableDiv !== span.parentElement) {
+            // Verify it looks like a dropdown trigger
+            dropdown = clickableDiv;
+            break;
+          }
+        }
+      }
+    }
+
+    // Strategy 3: Find by label with "Condition" text (broad)
     if (!dropdown) {
       const allLabels = document.querySelectorAll('label');
       for (const label of allLabels) {
-        const labelText = label.textContent || '';
-        if (labelText.toLowerCase().includes('condition') && labelText.toLowerCase().includes('vehicle')) {
+        const labelText = (label.textContent || '').toLowerCase();
+        if (labelText.includes('condition') && !labelText.includes('air')) {
           if (label.getAttribute('role') === 'combobox') {
             dropdown = label;
             break;
@@ -2794,11 +2831,6 @@
           const combobox = label.querySelector('div[role="combobox"], label[role="combobox"]');
           if (combobox) {
             dropdown = combobox;
-            break;
-          }
-          const clickableDiv = label.querySelector('div[tabindex="-1"]');
-          if (clickableDiv) {
-            dropdown = clickableDiv;
             break;
           }
         }

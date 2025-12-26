@@ -1,7 +1,7 @@
 // autotrader-scraper.js
 // Content script for scraping vehicle data from Autotrader.com
 
-(function() {
+(function () {
   'use strict';
 
   console.log('Autotrader scraper loaded');
@@ -153,6 +153,19 @@
       '[class*="comments"]'
     ]);
 
+    // Location
+    data.location = getTextContent([
+      '[data-cmp="listingTitleContainer"] span.iris\\:mr-4',
+      '[data-cmp="ownerLocation"]',
+      'span[class*="location"]'
+    ]) || extractLocation();
+
+    // Fuel Type
+    data.fuelType = getTextContent([
+      'div:contains("Fuel Type") + div',
+      '[data-cmp="fuelType"]'
+    ]) || extractFuelType(data);
+
     // Images - High resolution
     data.images = scrapeImages();
 
@@ -178,10 +191,10 @@
   function extractFromTitle(field) {
     const title = document.querySelector('h1');
     if (!title) return null;
-    
+
     const text = title.textContent;
     const match = text.match(/(\d{4})\s+([A-Za-z]+)\s+([A-Za-z0-9\s-]+)/);
-    
+
     if (match) {
       const mapping = { year: match[1], make: match[2], model: match[3] };
       return mapping[field];
@@ -203,6 +216,40 @@
     return match ? match[0] : null;
   }
 
+  function extractLocation() {
+    // Try to find the location text which usually matches "City, State Zip" pattern
+    // Based on user snippet: "Miami, FL 33143 (0 mi away)"
+    const titleContainer = document.querySelector('[data-cmp="listingTitleContainer"]');
+    if (titleContainer) {
+      const text = titleContainer.textContent;
+      const locationMatch = text.match(/([A-Z][a-zA-Z\s]+,\s+[A-Z]{2}\s+\d{5})/);
+      if (locationMatch) return locationMatch[1];
+    }
+    return null;
+  }
+
+  function extractFuelType(data) {
+    // Infer from engine or description if not explicitly found
+    const fuelKeywords = ['Diesel', 'Electric', 'Hybrid', 'Gasoline', 'Flex Fuel'];
+
+    // Check Engine field
+    if (data.engine) {
+      for (const fuel of fuelKeywords) {
+        if (data.engine.includes(fuel)) return fuel;
+      }
+    }
+
+    // Check Title/Description
+    const textToCheck = (document.title + ' ' + (data.description || '')).toLowerCase();
+    for (const fuel of fuelKeywords) {
+      if (textToCheck.includes(fuel.toLowerCase())) return fuel;
+    }
+
+    // Default fallback to Gasoline if standard engine terms found but no specific fuel type? 
+    // Safer to return 'Unknown' or null if unsure.
+    return null;
+  }
+
   function extractVIN() {
     const vinRegex = /\b[A-HJ-NPR-Z0-9]{17}\b/;
     const bodyText = document.body.textContent;
@@ -221,19 +268,19 @@
     ];
 
     const seenUrls = new Set();
-    
+
     selectors.forEach(selector => {
       const imgElements = document.querySelectorAll(selector);
       imgElements.forEach(img => {
         let src = img.src || img.dataset.src || img.dataset.original;
-        
+
         // Get highest resolution version
         if (src) {
           // Replace thumbnail indicators with full size
           src = src.replace(/\/\d+x\d+\//, '/1920x1440/')
-                   .replace(/_small/, '_large')
-                   .replace(/_thumb/, '_full');
-          
+            .replace(/_small/, '_large')
+            .replace(/_thumb/, '_full');
+
           if (!seenUrls.has(src) && src.includes('http')) {
             images.push(src);
             seenUrls.add(src);
