@@ -1,5 +1,6 @@
 import express from 'express';
 import Vehicle from '../models/Vehicle.js';
+import AuditLog from '../models/AuditLog.js';
 import { protect, admin } from '../middleware/auth.js';
 import { generateVehicleContent, processImageWithGemini } from '../services/ai.service.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -85,7 +86,7 @@ router.get('/', protect, async (req, res) => {
         let vehicles;
         let total = await Vehicle.countDocuments(query); // Basic count matches query
 
-        if (repostEligible === 'true') {
+        if (`repostEligible` === 'true') {
             // Memory filter approach (Limitations: Scaling)
             // If user explicitly asks for this filter, we might need to scanning.
             // For now, let's just apply it to the page? No, that's bad UX.
@@ -203,6 +204,32 @@ router.get('/:id', protect, async (req, res, next) => {
             }
         };
 
+        if (req.query.purpose === 'posting') {
+            vehicle.status = 'posted';
+            vehicle.postingHistory.push({
+                platform: 'facebook_marketplace',
+                action: 'post',
+                agentName: req.user.name,
+            });
+            await vehicle.save();
+            formattedData.postingHistory = vehicle.postingHistory;
+
+            // Audit Log: Vehicle Posted (via Extension Get)
+            await AuditLog.create({
+                action: 'Vehicle Posted',
+                entityType: 'Vehicle',
+                entityId: vehicle._id,
+                user: req.user._id,
+                organization: req.user.organization._id,
+                details: { 
+                    method: 'extension_get_posting',
+                    platform: 'facebook_marketplace'
+                },
+                ipAddress: req.ip,
+                userAgent: req.get('User-Agent'),
+            });
+        }
+
         // Handle AI Enhancement if query parameter is present
         if (req.query.ai_prompt && process.env.GEMINI_API_KEY) {
             try {
@@ -293,6 +320,18 @@ router.post('/scrape', protect, async (req, res) => {
             assignedUser: assignedUserId || (req.user.role === 'agent' ? req.user._id : null),
         });
 
+        // Audit Log: Create Vehicle
+        await AuditLog.create({
+            action: 'Create Vehicle',
+            entityType: 'Vehicle',
+            entityId: vehicle._id,
+            user: req.user._id,
+            organization: req.user.organization._id,
+            details: { method: 'scrape', url: url },
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+        });
+
         res.status(201).json(vehicle);
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -324,6 +363,19 @@ router.post('/:id/generate-ai', protect, async (req, res) => {
             lastGenerated: Date.now(),
         };
         await vehicle.save();
+
+        // Audit Log: AI Content Generation
+        await AuditLog.create({
+            action: 'AI Content Gen',
+            entityType: 'Vehicle',
+            entityId: vehicle._id,
+            user: req.user._id,
+            organization: req.user.organization._id,
+            details: { instructions, sentiment },
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+        });
+
         res.json(vehicle);
     } catch (error) {
         res.status(500).json({ message: 'AI Generation failed' });
@@ -370,6 +422,18 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
 
         await vehicle.save();
 
+        // Audit Log: Remove Background
+        await AuditLog.create({
+            action: 'Remove Background',
+            entityType: 'Vehicle',
+            entityId: vehicle._id,
+            user: req.user._id,
+            organization: req.user.organization._id,
+            details: { imageUrl, prompt: prompt || 'Default' },
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+        });
+
         res.json({
             success: true,
             data: {
@@ -408,6 +472,19 @@ router.post('/:id/posted', protect, async (req, res) => {
     });
 
     await vehicle.save();
+
+    // Audit Log: Vehicle Posted
+    await AuditLog.create({
+        action: 'Vehicle Posted',
+        entityType: 'Vehicle',
+        entityId: vehicle._id,
+        user: req.user._id,
+        organization: req.user.organization._id,
+        details: { platform, listingUrl, postAction: action },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent'),
+    });
+
     res.json({ success: true, vehicle });
 });
 
@@ -605,13 +682,26 @@ router.delete('/:id', protect, async (req, res) => {
         }
 
         await vehicle.deleteOne();
-        res.json({ success: true, message: 'Vehicle deleted successfully' });
+
+        // Audit Log: Delete Vehicle
+        await AuditLog.create({
+            action: 'Delete Vehicle',
+            entityType: 'Vehicle',
+            entityId: vehicle._id, // Note: ID still valid for log even if doc deleted
+            user: req.user._id,
+            organization: req.user.organization._id,
+            details: { title: `${vehicle.year} ${vehicle.make} ${vehicle.model}`, vin: vehicle.vin },
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+        });
+
+        res.json({ success: true, message: 'Vehicle deleted', deletedCount: 1 });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
-// @desc    Delete all vehicles for an organization
+// @desc    Delete all vehicles
 // @route   DELETE /api/vehicles
 // @access  Protected
 router.delete('/', protect, async (req, res) => {
@@ -627,11 +717,109 @@ router.delete('/', protect, async (req, res) => {
 
         res.json({
             success: true,
-            message: `Deleted ${result.deletedCount} vehicles successfully`,
+            message: 'All vehicles deleted',
             deletedCount: result.deletedCount
         });
     } catch (error) {
         res.status(500).json({ message: error.message });
+    }
+});
+
+// @desc    Batch process images with AI
+// @route   POST /api/vehicles/:id/batch-edit-images
+// @access  Protected
+router.post('/:id/batch-edit-images', protect, async (req, res) => {
+    try {
+        const { images, prompt } = req.body;
+        const vehicleId = req.params.id;
+
+        if (!images || !Array.isArray(images) || images.length === 0) {
+            res.status(400);
+            throw new Error('No images provided');
+        }
+
+        if (!prompt) {
+            res.status(400);
+            throw new Error('Prompt is required');
+        }
+
+        const vehicle = await Vehicle.findById(vehicleId);
+        if (!vehicle) {
+            res.status(404);
+            throw new Error('Vehicle not found');
+        }
+
+        console.log(`[Batch Edit] Processing ${images.length} images for vehicle ${vehicleId} with prompt: "${prompt}"`);
+
+        const results = [];
+        const errors = [];
+
+        // Process images in parallel
+        const processPromises = images.map(async (imageUrl) => {
+            try {
+                const result = await processImageWithGemini(imageUrl, prompt);
+                return { status: 'fulfilled', value: result };
+            } catch (err) {
+                return { status: 'rejected', reason: err.message, imageUrl };
+            }
+        });
+
+        const outcomes = await Promise.all(processPromises);
+
+        outcomes.forEach(outcome => {
+            if (outcome.status === 'fulfilled') {
+                results.push(outcome.value);
+            } else {
+                errors.push({ imageUrl: outcome.imageUrl, error: outcome.reason });
+            }
+        });
+
+        // Update vehicle images with processed ones
+        // Store in separate aiImages field as requested
+        const newAiImages = [];
+        results.forEach(result => {
+            if (result.processedUrl) {
+                newAiImages.push(result.processedUrl);
+            }
+        });
+
+        if (newAiImages.length > 0) {
+            // Option 1: Append to existing
+             vehicle.aiImages.push(...newAiImages);
+            
+            // Option 2: Overwrite? No, "push the urls in it" implies simple addition.
+            // But we should probably filter duplicates if needed.
+            
+            await vehicle.save();
+
+            // Audit Log: Batch AI Edit
+            await AuditLog.create({
+                action: 'Batch AI Edit',
+                entityType: 'Vehicle',
+                entityId: vehicle._id,
+                user: req.user._id,
+                organization: req.user.organization._id,
+                details: { 
+                    prompt: prompt,
+                    processedCount: newAiImages.length,
+                    totalImages: vehicle.images.length
+                },
+                ipAddress: req.ip,
+                userAgent: req.get('User-Agent'),
+            });
+        }
+
+        res.json({
+            success: true,
+            results,
+            errors,
+            processedCount: results.length,
+            failedCount: errors.length
+        });
+
+    } catch (error) {
+        console.error('Batch processing error:', error);
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 

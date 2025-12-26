@@ -6,7 +6,7 @@ import {
     Autocomplete
 } from '@mui/material';
 import {
-    FileText, Search, Filter, Download, Activity, Calendar
+    Search, Activity, Calendar
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import apiClient from '../config/axios';
@@ -127,6 +127,49 @@ const Logs = () => {
 
     const hasActiveFilters = debouncedSearch || startDate || endDate || selectedUser;
 
+    const renderEntity = (log) => {
+        const { entityType, entityId } = log;
+        
+        if (!entityId) {
+             return <Typography variant="caption" color="text.secondary">Deleted/Unknown</Typography>;
+        }
+
+        if (entityType === 'Vehicle') {
+             return (
+                 <Box>
+                    <Typography variant="body2" fontWeight={500}>
+                        {entityId.year} {entityId.make} {entityId.model}
+                    </Typography>
+                     {entityId.trim && (
+                        <Typography variant="caption" color="text.secondary">
+                            {entityId.trim}
+                        </Typography>
+                    )}
+                 </Box>
+             );
+        }
+
+        if (entityType === 'User') {
+             return (
+                <Box>
+                    <Typography variant="body2">{entityId.name}</Typography>
+                    <Typography variant="caption" color="text.secondary">{entityId.email}</Typography>
+                </Box>
+             );
+        }
+
+        if (entityType === 'Organization') {
+             return <Typography variant="body2">{entityId.name}</Typography>;
+        }
+
+        // Fallback
+        return (
+             <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                {entityId.name || entityId.title || entityId._id?.toString().substring(0, 8) || '...'}
+            </Typography>
+        );
+    };
+
     return (
         <Layout title="Activity Logs">
             <Paper className="glass" sx={{ p: 2, mb: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
@@ -135,11 +178,9 @@ const Logs = () => {
                         <Activity size={24} />
                     </Box>
                     <Box>
-                        <Typography variant="h6" sx={{ lineHeight: 1 }}>Posting Activity</Typography>
+                        <Typography variant="h6" sx={{ lineHeight: 1 }}>System Audit Logs</Typography>
                         <Typography variant="caption" color="text.secondary">
-                            {user?.role === 'agent'
-                                ? 'Your vehicle posting history'
-                                : 'All vehicle posting activity'}
+                            View all system activities, logins, and changes.
                         </Typography>
                     </Box>
                 </Box>
@@ -252,9 +293,9 @@ const Logs = () => {
                             <TableRow>
                                 <TableCell>Timestamp</TableCell>
                                 <TableCell>User</TableCell>
-                                <TableCell>Vehicle</TableCell>
                                 <TableCell>Action</TableCell>
-                                <TableCell>Platform</TableCell>
+                                <TableCell>Entity</TableCell>
+                                <TableCell>Details</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
@@ -270,7 +311,7 @@ const Logs = () => {
                                         <Typography color="text.secondary">
                                             {hasActiveFilters
                                                 ? 'No logs found matching your filters.'
-                                                : 'No posting activity yet. Start posting vehicles to see logs here.'}
+                                                : 'No activity logs found.'}
                                         </Typography>
                                     </TableCell>
                                 </TableRow>
@@ -278,57 +319,43 @@ const Logs = () => {
                                 logs.map((log, index) => (
                                     <TableRow key={`${log._id}-${index}`} hover>
                                         <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.85rem', color: 'text.secondary' }}>
-                                            {new Date(log.timestamp).toLocaleString()}
+                                            {new Date(log.createdAt).toLocaleString()}
                                         </TableCell>
                                         <TableCell>
                                             <Typography variant="body2" fontWeight={500}>
-                                                {log.userName || log.agentName || 'Unknown'}
+                                                {log.user?.name || 'System'}
                                             </Typography>
-                                            {log.userEmail && (
+                                            {log.user?.email && (
                                                 <Typography variant="caption" color="text.secondary" display="block">
-                                                    {log.userEmail}
-                                                </Typography>
-                                            )}
-                                        </TableCell>
-                                        <TableCell>
-                                            <Typography variant="body2" fontWeight={600}>
-                                                {log.vehicleInfo?.year || ''} {log.vehicleInfo?.make || ''} {log.vehicleInfo?.model || ''}
-                                            </Typography>
-                                            {log.vehicleInfo?.trim && (
-                                                <Typography variant="caption" color="text.secondary" display="block">
-                                                    {log.vehicleInfo.trim}
-                                                </Typography>
-                                            )}
-                                            {log.vehicleInfo?.price && (
-                                                <Typography variant="caption" color="success.light" display="block">
-                                                    ${log.vehicleInfo.price.toLocaleString()}
+                                                    {log.user.email}
                                                 </Typography>
                                             )}
                                         </TableCell>
                                         <TableCell>
                                             <Chip
-                                                label={getActionLabel(log.action)}
+                                                label={log.action}
                                                 size="small"
-                                                color={getActionColor(log.action)}
-                                                sx={{ borderRadius: 1, fontWeight: 600, fontSize: '0.7rem' }}
+                                                color="primary"
+                                                variant="outlined"
+                                                sx={{ borderRadius: 1, fontWeight: 600, fontSize: '0.75rem' }}
                                             />
                                         </TableCell>
                                         <TableCell>
-                                            <Typography variant="body2" sx={{ textTransform: 'capitalize' }}>
-                                                {(log.platform || 'facebook_marketplace').replace(/_/g, ' ')}
-                                            </Typography>
-                                            {log.listingUrl && (
-                                                <Typography
-                                                    variant="caption"
-                                                    component="a"
-                                                    href={log.listingUrl}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    sx={{ color: 'primary.main', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}
-                                                >
-                                                    View Listing
-                                                </Typography>
-                                            )}
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                <Chip 
+                                                    label={log.entityType} 
+                                                    size="small" 
+                                                    sx={{ fontSize: '0.7rem', height: 20 }} 
+                                                />
+                                                <Box>
+                                                    {renderEntity(log)}
+                                                </Box>
+                                            </Box>
+                                        </TableCell>
+                                        <TableCell>
+                                           <Typography variant="caption" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', color: 'text.secondary', display: 'block', maxWidth: 300 }}>
+                                               {log.details ? JSON.stringify(log.details) : '-'}
+                                           </Typography>
                                         </TableCell>
                                     </TableRow>
                                 ))

@@ -25,6 +25,7 @@ const vehicleSchema = mongoose.Schema(
         location: String,
         description: String,
         images: [String], // URLs to images
+        aiImages: [String], // URLs to AI processed images
         sourceUrl: String,
         fuelType: String,
         condition: String, // New/Used

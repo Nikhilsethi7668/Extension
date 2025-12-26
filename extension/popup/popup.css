@@ -1,14 +1,19 @@
 /* Enhanced Modern UI for Extension Popup */
 
 :root {
-  --primary: #0f62fe;
-  --primary-dark: #0043ce;
-  --primary-light: #4589ff;
-  --secondary: #6f6f6f;
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --primary-light: #60a5fa;
+  --primary-soft: #eff6ff;
+
+  --secondary: #64748b;
+  --secondary-dark: #475569;
+
   --success: #10b981;
+  --success-soft: #ecfdf5;
   --danger: #ef4444;
+  --danger-soft: #fef2f2;
   --warning: #f59e0b;
-  --info: #3b82f6;
 
   --bg-main: #ffffff;
   --bg-sub: #f8fafc;
@@ -287,6 +292,7 @@ body {
   padding: 16px;
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
+  margin-top: 12px;
 }
 
 .config-section label {
@@ -392,6 +398,7 @@ body {
   padding: 16px;
   border: 1px solid var(--border);
   box-shadow: var(--shadow-sm);
+  margin-top: 12px;
 }
 
 .queue-section h3,
@@ -458,12 +465,8 @@ body {
   transform: scale(1.05);
 }
 
-/* Activity Log */
+/* Activity Log Styles */
 .activity-log {
-  max-height: 150px;
-  overflow-y: auto;
-  font-size: 12px;
-  border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 8px;
   background: var(--bg-sub);
@@ -727,6 +730,13 @@ select {
   flex: 1;
 }
 
+.main-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
 .vehicle-listing-controls {
   display: grid;
   grid-template-columns: 1fr 150px;
@@ -751,65 +761,61 @@ select {
   background: #f8fafc;
   border-bottom: 1px solid #e2e8f0;
   display: flex;
+  flex-direction: column;
   justify-content: space-between;
   align-items: center;
-  height: 40px;
+  gap: 8px;
 }
 
 .vehicle-card-title-text {
   font-weight: 700;
   color: #1e293b;
-  font-size: 14px;
+  font-size: 15px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+  /* Take available space */
+  margin-right: 8px;
 }
 
 .vehicle-card {
-  width: 95%;
-  /* User requested 90% of extension width */
-  max-width: 600px;
-  /* Optional max-width for very wide screens */
+  width: 98%;
+  /* Maximized width */
+  margin: 0 auto 12px auto;
   background: white;
   border-radius: 12px;
   border: 1px solid #f1f5f9;
-
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-  /* Subtle shadow */
   overflow: hidden;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
   display: flex;
   flex-direction: column;
-  /* Changed to column to stack header and body */
-  height: 200px;
-  /* Increased height for header + content */
-  margin-bottom: 16px;
-  position: relative;
+  height: auto;
+  min-height: 180px;
 }
 
-/* New Container for Body Content (Image + Details) */
 .vehicle-card-body-row {
   display: flex;
-  flex: 1;
   flex-direction: row;
+  padding: 0;
   overflow: hidden;
-  height: calc(100% - 40px);
-  /* Subtract header height */
 }
 
 .vehicle-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-  border-color: var(--primary);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 12px -3px rgba(0, 0, 0, 0.1);
+  border-color: var(--primary-light);
 }
 
 /* 1. Left - Image Area */
 .vehicle-card-image {
-  flex: 0 0 140px;
-  /* Fixed width */
-  height: 100%;
+  flex: 0 0 110px;
+  /* Reduced width */
+  height: 130px;
+  /* Fixed height for consistency */
   position: relative;
   background: #f8fafc;
+  border-right: 1px solid var(--border);
 }
 
 .vehicle-card-image img {
@@ -821,142 +827,120 @@ select {
 /* 2. Middle - Content Area */
 .vehicle-card-content {
   flex: 1;
-  /* Takes remaining space */
-  padding: 12px 16px;
+  padding: 8px 12px;
+  /* Reduced padding */
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  overflow: hidden;
-  border-right: 1px solid #f1f5f9;
-}
-
-.vehicle-card-title {
-  font-size: 15px;
-  font-weight: 700;
-  color: #1e293b;
-  margin-bottom: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .vehicle-card-details {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  display: grid;
+  grid-template-columns: 1fr;
+  /* Single column to prevent cropping */
+  gap: 4px;
   font-size: 12px;
   color: #64748b;
 }
 
-.vehicle-card-detail-row {
+.vehicle-card-details .vehicle-card-detail-row {
   display: flex;
+  align-items: center;
   gap: 6px;
+  width: 100%;
+}
+
+.vehicle-card-details .vehicle-card-detail-row span:last-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
 }
 
 .vehicle-card-price {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 800;
   color: #0f62fe;
-  /* Primary Blue */
-  margin-top: auto;
+  margin-top: 8px;
+  text-align: right;
 }
 
 .vehicle-card-status {
-  position: absolute;
-  top: 8px;
-  left: 8px;
   font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 2px 8px;
+  border-radius: 12px;
   font-weight: 600;
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(4px);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-  z-index: 2;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  /* Removed absolute positioning to fix overlap */
 }
 
 .vehicle-card-status.available {
-  color: #10b981;
+  background: var(--success-soft);
+  color: var(--success);
 }
 
 .vehicle-card-status.posted {
-  color: #3b82f6;
+  background: var(--primary-soft);
+  color: var(--primary);
 }
 
 .vehicle-card-status.sold {
-  color: #ef4444;
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
-/* 3. Right - Action Bar (Vertical Stack) */
-.vehicle-card-actions {
-  flex: 0 0 60px;
-  /* Narrow vertical strip */
-  display: flex;
-  flex-direction: column;
-  background: #f8fafc;
-  border-left: 1px solid #f1f5f9;
+/* Toggle Switch Styling - Ensure visibility */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
 }
 
-.vehicle-card-actions .btn {
-  flex: 1;
-  /* Distribute height equally */
-  border: none;
-  background: transparent;
-  border-radius: 0;
-  border-bottom: 1px solid #e2e8f0;
-  /* Icon centering */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  gap: 4px;
-  transition: all 0.2s;
-  color: #64748b;
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
 }
 
-.vehicle-card-actions .btn:last-child {
-  border-bottom: none;
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: #cbd5e1;
+  transition: .3s;
+  border-radius: 34px;
 }
 
-.vehicle-card-actions .btn:hover {
-  background: #fff;
-  color: var(--primary);
-  box-shadow: inset 3px 0 0 var(--primary);
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 16px;
+  width: 16px;
+  left: 2px;
+  bottom: 2px;
+  background-color: white;
+  transition: .3s;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 
-.vehicle-card-actions .btn.delete-vehicle-btn:hover {
-  color: #ef4444;
-  box-shadow: inset 3px 0 0 #ef4444;
+input:checked+.slider {
+  background-color: var(--primary);
 }
 
-.vehicle-card-actions .btn span:first-child {
-  font-size: 18px;
-  /* Larger Icon */
+input:checked+.slider:before {
+  transform: translateX(16px);
 }
 
-.vehicle-card-actions .btn span:last-child {
-  font-size: 9px;
-  /* Tiny Label */
-  font-weight: 600;
-  text-transform: uppercase;
-}
 
-color: var(--secondary);
-}
-
-.vehicle-card-actions {
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
-  display: flex;
-  gap: 8px;
-}
-
-.vehicle-card-actions .btn {
-  flex: 1;
-  padding: 10px;
-  font-size: 13px;
-}
 
 .pagination-controls {
   display: flex;
@@ -1138,6 +1122,13 @@ color: var(--secondary);
 }
 
 /* Premium Input Fields */
+.vehicle-listing-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
 .input-with-icon {
   position: relative;
   width: 100%;
@@ -1151,12 +1142,15 @@ color: var(--secondary);
   font-size: 16px;
   pointer-events: none;
   z-index: 10;
+  /* Removed incorrect width: 100% */
 }
 
 .input-with-icon .input-field {
+  width: 100%;
+  box-sizing: border-box;
   padding-left: 40px !important;
   /* Make space for icon */
-  height: 48px;
+  height: 40px;
   font-size: 14px;
   border: 1px solid var(--border);
   background: var(--bg-main);
@@ -1183,82 +1177,246 @@ color: var(--secondary);
   box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.05);
 }
 
-/* Adjust grid layout to handle wrappers */
-.vehicle-listing-controls {
+/* Specific Style for Status */
+.status-input-wrapper .input-field:focus {
+  border-color: var(--warning);
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.15);
+}
+
+
+/* Header Right Section (AI + Status) */
+.vehicle-header-right {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: 12px;
 }
 
-/* Global AI Prompt Styles - Override/Update */
-#globalAiPrompt {
-  /* Previously styled by ID, now handled by wrapper class mostly, but keeping border radius clean */
-  border-radius: var(--radius);
+/* Gallery Bulk Edit Controls */
+.gallery-controls {
+  padding: 10px 16px;
+  background: var(--bg-main);
+  position: sticky;
+  top: 57px;
+  /* Below header */
+  z-index: 10;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-/* AI Prompt Toggle Switch */
-.ai-prompt-wrapper {
-  margin-top: 8px;
+.gallery-controls .input-with-icon {
+  width: 100%;
+}
+
+.gallery-item {
+  position: relative;
+  width: calc(50% - 12px);
+  height: 120px;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--bg-sub);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
+  transition: all 0.2s ease;
+  cursor: pointer;
+  /* Click to select */
+}
+
+.gallery-item.selected {
+  border: 2px solid var(--primary);
+  box-shadow: 0 0 0 2px rgba(15, 98, 254, 0.2);
+}
+
+.gallery-checkbox {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 20px;
+  height: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 4px;
+  border: 1px solid #cbd5e1;
+  z-index: 5;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+  justify-content: center;
+  opacity: 0.8;
+  cursor: pointer;
 }
 
-.ai-prompt-label {
-  font-size: 12px;
+.gallery-item:hover .gallery-checkbox,
+.gallery-item.selected .gallery-checkbox {
+  opacity: 1;
+}
+
+.gallery-checkbox.checked {
+  background: var(--primary);
+  border-color: var(--primary);
+}
+
+.gallery-checkbox.checked::after {
+  content: '✓';
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* Floating Bottom Bar */
+.gallery-bottom-bar {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  right: 16px;
+  height: 50px;
+  background: #1e293b;
+  /* Dark theme for contrast */
+  color: white;
+  border-radius: 25px;
+  /* Pill shape */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px 0 20px;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.gallery-bottom-bar button {
+  height: 38px;
+  border-radius: 19px;
+  padding: 0 20px;
+  font-size: 14px;
+}
+
+#selectedCountText {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* AI Prompt in Header */
+.ai-prompt-wrapper-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  background: var(--bg-sub);
+  padding: 4px 8px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+}
+
+.ai-prompt-wrapper-header .ai-prompt-label {
+  font-size: 11px;
+  font-weight: 600;
   color: var(--text-sub);
 }
 
-.toggle-switch {
-  position: relative;
-  display: inline-block;
-  width: 34px;
-  height: 20px;
+.ai-prompt-wrapper-header .toggle-switch {
+  transform: scale(0.8);
+  /* Slightly smaller for header */
+  margin: 0;
 }
 
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
+
+/* Image Filters */
+.image-filters {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
 
-.slider {
-  position: absolute;
+.filter-btn {
+  padding: 6px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--bg-sub);
+  color: var(--text-sub);
+  font-size: 13px;
   cursor: pointer;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: #ccc;
-  -webkit-transition: .4s;
-  transition: .4s;
-  border-radius: 34px;
+  white-space: nowrap;
+  transition: all 0.2s;
 }
 
-.slider:before {
-  position: absolute;
-  content: "";
-  height: 14px;
-  width: 14px;
-  left: 3px;
-  bottom: 3px;
-  background-color: white;
-  -webkit-transition: .4s;
-  transition: .4s;
-  border-radius: 50%;
+.filter-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-main);
 }
 
-input:checked+.slider {
-  background-color: var(--primary);
+.filter-btn.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+  font-weight: 500;
 }
 
-input:focus+.slider {
-  box-shadow: 0 0 1px var(--primary);
+/* Actions at Bottom - Horizontal Row */
+.vehicle-card-actions {
+  display: flex;
+  flex-direction: row;
+  border-top: 1px solid var(--border);
+  border-left: none;
+  /* Reset from previous vertical layout */
+  background: var(--bg-card);
+  padding: 0;
+  flex: 0 0 auto;
+  /* Stop it from growing/shrinking weirdly */
 }
 
-input:checked+.slider:before {
-  -webkit-transform: translateX(14px);
-  -ms-transform: translateX(14px);
-  transform: translateX(14px);
+.vehicle-card-actions .btn {
+  flex: 1;
+  border: none;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  padding: 10px;
+  flex-direction: row;
+  /* Horizontal icon + text */
+  gap: 6px;
+  height: 44px;
+  /* Fixed height for touch targets */
+  color: var(--secondary);
+  font-weight: 600;
+}
+
+.vehicle-card-actions .btn:last-child {
+  border-right: none;
+}
+
+.vehicle-card-actions .btn:hover {
+  background: var(--bg-hover);
+  color: var(--primary);
+  box-shadow: none;
+  /* Reset default button shadow */
+}
+
+.vehicle-card-actions .btn.delete-vehicle-btn:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.vehicle-card-actions .btn span:first-child {
+  font-size: 16px;
+}
+
+.vehicle-card-actions .btn span:last-child {
+  font-size: 13px;
+  /* Normal readable size */
+  font-weight: 600;
+  text-transform: none;
+  /* Remove uppercase if previously set */
 }

@@ -41,13 +41,9 @@
       <div class="vehicle-listing-header">
         <button class="btn btn-secondary btn-small" id="backToMainBtn">
           <span>←</span>
-          <span>Back</span>
         </button>
-        <h2>Available Vehicles</h2>
-        <button class="btn btn-danger btn-small" id="deleteAllVehiclesBtn">
-          <span>🗑️</span>
-          <span>Delete All</span>
-        </button>
+        <h3>Available Vehicles</h3>
+
       </div>
 
       <div class="vehicle-listing-controls">
@@ -62,13 +58,16 @@
           <input type="text" id="vehicleSearch" class="input-field" placeholder="Search vehicles..." />
         </div>
 
-        <select id="vehicleStatusFilter" class="input-field">
-          <option value="">All Status</option>
-          <option value="available">Available</option>
-          <option value="posted">Posted</option>
-          <option value="sold_pending_removal">Sold (Pending Removal)</option>
-          <option value="sold">Sold</option>
-        </select>
+        <div class="input-with-icon status-input-wrapper">
+          <span class="input-icon">🏷️</span>
+          <select id="vehicleStatusFilter" class="input-field">
+            <option value="">All Status</option>
+            <option value="available">Available</option>
+            <option value="posted">Posted</option>
+            <option value="sold_pending_removal">Sold (Pending Removal)</option>
+            <option value="sold">Sold</option>
+          </select>
+        </div>
       </div>
 
       <div id="vehiclesContainer" class="vehicles-container">
@@ -87,17 +86,42 @@
       <div class="vehicle-listing-header">
         <button class="btn btn-secondary btn-small" id="backToListFromImagesBtn">
           <span>←</span>
-          <span>Back</span>
         </button>
-        <h2>Vehicle Images</h2>
+        <h3>Vehicle Images</h3>
       </div>
+
+      <!-- Bulk Edit Controls -->
+      <div class="gallery-controls">
+        <div class="gallery-controls-top">
+          <div class="input-with-icon ai-input-wrapper">
+            <span class="input-icon">✨</span>
+            <input type="text" id="bulkAiPrompt" width="100%" class="input-field"
+              placeholder="Select images and type AI prompt..." />
+          </div>
+        </div>
+        <div class="image-filters">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="original">Original</button>
+          <button class="filter-btn" data-filter="ai">AI Generated</button>
+        </div>
+      </div>
+
       <div id="imagesGallery" class="images-gallery">
         <div class="loading-state">Loading images...</div>
+      </div>
+
+      <!-- Floating Bottom Action Bar -->
+      <div id="galleryBottomBar" class="gallery-bottom-bar" style="display: none;">
+        <span id="selectedCountText">0 selected</span>
+        <button class="btn btn-primary" id="processBatchBtn">
+          <span>✨</span>
+          <span>Process Selected</span>
+        </button>
       </div>
     </div>
 
     <!-- Main Controls (Hidden until logged in) -->
-    <div id="mainControls" style="display: none;">
+    <div id="mainControls" class="main-controls">
 
       <!-- Account Status Header -->
       <div class="account-header">
@@ -107,126 +131,11 @@
 
       <!-- Connection Test -->
       <div class="config-section">
-        <button class="btn btn-primary" id="testConnectionBtn">
-          <span>🔌</span>
-          <span>Test Backend Connection</span>
-        </button>
-        <div id="connectionStatus"></div>
         <button class="btn btn-secondary" id="viewVehiclesBtn" style="width: 100%; margin-top: 12px;">
           <span>🚗</span>
           <span>View Vehicles</span>
         </button>
       </div>
-
-      <!-- Vehicle Category Selection Row -->
-      <div class="config-row">
-        <div class="config-item">
-          <label>Vehicle Category</label>
-          <select id="vehicleCategory">
-            <option value="car">🚗 Car</option>
-            <option value="truck">🚙 Truck</option>
-            <option value="suv">🚐 SUV</option>
-            <option value="van">🚚 Van</option>
-            <option value="motorcycle">🏍️ Motorcycle</option>
-            <option value="other">Other</option>
-          </select>
-        </div>
-        <div class="config-item">
-          <label>Emoji</label>
-          <select id="emojiStyle">
-            <option value="none">None</option>
-            <option value="sparkle">✨ Sparkle</option>
-            <option value="fire">🔥 Fire</option>
-            <option value="star">⭐ Star</option>
-          </select>
-        </div>
-        <div class="config-item">
-          <label>Distance</label>
-          <select id="distance">
-            <option value="20">20 Miles</option>
-            <option value="40">40 Miles</option>
-            <option value="60">60 Miles</option>
-            <option value="100">100 Miles</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Where to Post -->
-      <div class="config-section">
-        <label>Where to Post</label>
-        <select id="whereToPost" class="input-field">
-          <option value="marketplace">FB Marketplace</option>
-          <option value="marketplace_groups">Marketplace + Groups</option>
-          <option value="groups">Groups Only</option>
-        </select>
-      </div>
-
-      <!-- AI Instructions -->
-      <div class="config-section">
-        <label>Add A.I. Instructions</label>
-        <div class="checkbox-group">
-          <label>
-            <input type="checkbox" id="aiWrittenDesc" checked />
-            A.I. Written description
-          </label>
-          <label>
-            <input type="checkbox" id="addMileage" checked />
-            Add mileage
-          </label>
-          <label>
-            <input type="checkbox" id="addDealerInfo" />
-            Add dealership info
-          </label>
-        </div>
-        <textarea id="aiInstructions" rows="3" placeholder="Custom AI instructions..." class="input-field"></textarea>
-      </div>
-
-      <!-- Stock Number -->
-      <div class="config-section">
-        <label>
-          <input type="checkbox" id="addStockNumber" />
-          Add Stock Number
-        </label>
-        <input type="text" id="stockNumber" placeholder="Stock #" class="input-field"
-          style="display: none; margin-top: 8px;" />
-      </div>
-
-
-      <!-- Sales Consultant Name -->
-      <div class="config-section">
-        <label>Sales Consultant Name</label>
-        <input type="text" id="consultantName" placeholder="Shifty-Ai" class="input-field" />
-      </div>
-
-      <!-- Action Buttons -->
-      <div class="button-group">
-        <button class="btn btn-primary" id="loadVehiclesBtn">
-          <span>📦</span>
-          <span>Load Vehicles</span>
-        </button>
-        <button class="btn btn-secondary" id="postedVehiclesBtn">
-          <span>📋</span>
-          <span>Posted Vehicles</span>
-        </button>
-      </div>
-
-      <!-- Test Button -->
-      <div class="config-section">
-        <button class="btn btn-primary" id="testFillBtn" style="width: 100%;">
-          <span>🧪</span>
-          <span>Test Fill Facebook Form</span>
-        </button>
-        <p class="hint" style="margin-top: 8px; font-size: 12px; color: var(--text-sub);">
-          Fill Facebook Marketplace form with dummy data for testing
-        </p>
-      </div>
-
-      <!-- Queue Section -->
-      <div class="queue-section">
-        <h3>📝 Queue (<span id="queueCount">0</span>)</h3>
-        <div id="queueList" class="queue-list"></div>
-      </div>
-
       <!-- Activity Log -->
       <div class="log-section">
         <h3>📊 Activity</h3>

@@ -17,9 +17,13 @@ const auditLogSchema = mongoose.Schema(
         },
         entityType: {
             type: String, // 'Vehicle', 'User', 'Settings', etc.
+            required: true,
+            enum: ['Vehicle', 'User', 'Organization'],
         },
         entityId: {
             type: mongoose.Schema.Types.ObjectId,
+            required: true,
+            refPath: 'entityType',
         },
         details: {
             type: mongoose.Schema.Types.Mixed,

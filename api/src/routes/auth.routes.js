@@ -3,13 +3,15 @@ import jwt from 'jsonwebtoken';
 import { v4 as uuidv4 } from 'uuid';
 import User from '../models/User.js';
 import Organization from '../models/Organization.js';
+import AuditLog from '../models/AuditLog.js';
 import { protect, superAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // Generate Token
-const generateToken = (id) => {
-    return jwt.sign({ id }, process.env.JWT_SECRET, {
+// Generate Token
+const generateToken = (id, role, orgId) => {
+    return jwt.sign({ id, role, orgId }, process.env.JWT_SECRET, {
         expiresIn: '30d',
     });
 };
@@ -29,6 +31,18 @@ router.post('/login', async (req, res) => {
         const user = await User.findOne({ email }).populate('organization');
 
         if (user && (await user.matchPassword(password))) {
+            // Audit Log: User Login
+            await AuditLog.create({
+                action: 'User Login',
+                entityType: 'User',
+                entityId: user._id,
+                user: user._id,
+                organization: user.organization,
+                details: { method: 'email_password' },
+                ipAddress: req.ip,
+                userAgent: req.get('User-Agent'),
+            });
+
             res.json({
                 _id: user._id,
                 name: user.name,
@@ -36,7 +50,7 @@ router.post('/login', async (req, res) => {
                 role: user.role,
                 organization: user.organization,
                 needsPasswordChange: user.needsPasswordChange,
-                token: generateToken(user._id),
+                token: generateToken(user._id, user.role, user.organization?._id || user.organization),
             });
         } else {
             res.status(401);
@@ -113,6 +127,18 @@ router.post('/dashboard-api-login', async (req, res) => {
         user.lastLogin = new Date();
         await user.save();
 
+        // Audit Log: Dashboard API Login
+        await AuditLog.create({
+            action: 'User Login',
+            entityType: 'User',
+            entityId: user._id,
+            user: user._id,
+            organization: user.organization,
+            details: { method: 'api_key_dashboard' },
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+        });
+
         res.json({
             _id: user._id,
             name: user.name,
@@ -171,13 +197,26 @@ router.post('/agent-login', async (req, res) => {
         user.lastLogin = new Date();
         await user.save();
 
+        // Audit Log: Agent Login
+        await AuditLog.create({
+            action: 'User Login',
+            entityType: 'User',
+            entityId: user._id,
+            user: user._id,
+            organization: user.organization,
+            details: { method: 'agent_token' },
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+        });
+
         res.json({
             _id: user._id,
             name: user.name,
             email: user.email,
             role: user.role,
             organization: user.organization,
-            token: generateToken(user._id),
+            organization: user.organization,
+            token: generateToken(user._id, user.role, user.organization?._id || user.organization),
         });
     } catch (error) {
         res.status(res.statusCode || 500).json({
@@ -231,8 +270,9 @@ router.post('/setup', async (req, res) => {
             name: user.name,
             email: user.email,
             role: user.role,
+            role: user.role,
             organization: org,
-            token: generateToken(user._id),
+            token: generateToken(user._id, user.role, org._id),
         });
     } else {
         res.status(400);

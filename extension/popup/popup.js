@@ -4,7 +4,7 @@ const API_CONFIG = {
   endpoints: {
     agentLogin: '/auth/dashboard-api-login',
     validateKey: '/auth/validate-key',
-    logActivity: '/logs/activity',
+    logActivity: '/logs',
     editImage: '/images/edit',
     generateDescription: '/openai/generate-description',
     testData: '/test-data'
@@ -144,6 +144,99 @@ async function login() {
         token: data.token, // Store the JWT token
         organization: data.organization
       };
+// Helper to format relative time
+function timeAgo(date) {
+  const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+  let interval = seconds / 31536000;
+  if (interval > 1) return Math.floor(interval) + "y ago";
+  interval = seconds / 2592000;
+  if (interval > 1) return Math.floor(interval) + "m ago";
+  interval = seconds / 86400;
+  if (interval > 1) return Math.floor(interval) + "d ago";
+  interval = seconds / 3600;
+  if (interval > 1) return Math.floor(interval) + "h ago";
+  interval = seconds / 60;
+  if (interval > 1) return Math.floor(interval) + " min ago";
+  return "just now";
+}
+
+async function fetchActivityLogs() {
+  const activityLogContainer = document.getElementById('activityLog');
+  if (!activityLogContainer) return;
+
+  activityLogContainer.innerHTML = '<div class="loading-state">Loading activity...</div>';
+
+  try {
+    const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.logActivity}?limit=5`, {
+      headers: {
+        'Authorization': `Bearer ${currentUser.token}`
+      }
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const logs = data.logs || [];
+
+      if (logs.length === 0) {
+        activityLogContainer.innerHTML = '<div class="empty-state">No recent activity</div>';
+        return;
+      }
+
+      activityLogContainer.innerHTML = logs.map(log => `
+        <div class="log-item">
+          <div class="log-icon">${getLogIcon(log.action)}</div>
+          <div class="log-content">
+            <div class="log-header">
+              <span class="log-action">${log.action}</span>
+              <span class="log-time">${timeAgo(log.createdAt)}</span>
+            </div>
+            <div class="log-details">${getLogDetails(log)}</div>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      activityLogContainer.innerHTML = '<div class="error-message">Failed to load activity</div>';
+    }
+  } catch (error) {
+    console.error('Error fetching logs:', error);
+    activityLogContainer.innerHTML = '<div class="error-message">Network error</div>';
+  }
+}
+
+function getLogIcon(action) {
+  const lower = action.toLowerCase();
+  if (lower.includes('login')) return '🔐';
+  if (lower.includes('create')) return '🚗';
+  if (lower.includes('delete')) return '🗑️';
+  if (lower.includes('edit')) return '✨';
+  if (lower.includes('posted')) return '✅';
+  return '📝';
+}
+
+function getLogDetails(log) {
+    if (log.entityType === 'Vehicle' && log.entityId) {
+        // If populated
+        if (log.entityId.make) {
+            return `${log.entityId.year} ${log.entityId.make} ${log.entityId.model}`;
+        }
+        // If details has info
+        if (log.details && log.details.title) {
+            return log.details.title;
+        }
+    }
+    return log.details && log.details.method ? `Method: ${log.details.method}` : '';
+}
+
+function showMainControls() {
+  document.getElementById('loginSection').style.display = 'none';
+  document.getElementById('mainControls').style.display = 'block';
+  document.getElementById('vehicleListingView').style.display = 'none';
+  
+  if (currentUser) {
+    document.getElementById('statusText').textContent = `Logged in as ${currentUser.name}`;
+    fetchActivityLogs();
+  }
+}
       await safeChromeCall(() => chrome.storage.local.set({ userSession: currentUser }), 'Failed to save session');
       showMainControls();
       showNotification('Logged in successfully!', 'success');
@@ -397,10 +490,7 @@ function attachEventListeners() {
     backToMainBtn.addEventListener('click', showMainControls);
   }
 
-  const deleteAllVehiclesBtn = document.getElementById('deleteAllVehiclesBtn');
-  if (deleteAllVehiclesBtn) {
-    deleteAllVehiclesBtn.addEventListener('click', deleteAllVehicles);
-  }
+
 
   if (document.getElementById('backToListFromImagesBtn')) {
     document.getElementById('backToListFromImagesBtn').addEventListener('click', () => {
@@ -1963,17 +2053,31 @@ function createVehicleCard(vehicle) {
     : '';
 
   const statusClass = vehicle.status || 'available';
-  const statusLabel = {
+  let statusLabel = {
     'available': 'Available',
     'posted': 'Posted',
     'sold_pending_removal': 'Sold (Pending)',
     'sold': 'Sold'
   }[vehicle.status] || 'Available';
 
+  if (vehicle.status === 'posted' && vehicle.postingHistory && vehicle.postingHistory.length > 0) {
+    statusLabel += ` (${vehicle.postingHistory.length})`;
+  }
+
   card.innerHTML = `
     <div class="vehicle-card-header-row">
+    <div class="vehicle-header-right">
+         <div class="ai-prompt-wrapper-header">
+         <label class="toggle-switch">
+           <input type="checkbox" class="ai-prompt-toggle" data-vehicle-id="${vehicle._id}" checked>
+             <span class="slider"></span>
+         </label>
+            <span class="ai-prompt-label">Use AI</span>
+         </div>
+         <span class="vehicle-card-status ${statusClass}">${statusLabel}</span>
+       </div>
        <span class="vehicle-card-title-text">${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}</span>
-       <span class="vehicle-card-status ${statusClass}">${statusLabel}</span>
+       
     </div >
     <div class="vehicle-card-body-row">
       <div class="vehicle-card-image">
@@ -1987,33 +2091,26 @@ function createVehicleCard(vehicle) {
           ${vehicle.location ? `<div class="vehicle-card-detail-row"><span>Location:</span><span>${vehicle.location}</span></div>` : ''}
           ${vehicle.fuelType ? `<div class="vehicle-card-detail-row"><span>Fuel:</span><span>${vehicle.fuelType}</span></div>` : ''}
           ${vehicle.condition ? `<div class="vehicle-card-detail-row"><span>Condition:</span><span>${vehicle.condition}</span></div>` : ''}
-
-          <div class="ai-prompt-wrapper">
-            <span class="ai-prompt-label">Use AI Prompt</span>
-            <label class="toggle-switch">
-              <input type="checkbox" class="ai-prompt-toggle" data-vehicle-id="${vehicle._id}" checked>
-                <span class="slider"></span>
-            </label>
-          </div>
         </div>
         ${vehicle.price ? `<div class="vehicle-card-price">$${vehicle.price.toLocaleString()}</div>` : ''}
       </div>
-      <div class="vehicle-card-actions">
-        <button class="btn btn-primary post-vehicle-btn" data-vehicle-id="${vehicle._id}">
-          <span>📤</span>
-          <span>Post</span>
-        </button>
-        <button class="btn btn-secondary images-vehicle-btn" data-vehicle-id="${vehicle._id}">
-          <span>🖼️</span>
-          <span>Images</span>
-        </button>
-        <button class="btn btn-danger delete-vehicle-btn" data-vehicle-id="${vehicle._id}">
-          <span>🗑️</span>
-          <span>Delete</span>
-        </button>
-      </div>
+    </div>
+    <div class="vehicle-card-actions">
+      <button class="btn btn-primary post-vehicle-btn" data-vehicle-id="${vehicle._id}">
+        <span>📤</span>
+        <span>Post</span>
+      </button>
+      <button class="btn btn-secondary images-vehicle-btn" data-vehicle-id="${vehicle._id}">
+        <span>🖼️</span>
+        <span>Images</span>
+      </button>
+      <button class="btn btn-danger delete-vehicle-btn" data-vehicle-id="${vehicle._id}">
+        <span>🗑️</span>
+        <span>Delete</span>
+      </button>
     </div>
   `;
+
 
   return card;
 }
@@ -2040,15 +2137,17 @@ async function postVehicleById(vehicleId) {
     console.log('Fetching vehicle data from:', `${API_CONFIG.baseUrl} /vehicles/${vehicleId} `);
 
     // Check AI prompt toggle and get value
-    const toggle = document.querySelector(`.ai - prompt - toggle[data - vehicle - id="${vehicleId}"]`);
+    const toggle = document.querySelector(`.ai-prompt-toggle[data-vehicle-id="${vehicleId}"]`);
     const globalPrompt = document.getElementById('globalAiPrompt');
-    let fetchUrl = `${API_CONFIG.baseUrl} /vehicles/${vehicleId} `;
+    const params = new URLSearchParams();
+    params.append('purpose', 'posting');
 
     if (toggle && toggle.checked && globalPrompt && globalPrompt.value.trim()) {
-      const prompt = encodeURIComponent(globalPrompt.value.trim());
-      fetchUrl += `? ai_prompt = ${prompt} `;
+      params.append('ai_prompt', globalPrompt.value.trim());
       console.log('Adding AI prompt to request:', globalPrompt.value.trim());
     }
+
+    const fetchUrl = `${API_CONFIG.baseUrl}/vehicles/${vehicleId}?${params.toString()}`;
 
     // Fetch vehicle data by ID
     const response = await fetch(fetchUrl, {
@@ -2131,6 +2230,10 @@ async function postVehicleById(vehicleId) {
   }
 }
 
+
+let allVehicleImages = [];
+let activeFilter = 'all';
+
 async function showVehicleImages(vehicleId) {
   try {
     if (!currentUser || !currentUser.apiKey) {
@@ -2146,6 +2249,12 @@ async function showVehicleImages(vehicleId) {
 
     // Store current vehicle ID for image operations
     window.currentVehicleId = vehicleId;
+    
+    // Reset state
+    selectedImages.clear();
+    activeFilter = 'all';
+    updateFilterUI();
+    updateBatchUI();
 
     // Fetch vehicle data to get images
     const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${vehicleId}`, {
@@ -2159,23 +2268,103 @@ async function showVehicleImages(vehicleId) {
     if (!response.ok) throw new Error('Failed to load vehicle images');
 
     const result = await response.json();
-    if (!result.success || !result.data || !result.data.images) {
-      throw new Error('No images found for this vehicle');
+    const vehicle = result.data;
+    
+    if (!result.success || !vehicle) {
+      throw new Error('Vehicle data not found');
     }
 
-    displayImagesGallery(result.data.images);
+    // Combine images
+    allVehicleImages = [];
+    
+    if (vehicle.images && Array.isArray(vehicle.images)) {
+      vehicle.images.forEach(url => {
+        allVehicleImages.push({ url, type: 'original' });
+      });
+    }
+
+    if (vehicle.aiImages && Array.isArray(vehicle.aiImages)) {
+      vehicle.aiImages.forEach(url => {
+        allVehicleImages.push({ url, type: 'ai' });
+      });
+    }
+    
+    if (allVehicleImages.length === 0) {
+       gallery.innerHTML = '<div class="empty-state"><h3>No images found</h3></div>';
+       return;
+    }
+
+    // Setup Filter Listeners
+    setupFilterListeners();
+
+    // Display Default
+    filterAndDisplayGallery();
+
   } catch (error) {
     console.error('Error loading images:', error);
-    showNotification(error.message, 'error');
-    // Go back on error
-    document.getElementById('vehicleImagesView').style.display = 'none';
-    document.getElementById('vehicleListingView').style.display = 'flex';
+    document.getElementById('imagesGallery').innerHTML = 
+      `<div class="error-state">Failed to load images: ${error.message}</div>`;
   }
 }
+
+function setupFilterListeners() {
+  const buttons = document.querySelectorAll('.filter-btn');
+  buttons.forEach(btn => {
+    // Remove old listeners by cloning (simple trick) or checking attribute
+    const newBtn = btn.cloneNode(true);
+    btn.parentNode.replaceChild(newBtn, btn);
+    
+    newBtn.addEventListener('click', () => {
+      activeFilter = newBtn.dataset.filter;
+      updateFilterUI();
+      filterAndDisplayGallery();
+    });
+  });
+}
+
+function updateFilterUI() {
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    if (btn.dataset.filter === activeFilter) {
+      btn.classList.add('active');
+    } else {
+      btn.classList.remove('active');
+    }
+  });
+}
+
+function filterAndDisplayGallery() {
+  let imagesToShow = [];
+  
+  if (activeFilter === 'all') {
+    imagesToShow = allVehicleImages;
+  } else if (activeFilter === 'original') {
+    imagesToShow = allVehicleImages.filter(img => img.type === 'original');
+  } else if (activeFilter === 'ai') {
+    imagesToShow = allVehicleImages.filter(img => img.type === 'ai');
+  }
+  
+  // Map back to just URLs for display function
+  const urls = imagesToShow.map(img => img.url);
+  displayImagesGallery(urls);
+}
+
+
+
+
+let selectedImages = new Set();
 
 function displayImagesGallery(images) {
   const gallery = document.getElementById('imagesGallery');
   gallery.innerHTML = '';
+  selectedImages.clear(); // Reset selection on open
+  updateBatchUI();
+
+  // Add event listener for batch process button if not already added
+  const processBtn = document.getElementById('processBatchBtn');
+  if (processBtn && !processBtn.hasAttribute('data-listener')) {
+    processBtn.addEventListener('click', processBatchImages);
+    processBtn.setAttribute('data-listener', 'true');
+  }
 
   if (images.length === 0) {
     gallery.innerHTML = '<div class="empty-state"><h3>No images available</h3></div>';
@@ -2185,6 +2374,19 @@ function displayImagesGallery(images) {
   images.forEach((imageUrl, index) => {
     const item = document.createElement('div');
     item.className = 'gallery-item';
+    item.dataset.url = imageUrl;
+    
+    // Checkbox for bulk selection
+    const checkbox = document.createElement('div');
+    checkbox.className = 'gallery-checkbox';
+    
+    // Click on checkbox toggles selection
+    checkbox.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleImageSelection(imageUrl, item, checkbox);
+    });
+
+    // Inner HTML
     item.innerHTML = `
       <img src="${imageUrl}" alt="Vehicle Image ${index + 1}" onerror="this.src='icons/icon48.png'">
       <div class="image-upload-overlay">
@@ -2192,12 +2394,18 @@ function displayImagesGallery(images) {
           <button class="upload-single-btn" data-url="${imageUrl}" title="Upload to Facebook">
             <span>📤</span>
           </button>
-          <button class="remove-bg-btn-gallery" data-url="${imageUrl}" title="Remove Background (Nano Banana)">
-            <span>🍌</span>
-          </button>
         </div>
       </div>
     `;
+    
+    item.appendChild(checkbox);
+
+    // Click on item also toggles selection (if not clicking buttons)
+    item.addEventListener('click', (e) => {
+      if (!e.target.closest('button')) {
+        toggleImageSelection(imageUrl, item, checkbox);
+      }
+    });
 
     // Attach click listener for upload
     const uploadBtn = item.querySelector('.upload-single-btn');
@@ -2209,67 +2417,93 @@ function displayImagesGallery(images) {
       }
     });
 
-    // Attach click listener for remove bg
-    const removeBgBtn = item.querySelector('.remove-bg-btn-gallery');
-    removeBgBtn.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      const url = removeBgBtn.getAttribute('data-url');
-      if (url) {
-        await removeVehicleImageBackground(url, removeBgBtn);
-      }
-    });
-
     gallery.appendChild(item);
   });
 }
 
-async function removeVehicleImageBackground(imageUrl, button) {
+function toggleImageSelection(url, itemElement, checkboxElement) {
+  if (selectedImages.has(url)) {
+    selectedImages.delete(url);
+    itemElement.classList.remove('selected');
+    checkboxElement.classList.remove('checked');
+  } else {
+    selectedImages.add(url);
+    itemElement.classList.add('selected');
+    checkboxElement.classList.add('checked');
+  }
+  updateBatchUI();
+}
+
+function updateBatchUI() {
+  const bottomBar = document.getElementById('galleryBottomBar');
+  const countText = document.getElementById('selectedCountText');
+  const count = selectedImages.size;
+
+  if (count > 0) {
+    bottomBar.style.display = 'flex';
+    countText.textContent = `${count} selected`;
+  } else {
+    bottomBar.style.display = 'none';
+  }
+}
+
+async function processBatchImages() {
+  const promptInput = document.getElementById('bulkAiPrompt');
+  const prompt = promptInput.value.trim();
+  
+  if (!prompt) {
+    showNotification('Please enter an AI prompt first!', 'warning');
+    promptInput.focus();
+    return;
+  }
+  
+  if (selectedImages.size === 0) return;
+
   if (!window.currentVehicleId) {
     showNotification('Vehicle ID missing', 'error');
     return;
   }
 
+  const btn = document.getElementById('processBatchBtn');
+  const originalText = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span>⏳</span> Processing...';
+
   try {
-    // Ask for user instructions
-    const userPrompt = prompt('Enter AI editing instructions (e.g., "Remove background", "Make it a sunny day"):', 'Remove background');
-    if (!userPrompt) return; // User cancelled
+    const imagesArray = Array.from(selectedImages);
+    showNotification(`Processing ${imagesArray.length} images...`, 'info');
 
-    button.disabled = true;
-    const originalContent = button.innerHTML;
-    button.innerHTML = '<span>⏳</span>';
-
-    showNotification('Processing image with AI...', 'info');
-
-    const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${window.currentVehicleId}/remove-bg`, {
+    const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${window.currentVehicleId}/batch-edit-images`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': currentUser.apiKey
       },
       body: JSON.stringify({
-        imageUrl: imageUrl,
-        prompt: userPrompt
+        images: imagesArray,
+        prompt: prompt
       })
     });
 
     const result = await response.json();
 
     if (result.success) {
-      showNotification('Background removed successfully!', 'success');
-      // Refresh images
-      showVehicleImages(window.currentVehicleId);
+        showNotification(`✅ Processed ${result.processedCount} images!`, 'success');
+        // Clear selection and reload gallery
+        selectedImages.clear();
+        updateBatchUI();
+        promptInput.value = ''; // Clear prompt
+        await showVehicleImages(window.currentVehicleId);
     } else {
-      throw new Error(result.message || 'Failed to remove background');
+        throw new Error(result.message || 'Batch processing failed');
     }
 
   } catch (error) {
-    console.error('Background removal error:', error);
+    console.error('Batch process error:', error);
     showNotification('Error: ' + error.message, 'error');
-    button.innerHTML = '<span>❌</span>';
-    setTimeout(() => {
-      button.disabled = false;
-      button.innerHTML = '<span>🍌</span>';
-    }, 2000);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalText;
   }
 }
 
@@ -2368,51 +2602,7 @@ async function deleteVehicle(vehicleId) {
   }
 }
 
-async function deleteAllVehicles() {
-  if (!confirm('⚠️ WARNING: This will delete ALL your vehicles! This action cannot be undone. Are you absolutely sure?')) {
-    return;
-  }
 
-  // Double confirmation for safety
-  if (!confirm('This is your last chance. Delete ALL vehicles permanently?')) {
-    return;
-  }
-
-  try {
-    if (!currentUser || !currentUser.apiKey) {
-      showNotification('Please log in first', 'error');
-      return;
-    }
-
-    showNotification('Deleting all vehicles...', 'info');
-
-    const response = await fetch(`${API_CONFIG.baseUrl}/vehicles`, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': currentUser.apiKey
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to delete vehicles: ${response.statusText}`);
-    }
-
-    const result = await response.json();
-
-    if (result.success) {
-      showNotification(`✅ Deleted ${result.deletedCount} vehicles successfully!`, 'success');
-      // Reload the vehicles list (should be empty now)
-      await loadVehicles();
-    } else {
-      throw new Error(result.message || 'Failed to delete vehicles');
-    }
-
-  } catch (error) {
-    console.error('Delete all error:', error);
-    showNotification('Failed to delete vehicles: ' + error.message, 'error');
-  }
-}
 
 // Expose postVehicleById globally for onclick handlers
 if (typeof window !== 'undefined') {
