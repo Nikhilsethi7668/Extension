@@ -1,6 +1,7 @@
 import express from 'express';
 import Vehicle from '../models/Vehicle.js';
 import AuditLog from '../models/AuditLog.js';
+import User from '../models/User.js';
 import { protect, admin } from '../middleware/auth.js';
 import { generateVehicleContent, processImageWithGemini } from '../services/ai.service.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -23,8 +24,20 @@ router.get('/', protect, async (req, res) => {
     const skip = (pageNum - 1) * limitNum;
 
     // Agents only see vehicles assigned to them
+    // Agents only see vehicles assigned to them (or in 'assignedUsers' list)
     if (req.user.role === 'agent') {
-        query.assignedUser = req.user._id;
+        query.assignedUsers = { $in: [req.user._id] };
+    } else {
+        // Org Admins / Super Admins see ALL vehicles in the org
+        // Filter by specific agent if requested
+        if (req.query.assignedUser) {
+            if (req.query.assignedUser === 'unassigned') {
+                // Check if array is empty or non-existent
+                query.$or = [{ assignedUsers: { $size: 0 } }, { assignedUsers: { $exists: false } }];
+            } else {
+                query.assignedUsers = { $in: [req.query.assignedUser] };
+            }
+        }
     }
 
     // Filter by Status
@@ -74,7 +87,7 @@ router.get('/', protect, async (req, res) => {
     // Let's implement the query first.
 
     try {
-        let vehiclesQuery = Vehicle.find(query).sort('-createdAt');
+        let vehiclesQuery = Vehicle.find(query).populate('assignedUsers', 'name email').sort('-createdAt');
 
         // If NOT sorting by repost eligibility, apply skip/limit here.
         // If sorting/filtering by repost eligibility is required, we must fetch more or use aggregation.
@@ -162,19 +175,23 @@ router.get('/:id', protect, async (req, res, next) => {
 
         // Ensure user can access this vehicle (for agents, check if assigned)
         if (req.user.role === 'agent') {
-            // If vehicle has an assignedUser, it must match the current user
-            if (vehicle.assignedUser) {
-                const assignedUserId = vehicle.assignedUser._id ? vehicle.assignedUser._id.toString() : vehicle.assignedUser.toString();
-                if (assignedUserId !== req.user._id.toString()) {
-                    res.status(403);
-                    return next(new Error('Not authorized to access this vehicle - not assigned to you'));
-                }
+            // Strict Isolation: Agents can ONLY see vehicles explicitly assigned to them.
+            // If vehicle.assignedUser is null, access is DENIED.
+            if (!vehicle.assignedUser) {
+                res.status(403);
+                return next(new Error('Not authorized to access unassigned vehicle'));
             }
-            // If vehicle has no assignedUser, agents can still access it (unassigned vehicles)
+
+            const assignedUserId = vehicle.assignedUser._id ? vehicle.assignedUser._id.toString() : vehicle.assignedUser.toString();
+            if (assignedUserId !== req.user._id.toString()) {
+                res.status(403);
+                return next(new Error('Not authorized to access this vehicle - not assigned to you'));
+            }
         }
 
         // Transform vehicle data to match testData format for direct posting
         const formattedData = {
+            _id: vehicle._id,
             year: vehicle.year ? String(vehicle.year) : ' ',
             make: vehicle.make || ' ',
             model: vehicle.model || ' ',
@@ -201,34 +218,12 @@ router.get('/:id', protect, async (req, res, next) => {
                     vehicle.bodyStyle === 'Truck' ? 'Truck' :
                         vehicle.bodyStyle === 'Van' ? 'Van' :
                             vehicle.bodyStyle === 'Motorcycle' ? 'Motorcycle' : 'Car/van'
-            }
+            },
+            aiImages: vehicle.aiImages || [] // Include AI images in response
         };
 
-        if (req.query.purpose === 'posting') {
-            vehicle.status = 'posted';
-            vehicle.postingHistory.push({
-                platform: 'facebook_marketplace',
-                action: 'post',
-                agentName: req.user.name,
-            });
-            await vehicle.save();
-            formattedData.postingHistory = vehicle.postingHistory;
-
-            // Audit Log: Vehicle Posted (via Extension Get)
-            await AuditLog.create({
-                action: 'Vehicle Posted',
-                entityType: 'Vehicle',
-                entityId: vehicle._id,
-                user: req.user._id,
-                organization: req.user.organization._id,
-                details: { 
-                    method: 'extension_get_posting',
-                    platform: 'facebook_marketplace'
-                },
-                ipAddress: req.ip,
-                userAgent: req.get('User-Agent'),
-            });
-        }
+        // REMOVED: Auto-marking as posted on GET request. 
+        // Logic moved to client-side confirmation via POST /:id/posted endpoint.
 
         // Handle AI Enhancement if query parameter is present
         if (req.query.ai_prompt && process.env.GEMINI_API_KEY) {
@@ -785,11 +780,11 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
 
         if (newAiImages.length > 0) {
             // Option 1: Append to existing
-             vehicle.aiImages.push(...newAiImages);
-            
+            vehicle.aiImages.push(...newAiImages);
+
             // Option 2: Overwrite? No, "push the urls in it" implies simple addition.
             // But we should probably filter duplicates if needed.
-            
+
             await vehicle.save();
 
             // Audit Log: Batch AI Edit
@@ -799,7 +794,7 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
                 entityId: vehicle._id,
                 user: req.user._id,
                 organization: req.user.organization._id,
-                details: { 
+                details: {
                     prompt: prompt,
                     processedCount: newAiImages.length,
                     totalImages: vehicle.images.length
@@ -820,6 +815,155 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
     } catch (error) {
         console.error('Batch processing error:', error);
         res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// @desc    Delete a specific image from a vehicle
+// @route   DELETE /api/vehicles/:id/images
+// @access  Protected
+router.delete('/:id/images', protect, async (req, res) => {
+    try {
+        const { imageUrl } = req.body;
+        const vehicleId = req.params.id;
+
+        if (!imageUrl) {
+            res.status(400);
+            throw new Error('Image URL is required');
+        }
+
+        const vehicle = await Vehicle.findById(vehicleId);
+
+        if (!vehicle) {
+            res.status(404);
+            throw new Error('Vehicle not found');
+        }
+
+        // Authorization Check
+        const userOrgId = req.user.organization._id.toString();
+        const vehicleOrgId = vehicle.organization.toString();
+
+        if (userOrgId !== vehicleOrgId) {
+            res.status(403);
+            throw new Error('Not authorized to modify this vehicle');
+        }
+
+        // Agent Access Check (if applicable)
+        if (req.user.role === 'agent' && vehicle.assignedUser && vehicle.assignedUser.toString() !== req.user._id.toString()) {
+            res.status(403);
+            throw new Error('Not authorized to access this vehicle');
+        }
+
+        let deleted = false;
+
+        // Remove from images
+        const originalIndex = vehicle.images.indexOf(imageUrl);
+        if (originalIndex > -1) {
+            vehicle.images.splice(originalIndex, 1);
+            deleted = true;
+        }
+
+        // Remove from aiImages
+        // aiImages might be undefined if not populated yet
+        if (vehicle.aiImages && Array.isArray(vehicle.aiImages)) {
+            const aiIndex = vehicle.aiImages.indexOf(imageUrl);
+            if (aiIndex > -1) {
+                vehicle.aiImages.splice(aiIndex, 1);
+                deleted = true;
+            }
+        }
+
+        if (deleted) {
+            await vehicle.save();
+
+            // Audit Log
+            await AuditLog.create({
+                action: 'Delete Image',
+                entityType: 'Vehicle',
+                entityId: vehicle._id,
+                user: req.user._id,
+                organization: req.user.organization._id,
+                details: { imageUrl },
+                ipAddress: req.ip,
+                userAgent: req.get('User-Agent'),
+            });
+
+            res.json({ success: true, message: 'Image deleted successfully', vehicle });
+        } else {
+            res.status(404).json({ success: false, message: 'Image not found in vehicle records' });
+        }
+
+    } catch (error) {
+        console.error('Error deleting image:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+
+// @desc    Assign vehicles to an agent
+// @route   POST /api/vehicles/assign
+// @access  Protected (Org Admin only)
+router.post('/assign', protect, admin, async (req, res) => {
+    // Mode: 'replace' | 'merge' | 'remove'
+    const { vehicleIds, agentId, mode = 'replace' } = req.body;
+
+    if (!Array.isArray(vehicleIds) || vehicleIds.length === 0) {
+        return res.status(400).json({ message: 'No vehicles selected' });
+    }
+
+    try {
+        console.log('Assign vehicles request:', { vehicleIds, agentId, mode });
+
+        let updateOperation = {};
+
+        // Case 1: Unassign All (Explicit "Clear" action) - handled if agentId is null and mode is replace?
+        // Or if mode is 'remove' and agentId is null? Let's clarify.
+        // If agentId is provided:
+        if (agentId) {
+            // Validate Agent
+            const agent = await User.findById(agentId);
+            if (!agent || agent.organization.toString() !== req.user.organization._id.toString()) {
+                return res.status(400).json({ message: 'Invalid agent or agent not in your organization' });
+            }
+
+            if (mode === 'merge') {
+                updateOperation = { $addToSet: { assignedUsers: agentId } };
+            } else if (mode === 'remove') {
+                updateOperation = { $pull: { assignedUsers: agentId } };
+            } else {
+                // Default: replace (Overwrite)
+                updateOperation = { $set: { assignedUsers: [agentId] } };
+            }
+        } else {
+            // No Agent ID provided
+            if (mode === 'replace') {
+                // "Clear All" -> Back to Pool
+                updateOperation = { $set: { assignedUsers: [] } };
+            } else {
+                return res.status(400).json({ message: 'Agent ID required for merge/remove operations' });
+            }
+        }
+
+        // Validate Vehicles belong to same Org
+        const vehicles = await Vehicle.find({
+            _id: { $in: vehicleIds },
+            organization: req.user.organization._id
+        });
+
+        if (vehicles.length !== vehicleIds.length) {
+            return res.status(400).json({ message: 'One or more vehicles not found or access denied' });
+        }
+
+        // Perform Assignment
+        await Vehicle.updateMany(
+            { _id: { $in: vehicleIds } },
+            updateOperation
+        );
+
+        res.json({ message: `Successfully updated assignment for ${vehicles.length} vehicles.` });
+
+    } catch (error) {
+        console.error('Assignment Error:', error);
+        res.status(500).json({ message: 'Server Error' });
     }
 });
 

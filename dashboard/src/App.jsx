@@ -70,7 +70,6 @@ const getTheme = (mode) => createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: `
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
         body {
           scrollbar-width: thin;
           scrollbar-color: ${mode === 'dark' ? '#334155 transparent' : '#cbd5e1 transparent'};

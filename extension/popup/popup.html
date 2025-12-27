@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Shifty Auto Lister</title>
   <link rel="stylesheet" href="popup.css">
+  <link rel="stylesheet" href="loader-styles.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -150,6 +151,39 @@
     </div>
   </div>
 
+  <!-- Global Loader Overlay -->
+  <div id="globalLoaderOverlay">
+    <div class="loader-container">
+      <div class="loader-spinner"></div>
+      <div class="loader-title">Processing Images</div>
+      <div class="loader-message">Please wait while we generate your AI-enhanced images...</div>
+
+      <div class="loader-progress">
+        <div class="loader-progress-bar">
+          <div class="loader-progress-fill" style="width: 0%"></div>
+        </div>
+        <div class="loader-progress-text">0 of 0 complete</div>
+      </div>
+
+      <div class="loader-status-list" id="loaderStatusList">
+        <!-- Status items will be added here dynamically -->
+      </div>
+
+      <div class="loader-error-state" id="loaderErrorState" style="display: none;">
+        <div class="loader-error-title">
+          <span>⚠️</span>
+          <span>Error Processing Images</span>
+        </div>
+        <div class="loader-error-message" id="loaderErrorMessage"></div>
+        <div class="loader-actions">
+          <button class="loader-btn loader-btn-secondary" onclick="hideGlobalLoader()">Cancel</button>
+          <button class="loader-btn loader-btn-primary" onclick="retryBatchProcessing()">Retry</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="loader-functions.js"></script>
   <script src="popup.js"></script>
 </body>
 

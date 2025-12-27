@@ -35,7 +35,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 
-  // API: Fill form with test data from API endpoint
+  // Handle API call to fill form with test data from API endpoint
   if (request.action === 'api_fillFormWithTestDataFromAPI') {
     handleFillFormWithTestDataFromAPI(request.customData, request.tabId)
       .then(response => sendResponse(response))
@@ -43,8 +43,83 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; // Keep channel open for async response
   }
 
+  // Handle Smart Post Verification
+  if (request.action === 'postActionConfirmed') {
+    console.log('Received post verification for vehicle:', request.vehicleId);
+    markVehicleAsPosted(request.vehicleId, request.listingUrl)
+      .then(result => sendResponse(result))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true; // Keep channel open
+  }
+
   return true;
 });
+
+// Deduplication cache to prevent multiple logs
+const recentlyPosted = new Map();
+
+// Helper to mark vehicle as posted
+async function markVehicleAsPosted(vehicleId, listingUrl) {
+  // Check if we already processed this vehicle recently (last 10 seconds)
+  const now = Date.now();
+  if (recentlyPosted.has(vehicleId)) {
+    const lastTime = recentlyPosted.get(vehicleId);
+    if (now - lastTime < 10000) { // 10 seconds debounce
+      console.log('Duplicate post request ignored for:', vehicleId);
+      return { success: true, duplicated: true };
+    }
+  }
+
+  // Set timestamp
+  recentlyPosted.set(vehicleId, now);
+
+  // Clean up old entries
+  if (recentlyPosted.size > 100) {
+    for (const [key, time] of recentlyPosted) {
+      if (now - time > 60000) recentlyPosted.delete(key);
+    }
+  }
+
+  try {
+
+    const stored = await chrome.storage.local.get(['userSession']);
+    if (!stored.userSession) {
+      console.error('No session found for marking post');
+      return { success: false, error: 'No session' };
+    }
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (stored.userSession.apiKey) {
+      headers['x-api-key'] = stored.userSession.apiKey;
+    }
+
+    const response = await fetch(`${BACKEND_URL}/vehicles/${vehicleId}/posted`, {
+      method: 'POST',
+      headers: headers,
+      body: JSON.stringify({
+        platform: 'facebook_marketplace',
+        action: 'post',
+        listingUrl: listingUrl || ''
+      })
+    });
+
+    if (!response.ok) throw new Error('Failed to update status');
+
+    // Show success notification
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: 'icons/icon128.png',
+      title: 'Vehicle Posted!',
+      message: 'Vehicle status updated to "Posted" in dashboard.',
+      priority: 2
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('Error marking as posted:', error);
+    return { success: false, error: error.message };
+  }
+}
 
 // Handle API call to fill form with test data
 async function handleFillFormWithTestData(testData, tabId = null) {

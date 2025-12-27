@@ -23,6 +23,28 @@ router.get('/', protect, superAdmin, async (req, res) => {
     }
 });
 
+// @desc    Get current user's organization details
+// @route   GET /api/organizations/my-org
+// @access  Org Admin / Agent
+router.get('/my-org', protect, async (req, res) => {
+    try {
+        const org = await Organization.findById(req.user.organization);
+        if (!org) {
+            res.status(404);
+            throw new Error('Organization not found');
+        }
+
+        const agentCount = await User.countDocuments({ organization: org._id, role: 'agent' });
+
+        res.json({
+            ...org.toObject(),
+            agentCount
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
 // @desc    Create a new organization
 // @route   POST /api/organizations
 // @access  Super Admin

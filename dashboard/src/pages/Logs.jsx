@@ -3,10 +3,10 @@ import {
     Box, Paper, Typography, Table, TableBody, TableCell,
     TableContainer, TableHead, TableRow, Chip, IconButton,
     Pagination, CircularProgress, InputAdornment, TextField,
-    Autocomplete
+    Autocomplete, Button
 } from '@mui/material';
 import {
-    Search, Activity, Calendar
+    Search, Activity, Calendar, Trash2
 } from 'lucide-react';
 import Layout from '../components/Layout';
 import apiClient from '../config/axios';
@@ -61,6 +61,7 @@ const Logs = () => {
     // Fetch logs
     useEffect(() => {
         const fetchLogs = async () => {
+            console.log('Logs.jsx: fetchLogs started', { page, debouncedSearch, selectedUser, startDate, endDate });
             setLoading(true);
             try {
                 const params = {
@@ -84,19 +85,37 @@ const Logs = () => {
                     params.endDate = endDate;
                 }
 
+                console.log('Logs.jsx: Calling API...', params);
                 const { data } = await apiClient.get('/logs', { params });
+                console.log('Logs.jsx: API Response received', data);
                 setLogs(data.logs || []);
                 setTotalPages(data.pages || 1);
             } catch (err) {
                 console.error('Error fetching logs:', err);
                 setLogs([]);
             } finally {
+                console.log('Logs.jsx: Finally block - setting loading false');
                 setLoading(false);
             }
         };
 
         fetchLogs();
     }, [page, debouncedSearch, selectedUser, startDate, endDate]);
+
+    const handleClearLogs = async () => {
+        try {
+            setLoading(true);
+            const { data } = await apiClient.delete('/logs');
+            alert(data.message);
+            setLogs([]);
+            setPage(1);
+        } catch (error) {
+            console.error('Error clearing logs:', error);
+            alert('Failed to clear logs: ' + (error.response?.data?.message || error.message));
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleChangePage = (event, value) => {
         setPage(value);
@@ -129,42 +148,41 @@ const Logs = () => {
 
     const renderEntity = (log) => {
         const { entityType, entityId } = log;
-        
+
         if (!entityId) {
-             return <Typography variant="caption" color="text.secondary">Deleted/Unknown</Typography>;
+            return <Typography variant="caption" color="text.secondary">Deleted/Unknown</Typography>;
         }
 
         if (entityType === 'Vehicle') {
-             return (
-                 <Box>
+            return (
+                <Box>
                     <Typography variant="body2" fontWeight={500}>
                         {entityId.year} {entityId.make} {entityId.model}
                     </Typography>
-                     {entityId.trim && (
+                    {entityId.trim && (
                         <Typography variant="caption" color="text.secondary">
                             {entityId.trim}
                         </Typography>
                     )}
-                 </Box>
-             );
+                </Box>
+            );
         }
 
         if (entityType === 'User') {
-             return (
+            return (
                 <Box>
                     <Typography variant="body2">{entityId.name}</Typography>
                     <Typography variant="caption" color="text.secondary">{entityId.email}</Typography>
                 </Box>
-             );
+            );
         }
 
         if (entityType === 'Organization') {
-             return <Typography variant="body2">{entityId.name}</Typography>;
+            return <Typography variant="body2">{entityId.name}</Typography>;
         }
 
-        // Fallback
         return (
-             <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
                 {entityId.name || entityId.title || entityId._id?.toString().substring(0, 8) || '...'}
             </Typography>
         );
@@ -186,7 +204,6 @@ const Logs = () => {
                 </Box>
 
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                    {/* Date Range Filters */}
                     <TextField
                         type="date"
                         label="Start Date"
@@ -227,7 +244,6 @@ const Logs = () => {
                         }}
                     />
 
-                    {/* User Filter - Only for non-agents */}
                     {user && user.role !== 'agent' && (
                         <Autocomplete
                             options={users}
@@ -259,21 +275,6 @@ const Logs = () => {
                         />
                     )}
 
-                    {/* Smart Search - Only for non-agents */}
-                    {/* {user && user.role !== 'agent' && (
-                        <TextField
-                            placeholder="Search by user or vehicle..."
-                            size="small"
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            sx={{ minWidth: 240 }}
-                            InputProps={{
-                                startAdornment: <InputAdornment position="start"><Search size={16} /></InputAdornment>
-                            }}
-                        />
-                    )} */}
-
-                    {/* Clear Filters Button */}
                     {hasActiveFilters && (
                         <Chip
                             label="Clear Filters"
@@ -282,6 +283,21 @@ const Logs = () => {
                             variant="outlined"
                             sx={{ height: 40 }}
                         />
+                    )}
+
+                    {logs.length > 0 && user && ['super_admin', 'org_admin'].includes(user.role) && (
+                        <Button
+                            variant="outlined"
+                            color="error"
+                            startIcon={<Trash2 size={16} />}
+                            onClick={() => {
+                                if (window.confirm('Are you sure you want to clear ALL logs? This action cannot be undone.')) {
+                                    handleClearLogs();
+                                }
+                            }}
+                        >
+                            Clear Logs
+                        </Button>
                     )}
                 </Box>
             </Paper>
@@ -342,10 +358,10 @@ const Logs = () => {
                                         </TableCell>
                                         <TableCell>
                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                <Chip 
-                                                    label={log.entityType} 
-                                                    size="small" 
-                                                    sx={{ fontSize: '0.7rem', height: 20 }} 
+                                                <Chip
+                                                    label={log.entityType}
+                                                    size="small"
+                                                    sx={{ fontSize: '0.7rem', height: 20 }}
                                                 />
                                                 <Box>
                                                     {renderEntity(log)}
@@ -353,9 +369,9 @@ const Logs = () => {
                                             </Box>
                                         </TableCell>
                                         <TableCell>
-                                           <Typography variant="caption" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', color: 'text.secondary', display: 'block', maxWidth: 300 }}>
-                                               {log.details ? JSON.stringify(log.details) : '-'}
-                                           </Typography>
+                                            <Typography variant="caption" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', color: 'text.secondary', display: 'block', maxWidth: 300 }}>
+                                                {log.details ? JSON.stringify(log.details) : '-'}
+                                            </Typography>
                                         </TableCell>
                                     </TableRow>
                                 ))

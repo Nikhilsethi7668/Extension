@@ -10,6 +10,7 @@ const router = express.Router();
 // @access  Protected
 router.get('/', protect, async (req, res) => {
     try {
+        console.log('GET /api/logs hit');
         const { userId, search, startDate, endDate, page = 1, limit = 50 } = req.query;
 
         const pageNum = Number(page) || 1;
@@ -21,7 +22,7 @@ router.get('/', protect, async (req, res) => {
 
         // Filter by organization for non-superadmins
         if (req.user.role !== 'super_admin') {
-             query.organization = req.user.organization._id || req.user.organization;
+            query.organization = req.user.organization._id || req.user.organization;
         }
 
         // If user is an agent, only show their logs
@@ -50,7 +51,7 @@ router.get('/', protect, async (req, res) => {
 
         // Search (Basic implementation)
         if (search) {
-             query.$or = [
+            query.$or = [
                 { action: { $regex: search, $options: 'i' } },
                 { 'details.method': { $regex: search, $options: 'i' } },
                 { ipAddress: { $regex: search, $options: 'i' } }
@@ -77,6 +78,33 @@ router.get('/', protect, async (req, res) => {
 
     } catch (error) {
         console.error('Error fetching logs:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// @desc    Clear audit logs
+// @route   DELETE /api/logs
+// @access  Super Admin / Org Admin
+router.delete('/', protect, async (req, res) => {
+    try {
+        const query = {};
+
+        // Security: Only Admins can clear logs
+        if (!['super_admin', 'org_admin'].includes(req.user.role)) {
+            res.status(403);
+            throw new Error('Not authorized to clear logs');
+        }
+
+        // Filter by organization for non-superadmins
+        if (req.user.role !== 'super_admin') {
+            query.organization = req.user.organization._id || req.user.organization;
+        }
+
+        const result = await AuditLog.deleteMany(query);
+
+        res.json({ message: `Successfully cleared ${result.deletedCount} logs.`, deletedCount: result.deletedCount });
+
+    } catch (error) {
         res.status(500).json({ message: error.message });
     }
 });

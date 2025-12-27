@@ -419,13 +419,63 @@
       */
 
       // Notify user of progress
-      sendProgressUpdate('Auto-fill in progress...');
+      sendProgressUpdate('Auto-fill complete! Please verify details.');
+
+      // Start monitoring for the "Publish" button click
+      monitorPublishButton(postData);
 
     } catch (error) {
       console.error('Auto-fill error:', error);
     } finally {
       isFilling = false;
     }
+  }
+
+  // Monitor for Publish/Next button clicks
+  // Monitor for Publish/Next button clicks
+  let isMonitorAttached = false; // Flag to prevent multiple listeners
+
+  function monitorPublishButton(vehicleData) {
+    if (isMonitorAttached) {
+      console.log('Publish monitor already attached, skipping...');
+      return;
+    }
+
+    console.log('Starting publish button monitor...');
+    isMonitorAttached = true;
+
+    // Named function so we can remove it
+    const clickListener = function (e) {
+      const target = e.target;
+
+      // Look for buttons with specific text
+      const button = target.closest('[role="button"], button');
+
+      if (button) {
+        const text = (button.innerText || button.textContent || '').toLowerCase().trim();
+        // console.log('Button clicked:', text); // Reduce spam
+
+        // Check if this is likely the final publish action
+        if (text === 'publish' || text === 'post') {
+          console.log('Publish action detected!');
+
+          // Remove listener immediately to prevent duplicates
+          document.removeEventListener('click', clickListener, true);
+          isMonitorAttached = false;
+
+          // Send confirmation to background
+          safeChromeRuntimeSendMessage({
+            action: 'postActionConfirmed',
+            vehicleId: vehicleData._id,
+            platform: 'facebook_marketplace',
+            listingUrl: window.location.href // Initial URL, might change later
+          });
+        }
+      }
+    };
+
+    // Use capture phase to catch it before propagation stops
+    document.addEventListener('click', clickListener, true);
   }
 
   // ============ Field Filling Functions ============

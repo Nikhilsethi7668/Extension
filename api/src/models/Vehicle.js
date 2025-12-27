@@ -7,13 +7,14 @@ const vehicleSchema = mongoose.Schema(
             ref: 'Organization',
             required: true,
         },
-        assignedUser: {
+        assignedUsers: [{
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User',
-        },
+        }],
+        /* Deprecated: assignedUser */
         vin: {
             type: String,
-            unique: true,
+            // unique: true, // REMOVED: Replaced by compound index below
             sparse: true,
         },
         year: Number,
@@ -58,6 +59,18 @@ const vehicleSchema = mongoose.Schema(
     }
 );
 
+// Compound Index: Unique VIN per Organization
+vehicleSchema.index({ organization: 1, vin: 1 }, { unique: true, sparse: true });
+
 const Vehicle = mongoose.model('Vehicle', vehicleSchema);
+
+// Sync indexes to ensure old unique index is removed and new one is added
+// Note: This operation can be resource intensive on large datasets but is necessary for this migration.
+// Usage: Check if run in a production environment before auto-syncing if data is massive.
+Vehicle.syncIndexes().then(() => {
+    console.log('Vehicle Indexes Synced');
+}).catch(err => {
+    console.error('Vehicle Index Sync Error:', err);
+});
 
 export default Vehicle;

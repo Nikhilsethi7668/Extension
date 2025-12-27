@@ -144,45 +144,45 @@ async function login() {
         token: data.token, // Store the JWT token
         organization: data.organization
       };
-// Helper to format relative time
-function timeAgo(date) {
-  const seconds = Math.floor((new Date() - new Date(date)) / 1000);
-  let interval = seconds / 31536000;
-  if (interval > 1) return Math.floor(interval) + "y ago";
-  interval = seconds / 2592000;
-  if (interval > 1) return Math.floor(interval) + "m ago";
-  interval = seconds / 86400;
-  if (interval > 1) return Math.floor(interval) + "d ago";
-  interval = seconds / 3600;
-  if (interval > 1) return Math.floor(interval) + "h ago";
-  interval = seconds / 60;
-  if (interval > 1) return Math.floor(interval) + " min ago";
-  return "just now";
-}
-
-async function fetchActivityLogs() {
-  const activityLogContainer = document.getElementById('activityLog');
-  if (!activityLogContainer) return;
-
-  activityLogContainer.innerHTML = '<div class="loading-state">Loading activity...</div>';
-
-  try {
-    const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.logActivity}?limit=5`, {
-      headers: {
-        'Authorization': `Bearer ${currentUser.token}`
-      }
-    });
-
-    if (response.ok) {
-      const data = await response.json();
-      const logs = data.logs || [];
-
-      if (logs.length === 0) {
-        activityLogContainer.innerHTML = '<div class="empty-state">No recent activity</div>';
-        return;
+      // Helper to format relative time
+      function timeAgo(date) {
+        const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+        let interval = seconds / 31536000;
+        if (interval > 1) return Math.floor(interval) + "y ago";
+        interval = seconds / 2592000;
+        if (interval > 1) return Math.floor(interval) + "m ago";
+        interval = seconds / 86400;
+        if (interval > 1) return Math.floor(interval) + "d ago";
+        interval = seconds / 3600;
+        if (interval > 1) return Math.floor(interval) + "h ago";
+        interval = seconds / 60;
+        if (interval > 1) return Math.floor(interval) + " min ago";
+        return "just now";
       }
 
-      activityLogContainer.innerHTML = logs.map(log => `
+      async function fetchActivityLogs() {
+        const activityLogContainer = document.getElementById('activityLog');
+        if (!activityLogContainer) return;
+
+        activityLogContainer.innerHTML = '<div class="loading-state">Loading activity...</div>';
+
+        try {
+          const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.logActivity}?limit=5`, {
+            headers: {
+              'Authorization': `Bearer ${currentUser.token}`
+            }
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            const logs = data.logs || [];
+
+            if (logs.length === 0) {
+              activityLogContainer.innerHTML = '<div class="empty-state">No recent activity</div>';
+              return;
+            }
+
+            activityLogContainer.innerHTML = logs.map(log => `
         <div class="log-item">
           <div class="log-icon">${getLogIcon(log.action)}</div>
           <div class="log-content">
@@ -194,49 +194,49 @@ async function fetchActivityLogs() {
           </div>
         </div>
       `).join('');
-    } else {
-      activityLogContainer.innerHTML = '<div class="error-message">Failed to load activity</div>';
-    }
-  } catch (error) {
-    console.error('Error fetching logs:', error);
-    activityLogContainer.innerHTML = '<div class="error-message">Network error</div>';
-  }
-}
+          } else {
+            activityLogContainer.innerHTML = '<div class="error-message">Failed to load activity</div>';
+          }
+        } catch (error) {
+          console.error('Error fetching logs:', error);
+          activityLogContainer.innerHTML = '<div class="error-message">Network error</div>';
+        }
+      }
 
-function getLogIcon(action) {
-  const lower = action.toLowerCase();
-  if (lower.includes('login')) return '🔐';
-  if (lower.includes('create')) return '🚗';
-  if (lower.includes('delete')) return '🗑️';
-  if (lower.includes('edit')) return '✨';
-  if (lower.includes('posted')) return '✅';
-  return '📝';
-}
+      function getLogIcon(action) {
+        const lower = action.toLowerCase();
+        if (lower.includes('login')) return '🔐';
+        if (lower.includes('create')) return '🚗';
+        if (lower.includes('delete')) return '🗑️';
+        if (lower.includes('edit')) return '✨';
+        if (lower.includes('posted')) return '✅';
+        return '📝';
+      }
 
-function getLogDetails(log) {
-    if (log.entityType === 'Vehicle' && log.entityId) {
-        // If populated
-        if (log.entityId.make) {
+      function getLogDetails(log) {
+        if (log.entityType === 'Vehicle' && log.entityId) {
+          // If populated
+          if (log.entityId.make) {
             return `${log.entityId.year} ${log.entityId.make} ${log.entityId.model}`;
-        }
-        // If details has info
-        if (log.details && log.details.title) {
+          }
+          // If details has info
+          if (log.details && log.details.title) {
             return log.details.title;
+          }
         }
-    }
-    return log.details && log.details.method ? `Method: ${log.details.method}` : '';
-}
+        return log.details && log.details.method ? `Method: ${log.details.method}` : '';
+      }
 
-function showMainControls() {
-  document.getElementById('loginSection').style.display = 'none';
-  document.getElementById('mainControls').style.display = 'block';
-  document.getElementById('vehicleListingView').style.display = 'none';
-  
-  if (currentUser) {
-    document.getElementById('statusText').textContent = `Logged in as ${currentUser.name}`;
-    fetchActivityLogs();
-  }
-}
+      function showMainControls() {
+        document.getElementById('loginSection').style.display = 'none';
+        document.getElementById('mainControls').style.display = 'block';
+        document.getElementById('vehicleListingView').style.display = 'none';
+
+        if (currentUser) {
+          document.getElementById('statusText').textContent = `Logged in as ${currentUser.name}`;
+          fetchActivityLogs();
+        }
+      }
       await safeChromeCall(() => chrome.storage.local.set({ userSession: currentUser }), 'Failed to save session');
       showMainControls();
       showNotification('Logged in successfully!', 'success');
@@ -2181,21 +2181,10 @@ async function postVehicleById(vehicleId) {
     console.log('Calling postToFacebook with vehicle data');
     await postToFacebook(vehicleData);
 
-    // Record posting action (don't wait for it)
-    fetch(`${API_CONFIG.baseUrl} /vehicles/${vehicleId}/posted`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': currentUser.apiKey
-      },
-      body: JSON.stringify({
-        platform: 'facebook_marketplace',
-        action: 'post',
-        listingUrl: '' // Will be updated when posting completes
-      })
-    }).catch(error => {
-      console.warn('Failed to record posting action:', error);
-    });
+    // NOTE: We do NOT call /posted here anymore. 
+    // The content script (facebook-autofill.js) detects the "Publish" button click
+    // and sends a message to background/service-worker.js to update the status.
+    showNotification('Form filled! Click "Publish" on Facebook to complete.', 'info');
 
     // Re-enable button after a delay
     if (postButton) {
@@ -2249,19 +2238,22 @@ async function showVehicleImages(vehicleId) {
 
     // Store current vehicle ID for image operations
     window.currentVehicleId = vehicleId;
-    
+
     // Reset state
     selectedImages.clear();
     activeFilter = 'all';
     updateFilterUI();
     updateBatchUI();
 
-    // Fetch vehicle data to get images
-    const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${vehicleId}`, {
+    // Fetch vehicle data to get images (force fresh fetch)
+    const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${vehicleId}?t=${Date.now()}`, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': currentUser.apiKey
+        'x-api-key': currentUser.apiKey,
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
       }
     });
 
@@ -2269,14 +2261,14 @@ async function showVehicleImages(vehicleId) {
 
     const result = await response.json();
     const vehicle = result.data;
-    
+
     if (!result.success || !vehicle) {
       throw new Error('Vehicle data not found');
     }
 
     // Combine images
     allVehicleImages = [];
-    
+
     if (vehicle.images && Array.isArray(vehicle.images)) {
       vehicle.images.forEach(url => {
         allVehicleImages.push({ url, type: 'original' });
@@ -2288,10 +2280,10 @@ async function showVehicleImages(vehicleId) {
         allVehicleImages.push({ url, type: 'ai' });
       });
     }
-    
+
     if (allVehicleImages.length === 0) {
-       gallery.innerHTML = '<div class="empty-state"><h3>No images found</h3></div>';
-       return;
+      gallery.innerHTML = '<div class="empty-state"><h3>No images found</h3></div>';
+      return;
     }
 
     // Setup Filter Listeners
@@ -2302,7 +2294,7 @@ async function showVehicleImages(vehicleId) {
 
   } catch (error) {
     console.error('Error loading images:', error);
-    document.getElementById('imagesGallery').innerHTML = 
+    document.getElementById('imagesGallery').innerHTML =
       `<div class="error-state">Failed to load images: ${error.message}</div>`;
   }
 }
@@ -2313,7 +2305,7 @@ function setupFilterListeners() {
     // Remove old listeners by cloning (simple trick) or checking attribute
     const newBtn = btn.cloneNode(true);
     btn.parentNode.replaceChild(newBtn, btn);
-    
+
     newBtn.addEventListener('click', () => {
       activeFilter = newBtn.dataset.filter;
       updateFilterUI();
@@ -2334,7 +2326,7 @@ function updateFilterUI() {
 
 function filterAndDisplayGallery() {
   let imagesToShow = [];
-  
+
   if (activeFilter === 'all') {
     imagesToShow = allVehicleImages;
   } else if (activeFilter === 'original') {
@@ -2342,7 +2334,7 @@ function filterAndDisplayGallery() {
   } else if (activeFilter === 'ai') {
     imagesToShow = allVehicleImages.filter(img => img.type === 'ai');
   }
-  
+
   // Map back to just URLs for display function
   const urls = imagesToShow.map(img => img.url);
   displayImagesGallery(urls);
@@ -2375,11 +2367,11 @@ function displayImagesGallery(images) {
     const item = document.createElement('div');
     item.className = 'gallery-item';
     item.dataset.url = imageUrl;
-    
+
     // Checkbox for bulk selection
     const checkbox = document.createElement('div');
     checkbox.className = 'gallery-checkbox';
-    
+
     // Click on checkbox toggles selection
     checkbox.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -2397,7 +2389,7 @@ function displayImagesGallery(images) {
         </div>
       </div>
     `;
-    
+
     item.appendChild(checkbox);
 
     // Click on item also toggles selection (if not clicking buttons)
@@ -2450,13 +2442,13 @@ function updateBatchUI() {
 async function processBatchImages() {
   const promptInput = document.getElementById('bulkAiPrompt');
   const prompt = promptInput.value.trim();
-  
+
   if (!prompt) {
     showNotification('Please enter an AI prompt first!', 'warning');
     promptInput.focus();
     return;
   }
-  
+
   if (selectedImages.size === 0) return;
 
   if (!window.currentVehicleId) {
@@ -2464,14 +2456,21 @@ async function processBatchImages() {
     return;
   }
 
-  const btn = document.getElementById('processBatchBtn');
-  const originalText = btn.innerHTML;
-  btn.disabled = true;
-  btn.innerHTML = '<span>⏳</span> Processing...';
+  const imagesArray = Array.from(selectedImages);
+
+  // Show global loader with progress tracking
+  showGlobalLoader('Processing Images', `Processing ${imagesArray.length} images with AI...`);
+  updateLoaderProgress(0, imagesArray.length);
 
   try {
-    const imagesArray = Array.from(selectedImages);
     showNotification(`Processing ${imagesArray.length} images...`, 'info');
+
+    // Track each image's processing status
+    const imageStatuses = {};
+    imagesArray.forEach((url, index) => {
+      imageStatuses[url] = 'pending';
+      addLoaderStatus(url, `Image ${index + 1}`, 'pending');
+    });
 
     const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${window.currentVehicleId}/batch-edit-images`, {
       method: 'POST',
@@ -2485,25 +2484,48 @@ async function processBatchImages() {
       })
     });
 
+    if (!response.ok) {
+      throw new Error(`Server error: ${response.statusText}`);
+    }
+
     const result = await response.json();
 
     if (result.success) {
-        showNotification(`✅ Processed ${result.processedCount} images!`, 'success');
-        // Clear selection and reload gallery
-        selectedImages.clear();
-        updateBatchUI();
-        promptInput.value = ''; // Clear prompt
-        await showVehicleImages(window.currentVehicleId);
+      // Update progress to 100%
+      updateLoaderProgress(imagesArray.length, imagesArray.length);
+
+      // Update all statuses to success
+      imagesArray.forEach((url, index) => {
+        updateLoaderStatus(url, 'success', `Image ${index + 1} processed successfully`);
+      });
+
+      // Wait a moment to show completion
+      await sleep(1000);
+
+      // Hide loader
+      hideGlobalLoader();
+
+      showNotification(`✅ Successfully processed ${result.processedCount} images!`, 'success');
+
+      // Clear selection
+      selectedImages.clear();
+      updateBatchUI();
+      promptInput.value = '';
+
+      // Reload gallery to show new AI images
+      await showVehicleImages(window.currentVehicleId);
+
     } else {
-        throw new Error(result.message || 'Batch processing failed');
+      throw new Error(result.message || 'Batch processing failed');
     }
 
   } catch (error) {
-    console.error('Batch process error:', error);
-    showNotification('Error: ' + error.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = originalText;
+    console.error('Batch processing error:', error);
+
+    // Show error state in loader
+    showLoaderError(error.message || 'An unexpected error occurred');
+
+    showNotification('Batch processing failed: ' + error.message, 'error');
   }
 }
 
