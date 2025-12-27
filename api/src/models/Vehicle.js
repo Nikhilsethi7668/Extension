@@ -46,6 +46,10 @@ const vehicleSchema = mongoose.Schema(
         },
         postingHistory: [
             {
+                userId: {
+                    type: mongoose.Schema.Types.ObjectId,
+                    ref: 'User',
+                },
                 platform: { type: String, default: 'facebook_marketplace' },
                 listingUrl: String,
                 action: String, // 'post', 'repost', 'renew'

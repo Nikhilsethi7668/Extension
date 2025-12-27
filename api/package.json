@@ -10,7 +10,7 @@
         "init-admin": "node src/scripts/init_admin.js"
     },
     "dependencies": {
-        "@google/generative-ai": "^0.21.0",
+        "@google/generative-ai": "^0.24.1",
         "@imgly/background-removal-node": "^1.4.5",
         "axios": "^1.7.9",
         "bcryptjs": "^2.4.3",

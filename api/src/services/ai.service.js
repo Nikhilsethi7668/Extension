@@ -9,7 +9,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 export const generateVehicleContent = async (vehicle, instructions, sentiment = 'professional') => {
     try {
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
         const prompt = `
       Act as a professional vehicle salesperson.
@@ -78,13 +78,18 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
             console.log('[AI Service] Analyzing Intent with Gemini...');
             const analysisPrompt = `
                 Analyze this image and the user's edit prompt: "${prompt}".
-                
-                Task 1: Describe the image in detail (key "visualDescription").
+                GOAL: Achieve a pixel-perfect, distortion-free result. Use common sense to ensure the vehicle retains accurate geometry and no parts appear distorted.
+
+                **Keep the car in the image as it is, do not remove it. or change its camera angle or position**
+                Task 1: Describe the image in detail (key "visualDescription"). Focus on the vehicle's integrity.
                 Task 2: Determine if the user wants to modify the ACTUAL VEHICLE ITSELF (e.g. change color, add spoiler, fix dent, change wheels, convert to convertible) or JUST THE BACKGROUND/ENVIRONMENT (e.g. showroom, beach, white background, remove background, sunny day).
                 
                 If any modification to the car body, paint, or parts is requested, intent must be "MODIFY_VEHICLE".
                 If only the setting, location, or background is changing, intent must be "MODIFY_BACKGROUND".
                 
+                IMPORTANT: If the prompt mentions "remove background" or "transparent background", the intent MUST be "MODIFY_BACKGROUND".
+                NOTE: For "remove background", the goal is to remove background clutter but PRESERVE the road/ground and the vehicle (do not disturb the road or vehicle).
+
                 Output JSON only:
                 {
                     "visualDescription": "...",
@@ -141,7 +146,7 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
                 // Step C: Prepare FormData for OpenAI
                 const formData = new FormData();
                 formData.append('image', inputImage, { filename: 'image.png', contentType: 'image/png' });
-                formData.append('prompt', `${prompt}. High quality, photorealistic, cinematic lighting.`);
+                formData.append('prompt', `${prompt}. High quality, photorealistic, 8k, masterpiece, professional automotive photography. No distortion, preserve car shape, accurate geometry.`);
                 formData.append('n', 1);
                 formData.append('size', '1024x1024');
 
@@ -183,6 +188,9 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
                 }
             } catch (err) {
                 console.error('[AI Service] Smart Edit Failed:', err);
+                if (err.response) {
+                    console.error('[AI Service] OpenAI Response Data:', JSON.stringify(err.response.data, null, 2));
+                }
                 throw new Error(`Smart Edit Failed: ${err.message}`);
             }
         }
@@ -239,7 +247,7 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
         const formData = new FormData();
         formData.append('image', originalResized, { filename: 'image.png', contentType: 'image/png' });
         formData.append('mask', invertedMaskBuffer, { filename: 'mask.png', contentType: 'image/png' });
-        formData.append('prompt', `${prompt}. High quality, photorealistic.`);
+        formData.append('prompt', `${prompt}. High quality, photorealistic, 8k, masterpiece. No distortion, ensure accurate vehicle geometry, do not alter vehicle body shape unless explicitly asked.`);
         formData.append('n', 1);
         formData.append('size', '1024x1024');
 

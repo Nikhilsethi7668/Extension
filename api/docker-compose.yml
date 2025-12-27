@@ -1,0 +1,15 @@
+services:
+  api:
+    build: .
+    ports:
+      - "5001:5001"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - ./public/uploads:/app/public/uploads
+    environment:
+      - NODE_ENV=development
+      # Verify your .env file is present or pass variables here
+    env_file:
+      - .env
+    restart: unless-stopped

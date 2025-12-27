@@ -56,3 +56,5 @@ firebase-adminsdk*.json
 Thumbs.db
 .DS_Store
 desktop.ini
+
+/api/public/uploads

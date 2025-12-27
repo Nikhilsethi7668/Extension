@@ -149,7 +149,7 @@ router.get('/', protect, async (req, res) => {
 // @access  Protected
 router.get('/:id', protect, async (req, res, next) => {
     try {
-        const vehicle = await Vehicle.findById(req.params.id).populate('organization').populate('assignedUser');
+        const vehicle = await Vehicle.findById(req.params.id).populate('organization').populate('assignedUsers');
 
         if (!vehicle) {
             res.status(404);
@@ -158,6 +158,19 @@ router.get('/:id', protect, async (req, res, next) => {
 
         // Ensure vehicle belongs to user's organization
         // Handle both populated and non-populated organization
+        // FIXED: Add safety checks for null organization
+        if (!vehicle.organization) {
+            console.error(`Vehicle ${vehicle._id} has no organization assigned.`);
+            res.status(500);
+            return next(new Error('Data Integrity Error: Vehicle has no organization.'));
+        }
+
+        if (!req.user.organization) {
+            console.error(`User ${req.user._id} has no organization (should be impossible due to protect middleware).`);
+            res.status(500);
+            return next(new Error('User organization missing.'));
+        }
+
         const vehicleOrgId = vehicle.organization._id ? vehicle.organization._id.toString() : vehicle.organization.toString();
         const userOrgId = req.user.organization._id ? req.user.organization._id.toString() : req.user.organization.toString();
 
@@ -176,14 +189,11 @@ router.get('/:id', protect, async (req, res, next) => {
         // Ensure user can access this vehicle (for agents, check if assigned)
         if (req.user.role === 'agent') {
             // Strict Isolation: Agents can ONLY see vehicles explicitly assigned to them.
-            // If vehicle.assignedUser is null, access is DENIED.
-            if (!vehicle.assignedUser) {
-                res.status(403);
-                return next(new Error('Not authorized to access unassigned vehicle'));
-            }
+            const isAssigned = vehicle.assignedUsers && vehicle.assignedUsers.some(u => 
+                (u._id ? u._id.toString() : u.toString()) === req.user._id.toString()
+            );
 
-            const assignedUserId = vehicle.assignedUser._id ? vehicle.assignedUser._id.toString() : vehicle.assignedUser.toString();
-            if (assignedUserId !== req.user._id.toString()) {
+            if (!isAssigned) {
                 res.status(403);
                 return next(new Error('Not authorized to access this vehicle - not assigned to you'));
             }
@@ -203,10 +213,7 @@ router.get('/:id', protect, async (req, res, next) => {
                 `Excellent condition ${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}. Well maintained. All service records available. No accidents. Perfect for daily commute or family use. Contact for more details!`,
             images: vehicle.images && vehicle.images.length > 0
                 ? vehicle.images
-                : [
-                    'https://images.pexels.com/photos/112460/pexels-photo-112460.jpeg',
-                    'https://images.pexels.com/photos/170811/pexels-photo-170811.jpeg'
-                ],
+                : [],
             exteriorColor: vehicle.exteriorColor || '',
             interiorColor: vehicle.interiorColor || '',
             fuelType: vehicle.fuelType || ' ',
@@ -231,8 +238,9 @@ router.get('/:id', protect, async (req, res, next) => {
                 console.log('Enhancing content with Gemini AI using prompt:', req.query.ai_prompt);
 
                 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+                // Switch to stable 'gemini-pro' model
                 const model = genAI.getGenerativeModel({
-                    model: "gemini-flash-latest",
+                    model: "gemini-2.0-flash-exp",
                 });
 
                 const prompt = `
@@ -286,6 +294,7 @@ router.get('/:id', protect, async (req, res, next) => {
             data: formattedData
         });
     } catch (error) {
+        console.error('Error in GET /api/vehicles/:id:', error); // Log the full error
         res.status(500);
         return next(new Error(error.message));
     }
@@ -312,7 +321,7 @@ router.post('/scrape', protect, async (req, res) => {
         const vehicle = await Vehicle.create({
             ...scrapedData,
             organization: req.user.organization._id,
-            assignedUser: assignedUserId || (req.user.role === 'agent' ? req.user._id : null),
+            assignedUsers: assignedUserId ? [assignedUserId] : (req.user.role === 'agent' ? [req.user._id] : []),
         });
 
         // Audit Log: Create Vehicle
@@ -346,7 +355,7 @@ router.post('/:id/generate-ai', protect, async (req, res) => {
     }
 
     // Ensure user can access this vehicle
-    if (req.user.role === 'agent' && vehicle.assignedUser && vehicle.assignedUser.toString() !== req.user._id.toString()) {
+    if (req.user.role === 'agent' && (!vehicle.assignedUsers || !vehicle.assignedUsers.some(id => id.toString() === req.user._id.toString()))) {
         res.status(403);
         throw new Error('Not authorized to access this vehicle');
     }
@@ -390,7 +399,7 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
     }
 
     // Authorization Check
-    if (req.user.role === 'agent' && vehicle.assignedUser.toString() !== req.user._id.toString()) {
+    if (req.user.role === 'agent' && (!vehicle.assignedUsers || !vehicle.assignedUsers.some(id => id.toString() === req.user._id.toString()))) {
         res.status(403);
         throw new Error('Not authorized to access this vehicle');
     }
@@ -460,6 +469,7 @@ router.post('/:id/posted', protect, async (req, res) => {
 
     vehicle.status = 'posted';
     vehicle.postingHistory.push({
+        userId: req.user._id,
         platform,
         listingUrl,
         action,
@@ -565,7 +575,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
                             const vehicle = await Vehicle.create({
                                 ...vehicleData,
                                 organization: req.user.organization._id,
-                                assignedUser: assignedUserId || (req.user.role === 'agent' ? req.user._id : null),
+                                assignedUsers: assignedUserId ? [assignedUserId] : (req.user.role === 'agent' ? [req.user._id] : []),
                             });
 
                             results.success++;
@@ -630,7 +640,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
             const vehicle = await Vehicle.create({
                 ...scrapedData,
                 organization: req.user.organization._id,
-                assignedUser: assignedUserId || (req.user.role === 'agent' ? req.user._id : null),
+                assignedUsers: assignedUserId ? [assignedUserId] : (req.user.role === 'agent' ? [req.user._id] : []),
             });
 
             results.success++;
@@ -668,9 +678,12 @@ router.delete('/:id', protect, async (req, res) => {
         }
 
         // Agents can only delete their own assigned vehicles
-        if (req.user.role === 'agent' && vehicle.assignedUser) {
-            const assignedUserId = vehicle.assignedUser._id ? vehicle.assignedUser._id.toString() : vehicle.assignedUser.toString();
-            if (assignedUserId !== req.user._id.toString()) {
+        if (req.user.role === 'agent') {
+            const isAssigned = vehicle.assignedUsers && vehicle.assignedUsers.some(u => 
+                (u._id ? u._id.toString() : u.toString()) === req.user._id.toString()
+            );
+
+            if (!isAssigned) {
                 res.status(403);
                 throw new Error('Not authorized to delete this vehicle');
             }
@@ -705,7 +718,7 @@ router.delete('/', protect, async (req, res) => {
 
         // Agents can only delete their own assigned vehicles
         if (req.user.role === 'agent') {
-            query.assignedUser = req.user._id;
+            query.assignedUsers = { $in: [req.user._id] };
         }
 
         const result = await Vehicle.deleteMany(query);

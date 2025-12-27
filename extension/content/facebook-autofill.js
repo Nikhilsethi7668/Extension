@@ -3384,6 +3384,9 @@
     try {
       // Fetch the image
       const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image: ${response.statusText}`);
+      }
       const blob = await response.blob();
 
       // Create a File object
@@ -3403,6 +3406,7 @@
       console.log(`Uploaded image ${index + 1}`);
     } catch (error) {
       console.error(`Failed to upload image ${index}:`, error);
+      throw error; // Re-throw to allow caller to handle it
     }
   }
 

@@ -142,7 +142,8 @@ async function login() {
         role: data.role,
         apiKey: apiToken, // Store the API key
         token: data.token, // Store the JWT token
-        organization: data.organization
+        organization: data.organization,
+        id: data._id // Ensure 'id' alias exists for easier access if needed
       };
       // Helper to format relative time
       function timeAgo(date) {
@@ -1621,7 +1622,87 @@ async function clearQueue() {
 
 // ============ Facebook Posting Functions ============
 
+let vehiclePendingPostId = null; // Store ID for confirmation
+
+function checkDuplicateAndWarn(vehicle, btnElement) {
+  // Check for duplicate posting history
+  if (vehicle.postingHistory && vehicle.postingHistory.length > 0) {
+    // 15 days cutoff
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 15);
+
+    // Filter history for THIS user
+    const lastUserPost = vehicle.postingHistory
+        .slice()
+        .reverse()
+        .find(h => {
+             const historyUserId = h.userId && (h.userId._id || h.userId);
+             const currentUserId = currentUser._id;
+             return String(historyUserId) === String(currentUserId);
+        });
+
+    if (lastUserPost) {
+        const postDate = new Date(lastUserPost.timestamp);
+        if (postDate > cutoffDate) {
+            // It's within the last 15 days! Show warning.
+            
+            const daysAgo = Math.floor((new Date() - postDate) / (1000 * 60 * 60 * 24));
+            const dayText = daysAgo === 0 ? 'today' : (daysAgo === 1 ? 'yesterday' : `${daysAgo} days ago`);
+            
+            const warningText = `You posted this vehicle ${dayText}. Duplicate posts may be removed by Facebook.`;
+            
+            // Show Modal
+            document.getElementById('duplicateWarningText').textContent = warningText;
+            document.getElementById('duplicatePostModal').style.display = 'flex';
+            
+            // Store ID for confirmation
+            vehiclePendingPostId = vehicle._id;
+            
+            // Setup one-time listeners
+            setupModalListeners();
+            
+            return; // Stop here, do NOT call postVehicleById
+        }
+    }
+  }
+
+  // If no warning needed, proceed directly
+  postVehicleById(vehicle._id);
+}
+
+function setupModalListeners() {
+    const confirmBtn = document.getElementById('confirmPostBtn');
+    const cancelBtn = document.getElementById('cancelPostBtn');
+    const modal = document.getElementById('duplicatePostModal');
+
+    confirmBtn.onclick = () => {
+        modal.style.display = 'none';
+        if (vehiclePendingPostId) {
+            postVehicleById(vehiclePendingPostId);
+            vehiclePendingPostId = null;
+        }
+    };
+    
+    cancelBtn.onclick = () => {
+        modal.style.display = 'none';
+        vehiclePendingPostId = null;
+    };
+}
+
 async function postToFacebook(vehicleData = null) {
+  const dataToPost = vehicleData || scrapedData;
+
+  if (!dataToPost) {
+    showNotification('No vehicle data to post', 'error');
+    return;
+  }
+
+  // NO DUPLICATE CHECK HERE - moved to button click
+
+  await executePostToFacebook(dataToPost);
+}
+
+async function executePostToFacebook(vehicleData = null) {
   const dataToPost = vehicleData || scrapedData;
 
   if (!dataToPost) {
@@ -2002,12 +2083,24 @@ async function loadVehicles() {
     });
 
     // Attach event listeners to post and image buttons after cards are created
+    // Attach event listeners to post and image buttons after cards are created
     container.querySelectorAll('.post-vehicle-btn').forEach(button => {
       button.addEventListener('click', (e) => {
-        const vehicleId = e.target.closest('.post-vehicle-btn').getAttribute('data-vehicle-id');
+        const btn = e.target.closest('.post-vehicle-btn');
+        const vehicleId = btn.getAttribute('data-vehicle-id');
+        
         if (vehicleId) {
           console.log('Post button clicked for vehicle ID:', vehicleId);
-          postVehicleById(vehicleId);
+          
+          // Find vehicle data in local cache
+          const vehicle = allVehicles.find(v => v._id === vehicleId);
+          
+          if (vehicle) {
+             checkDuplicateAndWarn(vehicle, btn);
+          } else {
+             // Fallback if not found in list (shouldn't happen)
+             postVehicleById(vehicleId);
+          }
         }
       });
     });
@@ -2549,10 +2642,31 @@ async function uploadIndividualImage(imageUrl, button) {
     // Ensure content script is loaded and responsive
     await ensureContentScriptLoaded(tab.id);
 
+    // PRE-FETCH IMAGE CONVERSION
+    // Fetch image in extension context to avoid CORS/Mixed Content issues in content script
+    let imageToSend = imageUrl;
+    try {
+        console.log('Fetching image for conversion:', imageUrl);
+        const imgResponse = await fetch(imageUrl);
+        const blob = await imgResponse.blob();
+        
+        // Convert to Base64 Data URL
+        imageToSend = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+        });
+        console.log('Image converted to Base64 Data URL');
+    } catch (fetchError) {
+        console.error('Failed to fetch/convert image in popup:', fetchError);
+        // Fallback to sending original URL if fetch fails (might fail in content script too)
+    }
+
     // Send message to content script
     const response = await safeChromeCall(() => chrome.tabs.sendMessage(tab.id, {
       action: 'uploadSpecificImage',
-      imageUrl: imageUrl
+      imageUrl: imageToSend
     }));
 
     if (response && response.success) {
