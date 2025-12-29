@@ -23,7 +23,7 @@ const app = express();
 // Middleware
 app.use(express.json());
 app.use(cors({
-    origin: ["http://localhost:5173", "http://localhost:5000", "http://localhost:5001", "http://localhost:3682"],
+    origin: ["http://localhost:5173", "http://localhost:5000", "http://localhost:5001", "http://localhost:3682", "http://94.250.203.249:3682"],
     credentials: true
 }));
 app.use(morgan('dev'));
