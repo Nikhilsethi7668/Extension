@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   api:
     build: ./api
@@ -8,15 +6,10 @@ services:
     environment:
       - NODE_ENV=development
       - PORT=5573
-      # Add other environment variables here or use env_file
-      - MONGO_URI=${MONGO_URI}
-      - JWT_SECRET=${JWT_SECRET}
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
       - ./api:/app
       - /app/node_modules
-      - ./public/uploads:/app/public/uploads
+      - ./api/public/uploads:/app/public/uploads
     networks:
       - extension-network
     env_file:
