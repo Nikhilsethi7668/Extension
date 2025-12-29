@@ -18,6 +18,8 @@ services:
       - /app/node_modules
     networks:
       - extension-network
+    env_file:
+      - ./api/.env
 
   dashboard:
     build: ./dashboard
@@ -32,6 +34,8 @@ services:
       - api
     networks:
       - extension-network
+    env_file:
+      - ./dashboard/.env
 
 networks:
   extension-network:
