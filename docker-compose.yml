@@ -1,0 +1,38 @@
+version: '3.8'
+
+services:
+  api:
+    build: ./api
+    ports:
+      - "5573:5573"
+    environment:
+      - NODE_ENV=development
+      - PORT=5573
+      # Add other environment variables here or use env_file
+      - MONGO_URI=${MONGO_URI}
+      - JWT_SECRET=${JWT_SECRET}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./api:/app
+      - /app/node_modules
+    networks:
+      - extension-network
+
+  dashboard:
+    build: ./dashboard
+    ports:
+      - "3682:3682"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:5573/api
+    volumes:
+      - ./dashboard:/app
+      - /app/node_modules
+    depends_on:
+      - api
+    networks:
+      - extension-network
+
+networks:
+  extension-network:
+    driver: bridge

@@ -273,7 +273,7 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
             return {
                 success: true,
                 originalUrl: imageUrl,
-                processedUrl: `http://localhost:5001${savedPath}`,
+                processedUrl: `http://localhost:5573${savedPath}`,
                 provider: 'openai-dall-e-2-edit-vehicle',
                 wasGenerated: true,
                 metadata: {
