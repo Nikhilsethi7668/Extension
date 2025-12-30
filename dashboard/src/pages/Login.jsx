@@ -120,7 +120,7 @@ const Login = () => {
                             Welcome Back
                         </Typography>
                         <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.95rem' }}>
-                            Sign in to your FacebookMark account
+                            Sign in to your Flash Fender account
                         </Typography>
                     </Box>
 
@@ -257,7 +257,7 @@ const Login = () => {
 
                     <Box sx={{ mt: 3, textAlign: 'center' }}>
                         <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.85rem' }}>
-                            Secure login powered by FacebookMark
+                            Secure login powered by Flash Fender
                         </Typography>
                     </Box>
                 </Paper>

@@ -1,4 +1,4 @@
-# FacebookMark - Vehicle Listing Automation
+# Flash Fender - Vehicle Listing Automation
 
 A full-stack solution for automating vehicle listings on Facebook Marketplace, including a Chrome Extension, React Dashboard, and Node.js/Express API.
 
@@ -9,7 +9,7 @@ A full-stack solution for automating vehicle listings on Facebook Marketplace, i
 - **`dashboard/`**: Admin Dashboard (React/Vite)
     - Manage inventory, users, organization settings.
 - **`extension/`**: Chrome Extension (Manifest V3)
-    - "Shifty Auto Lister" - Sidebar extension for scraping and autofilling on Facebook.
+    - "Flash Fender" - Sidebar extension for scraping and autofilling on Facebook.
 - **`docs/`**: Project documentation (Legacy and Deployment guides).
 
 ## Getting Started

@@ -32,7 +32,7 @@ const initAdmin = async () => {
         }
 
         // Get credentials from environment variables or use defaults
-        const email = process.env.ADMIN_EMAIL || 'admin@facebookmark.com';
+        const email = process.env.ADMIN_EMAIL || 'admin@flashfender.com';
         const password = process.env.ADMIN_PASSWORD || 'Admin123!';
         const name = process.env.ADMIN_NAME || 'Super Admin';
         const orgName = process.env.ORG_NAME || 'Default Organization';

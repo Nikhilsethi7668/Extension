@@ -1,7 +1,7 @@
 {
-    "name": "facebookmark-api",
+    "name": "flash-fender-api",
     "version": "1.0.0",
-    "description": "MERN API for Facebook Marketplace Automation",
+    "description": "MERN API for Flash Fender (Facebook Marketplace Automation)",
     "main": "src/index.js",
     "type": "module",
     "scripts": {

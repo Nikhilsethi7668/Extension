@@ -358,7 +358,7 @@ function showNotification(message, type = 'info') {
       chrome.notifications.create({
         type: 'basic',
         iconUrl: chrome.runtime.getURL('icons/icon128.png') || '',
-        title: 'Shifty Auto Lister',
+        title: 'Flash Fender',
         message: message
       }).catch(() => {
         // Ignore if notifications permission not granted

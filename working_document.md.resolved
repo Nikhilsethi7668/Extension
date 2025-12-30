@@ -1,4 +1,4 @@
-# FacebookMark: System Design & Working Document
+# Flash Fender: System Design & Working Document
 
 **Version:** 1.0.0
 **Date:** 2025-12-18
@@ -7,7 +7,7 @@
 ---
 
 ## 1. Executive Summary
-The **FacebookMark Auto-Lister** is a semi-automated vehicle listing system designed for dealerships and sales consultants. It centralizes inventory management and uses AI to generate human-like, high-quality listings for Facebook Marketplace. The system leverages a Chrome Extension to interact directly with the user's browser session, ensuring safe and "human" behavioral patterns while automating repetitive data entry.
+The **Flash Fender Auto-Lister** is a semi-automated vehicle listing system designed for dealerships and sales consultants. It centralizes inventory management and uses AI to generate human-like, high-quality listings for Facebook Marketplace. The system leverages a Chrome Extension to interact directly with the user's browser session, ensuring safe and "human" behavioral patterns while automating repetitive data entry.
 
 ## 2. System Architecture
 
