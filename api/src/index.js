@@ -23,7 +23,7 @@ const app = express();
 // Middleware
 app.use(express.json());
 app.use(cors({
-    origin: ["http://localhost:5173", "http://localhost:5000", "http://localhost:5001", "http://localhost:3682", "http://94.250.203.249:3682"],
+    origin: ["http://localhost:5173", "http://localhost:5000", "http://localhost:5573", "http://localhost:3682", "http://94.250.203.249:3682"],
     credentials: true
 }));
 app.use(morgan('dev'));
@@ -62,6 +62,6 @@ app.use((err, req, res, next) => {
     });
 });
 
-const PORT = process.env.PORT || 5573;
+const PORT = 5573;
 
 app.listen(PORT, console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`));

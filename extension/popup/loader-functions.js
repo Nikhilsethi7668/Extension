@@ -21,6 +21,32 @@ function showGlobalLoader(title = 'Processing', message = 'Please wait...') {
 
     // Show overlay
     overlay.classList.add('active');
+
+    // Ensure controls container exists
+    let controls = overlay.querySelector('.loader-controls');
+    if (!controls) {
+        controls = document.createElement('div');
+        controls.className = 'loader-controls';
+        controls.style.cssText = 'display: flex; gap: 10px; justify-content: center; margin-top: 15px;';
+        controls.innerHTML = `
+            <button id="loaderPauseBtn" class="btn btn-secondary" style="background: #f59e0b; color: white;">⏸️ Pause</button>
+            <button id="loaderStopBtn" class="btn btn-danger">⏹️ Stop</button>
+        `;
+        // Insert after progress
+        const progress = overlay.querySelector('.loader-progress');
+        progress.parentNode.insertBefore(controls, progress.nextSibling);
+    }
+
+    // Reset buttons
+    const pauseBtn = document.getElementById('loaderPauseBtn');
+    if (pauseBtn) {
+        pauseBtn.innerHTML = '⏸️ Pause';
+        pauseBtn.onclick = null; // Clear previous handlers
+    }
+    const stopBtn = document.getElementById('loaderStopBtn');
+    if (stopBtn) {
+        stopBtn.onclick = null; // Clear previous handlers
+    }
 }
 
 function hideGlobalLoader() {

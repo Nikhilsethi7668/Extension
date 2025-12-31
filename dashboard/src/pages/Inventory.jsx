@@ -5,7 +5,7 @@ import {
     DialogContent, TextField, DialogActions, Chip, InputAdornment, TablePagination,
     IconButton, Tooltip, FormControl, Select, MenuItem, Checkbox, InputLabel, RadioGroup, FormControlLabel, Radio
 } from '@mui/material';
-import { Plus, Search, RefreshCw, X, Eye, ExternalLink, Image as ImageIcon, Trash2, UserPlus, Users, AlertTriangle } from 'lucide-react';
+import { Plus, Search, RefreshCw, X, Eye, ExternalLink, Image as ImageIcon, Trash2, UserPlus, Users, AlertTriangle, DollarSign, RotateCcw } from 'lucide-react';
 import apiClient from '../config/axios';
 import Layout from '../components/Layout';
 
@@ -93,6 +93,11 @@ const Inventory = () => {
     const [totalVehicles, setTotalVehicles] = useState(0);
     const [search, setSearch] = useState('');
     const [debouncedSearch, setDebouncedSearch] = useState('');
+    const [statusFilter, setStatusFilter] = useState('');
+
+    // Status Confirmation Dialog State
+    const [confirmStatusOpen, setConfirmStatusOpen] = useState(false);
+    const [statusActionData, setStatusActionData] = useState({ id: null, action: null }); // action: 'mark-sold' | 'mark-available'
 
     // Debounce Search
     useEffect(() => {
@@ -110,7 +115,8 @@ const Inventory = () => {
                 params: {
                     page: page + 1,
                     limit: rowsPerPage,
-                    search: debouncedSearch
+                    search: debouncedSearch,
+                    status: statusFilter // Add this
                 }
             });
 
@@ -131,7 +137,7 @@ const Inventory = () => {
     useEffect(() => {
         fetchVehicles();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [page, rowsPerPage, debouncedSearch]);
+    }, [page, rowsPerPage, debouncedSearch, statusFilter]);
 
     // ... handleScrape ...
     const handleScrape = async () => {
@@ -196,6 +202,26 @@ const Inventory = () => {
             alert(`Deleted ${data.deletedCount}`);
             fetchVehicles();
         } catch (e) { console.error(e); } finally { setLoading(false); }
+    };
+
+    const handleOpenStatusConfirm = (id, action) => {
+        setStatusActionData({ id, action });
+        setConfirmStatusOpen(true);
+    };
+
+    const executeStatusChange = async () => {
+        if (!statusActionData.id || !statusActionData.action) return;
+        setLoading(true);
+        try {
+            await apiClient.post(`/vehicles/${statusActionData.id}/${statusActionData.action}`);
+            fetchVehicles();
+            setConfirmStatusOpen(false);
+        } catch (error) {
+            console.error(error);
+            alert('Action failed: ' + (error.response?.data?.message || error.message));
+        } finally {
+            setLoading(false);
+        }
     };
 
     // Assignment Logic
@@ -289,6 +315,27 @@ const Inventory = () => {
         <Layout title="Vehicle Inventory">
             <Paper className="glass" sx={{ p: 2, mb: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, minWidth: '300px' }}>
+
+                    <FormControl size="small" sx={{ minWidth: 150 }}>
+                        <Select
+                            value={statusFilter}
+                            onChange={(e) => {
+                                setStatusFilter(e.target.value);
+                                setPage(0);
+                            }}
+                            displayEmpty
+                            variant="outlined"
+                            sx={{ bgcolor: 'background.paper' }}
+                        >
+                            <MenuItem value="">All Statuses</MenuItem>
+                            <MenuItem value="available">Available</MenuItem>
+                            <MenuItem value="posted">Posted (All)</MenuItem>
+                            <MenuItem value="recently_posted">Recently Posted</MenuItem>
+                            <MenuItem value="previously_posted">Previously Posted</MenuItem>
+                            <MenuItem value="sold">Sold</MenuItem>
+                        </Select>
+                    </FormControl>
+
                     {isAdmin && selectedIds.length > 0 && (
                         <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: 'primary.dark', color: 'white', px: 2, mr: 2, borderRadius: 1, height: 40 }}>
                             <Typography variant="body2" sx={{ mr: 2 }}>{selectedIds.length} Selected</Typography>
@@ -322,7 +369,9 @@ const Inventory = () => {
                 <Box sx={{ display: 'flex', gap: 1.5 }}>
                     <Button variant="outlined" color="error" onClick={handleDeleteAll} startIcon={<Trash2 size={18} />} disabled={loading || vehicles.length === 0}>Delete All</Button>
                     <Button variant="outlined" color="secondary" onClick={fetchVehicles} startIcon={<RefreshCw size={18} />}>Refresh</Button>
-                    <Button variant="contained" onClick={() => setOpen(true)} startIcon={<Plus size={18} />}>Import Vehicle</Button>
+                    {currentUser && currentUser.role !== 'agent' && (
+                        <Button variant="contained" onClick={() => setOpen(true)} startIcon={<Plus size={18} />}>Import Vehicle</Button>
+                    )}
                 </Box>
             </Paper>
 
@@ -347,6 +396,7 @@ const Inventory = () => {
                                 <TableCell>VIN</TableCell>
                                 <TableCell>Price</TableCell>
                                 <TableCell>Status</TableCell>
+                                <TableCell>Posted Date</TableCell>
                                 <TableCell align="right">Actions</TableCell>
                             </TableRow>
                         </TableHead>
@@ -457,12 +507,40 @@ const Inventory = () => {
                                                 sx={{ textTransform: 'capitalize' }}
                                             />
                                         </TableCell>
+                                        <TableCell>
+                                            <Typography variant="body2" color="text.secondary">
+                                                {v.postingHistory && v.postingHistory.length > 0
+                                                    ? new Date(v.postingHistory[v.postingHistory.length - 1].timestamp).toLocaleDateString()
+                                                    : 'None'}
+                                            </Typography>
+                                        </TableCell>
                                         <TableCell align="right">
                                             <Tooltip title="View Details">
                                                 <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleViewVehicle(v); }}>
                                                     <Eye size={18} />
                                                 </IconButton>
                                             </Tooltip>
+                                            {v.status !== 'sold' ? (
+                                                <Tooltip title="Mark as Sold">
+                                                    <IconButton
+                                                        size="small"
+                                                        color="success"
+                                                        onClick={(e) => { e.stopPropagation(); handleOpenStatusConfirm(v._id, 'mark-sold'); }}
+                                                    >
+                                                        <DollarSign size={18} />
+                                                    </IconButton>
+                                                </Tooltip>
+                                            ) : (
+                                                <Tooltip title="Mark as Available">
+                                                    <IconButton
+                                                        size="small"
+                                                        color="warning"
+                                                        onClick={(e) => { e.stopPropagation(); handleOpenStatusConfirm(v._id, 'mark-available'); }}
+                                                    >
+                                                        <RotateCcw size={18} />
+                                                    </IconButton>
+                                                </Tooltip>
+                                            )}
                                             <Tooltip title="Delete Vehicle">
                                                 <IconButton
                                                     size="small"
@@ -795,6 +873,31 @@ const Inventory = () => {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setAssignmentDetailsOpen(false)}>Close</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Status Confirmation Dialog */}
+            <Dialog open={confirmStatusOpen} onClose={() => setConfirmStatusOpen(false)}>
+                <DialogTitle>
+                    {statusActionData.action === 'mark-sold' ? 'Mark as Sold?' : 'Mark as Available?'}
+                </DialogTitle>
+                <DialogContent>
+                    <Typography>
+                        {statusActionData.action === 'mark-sold'
+                            ? 'Are you sure you want to mark this vehicle as SOLD? This will hide it from active listings.'
+                            : 'Are you sure you want to mark this vehicle as AVAILABLE? It will appear in listings again.'}
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setConfirmStatusOpen(false)}>Cancel</Button>
+                    <Button
+                        onClick={executeStatusChange}
+                        variant="contained"
+                        color={statusActionData.action === 'mark-sold' ? 'success' : 'primary'}
+                        autoFocus
+                    >
+                        Confirm
+                    </Button>
                 </DialogActions>
             </Dialog>
         </Layout>

@@ -40,8 +40,29 @@ router.get('/', protect, async (req, res) => {
         }
     }
 
-    // Filter by Status
-    if (status) query.status = status;
+    // Filter by Status (Advanced Logic)
+    if (status) {
+        if (status === 'recently_posted') {
+            const fifteenDaysAgo = new Date();
+            fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+            query.status = 'posted';
+            // Find vehicles where at least one history item is newer than 15 days
+            query.postingHistory = {
+                $elemMatch: { timestamp: { $gte: fifteenDaysAgo } }
+            };
+        } else if (status === 'previously_posted') {
+            const fifteenDaysAgo = new Date();
+            fifteenDaysAgo.setDate(fifteenDaysAgo.getDate() - 15);
+            query.status = 'posted';
+            // Find vehicles where NO history item is newer than 15 days (but has history)
+            query.postingHistory = {
+                $exists: true,
+                $not: { $elemMatch: { timestamp: { $gte: fifteenDaysAgo } } }
+            };
+        } else {
+            query.status = status;
+        }
+    }
 
     // Filter by Price Range
     if (minPrice || maxPrice) {
@@ -189,7 +210,7 @@ router.get('/:id', protect, async (req, res, next) => {
         // Ensure user can access this vehicle (for agents, check if assigned)
         if (req.user.role === 'agent') {
             // Strict Isolation: Agents can ONLY see vehicles explicitly assigned to them.
-            const isAssigned = vehicle.assignedUsers && vehicle.assignedUsers.some(u => 
+            const isAssigned = vehicle.assignedUsers && vehicle.assignedUsers.some(u =>
                 (u._id ? u._id.toString() : u.toString()) === req.user._id.toString()
             );
 
@@ -493,6 +514,64 @@ router.post('/:id/posted', protect, async (req, res) => {
     res.json({ success: true, vehicle });
 });
 
+// @desc    Mark vehicle as sold
+// @route   POST /api/vehicles/:id/mark-sold
+// @access  Protected
+router.post('/:id/mark-sold', protect, async (req, res) => {
+    const vehicle = await Vehicle.findById(req.params.id);
+
+    if (!vehicle) {
+        res.status(404);
+        throw new Error('Vehicle not found');
+    }
+
+    vehicle.status = 'sold';
+    await vehicle.save();
+
+    // Audit Log: Marked as Sold
+    await AuditLog.create({
+        action: 'Vehicle Sold',
+        entityType: 'Vehicle',
+        entityId: vehicle._id,
+        user: req.user._id,
+        organization: req.user.organization._id,
+        details: { method: 'manual_mark_sold' },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent'),
+    });
+
+    res.json({ success: true, vehicle });
+});
+
+// @desc    Mark vehicle as available
+// @route   POST /api/vehicles/:id/mark-available
+// @access  Protected
+router.post('/:id/mark-available', protect, async (req, res) => {
+    const vehicle = await Vehicle.findById(req.params.id);
+
+    if (!vehicle) {
+        res.status(404);
+        throw new Error('Vehicle not found');
+    }
+
+    vehicle.status = 'available';
+    await vehicle.save();
+
+    // Audit Log: Marked as Available
+    await AuditLog.create({
+        action: 'Vehicle Available',
+        entityType: 'Vehicle',
+        entityId: vehicle._id,
+        user: req.user._id,
+        organization: req.user.organization._id,
+        details: { method: 'manual_mark_available' },
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent'),
+    });
+
+    res.json({ success: true, vehicle });
+});
+
 
 // @desc    Bulk Scrape and create vehicles
 // @route   POST /api/vehicles/scrape-bulk
@@ -679,7 +758,7 @@ router.delete('/:id', protect, async (req, res) => {
 
         // Agents can only delete their own assigned vehicles
         if (req.user.role === 'agent') {
-            const isAssigned = vehicle.assignedUsers && vehicle.assignedUsers.some(u => 
+            const isAssigned = vehicle.assignedUsers && vehicle.assignedUsers.some(u =>
                 (u._id ? u._id.toString() : u.toString()) === req.user._id.toString()
             );
 

@@ -21,7 +21,7 @@ cp .env.example .env
 npm install
 npm run dev
 ```
-Runs on `http://localhost:5001`.
+Runs on `http://localhost:5573`.
 
 ### 2. Dashboard
 ```bash

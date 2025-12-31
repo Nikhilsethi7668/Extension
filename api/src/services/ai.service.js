@@ -174,7 +174,7 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
 
                     const fileName = `smart-edit-${Date.now()}.png`;
                     const savedPath = await saveImageLocally(resultBuffer, fileName);
-                    const processedUrl = `http://localhost:5001${savedPath}`;
+                    const processedUrl = `http://localhost:5573${savedPath}`;
 
                     console.log(`[AI Service] ✅ Smart Edit Complete: ${processedUrl}`);
 
