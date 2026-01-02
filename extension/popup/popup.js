@@ -2158,8 +2158,12 @@ function createVehicleCard(vehicle) {
   const card = document.createElement('div');
   card.className = 'vehicle-card';
 
-  const imageUrl = vehicle.images && vehicle.images.length > 0
-    ? vehicle.images[0]
+  // Prefer preparedImages if available, fallback to images
+  const imagesArray = (vehicle.preparedImages && vehicle.preparedImages.length > 0) 
+    ? vehicle.preparedImages 
+    : vehicle.images;
+  const imageUrl = imagesArray && imagesArray.length > 0
+    ? imagesArray[0]
     : '';
 
   const statusClass = vehicle.status || 'available';
@@ -2457,14 +2461,16 @@ async function showVehicleImages(vehicleId) {
       throw new Error('Vehicle data not found');
     }
 
-    // Combine images
+    // Combine images - prioritize preparedImages, then original, then AI
     allVehicleImages = [];
 
-    if (vehicle.images && Array.isArray(vehicle.images)) {
-      vehicle.images.forEach(url => {
-        allVehicleImages.push({ url, type: 'original' });
+    // Add prepared images first (marketplace-ready)
+    if (vehicle.preparedImages && Array.isArray(vehicle.preparedImages) && vehicle.preparedImages.length > 0) {
+      vehicle.preparedImages.forEach(url => {
+        allVehicleImages.push({ url, type: 'prepared' });
       });
     }
+
 
     if (vehicle.aiImages && Array.isArray(vehicle.aiImages)) {
       vehicle.aiImages.forEach(url => {

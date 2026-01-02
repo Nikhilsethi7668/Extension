@@ -4,6 +4,7 @@ import AuditLog from '../models/AuditLog.js';
 import User from '../models/User.js';
 import { protect, admin } from '../middleware/auth.js';
 import { generateVehicleContent, processImageWithGemini } from '../services/ai.service.js';
+import { prepareImageBatch, getAvailableCameras, DEFAULT_GPS } from '../services/image-processor.service.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { scrapeVehicle } from '../services/scraper.service.js';
 
@@ -1057,6 +1058,233 @@ router.post('/assign', protect, admin, async (req, res) => {
         console.error('Assignment Error:', error);
         res.status(500).json({ message: 'Server Error' });
     }
+});
+
+// @desc    Prepare vehicle images for Facebook Marketplace (humanize metadata, pixel uniqueness)
+// @route   POST /api/vehicles/:id/prepare-for-marketplace
+// @access  Protected
+router.post('/:id/prepare-for-marketplace', protect, async (req, res) => {
+    try {
+        const vehicleId = req.params.id;
+        const { gpsLocation, preferredCamera } = req.body;
+        
+        const vehicle = await Vehicle.findById(vehicleId);
+        
+        if (!vehicle) {
+            return res.status(404).json({ message: 'Vehicle not found' });
+        }
+        
+        // Authorization Check
+        const userOrgId = req.user.organization._id.toString();
+        const vehicleOrgId = vehicle.organization.toString();
+        
+        if (userOrgId !== vehicleOrgId) {
+            return res.status(403).json({ message: 'Not authorized to access this vehicle' });
+        }
+        
+        // Agent access check
+        if (req.user.role === 'agent' && vehicle.assignedUsers && 
+            !vehicle.assignedUsers.some(id => id.toString() === req.user._id.toString())) {
+            return res.status(403).json({ message: 'Not authorized to access this vehicle' });
+        }
+        
+        // Get images to process (prefer original images)
+        const imagesToProcess = vehicle.images || [];
+        
+        if (imagesToProcess.length === 0) {
+            return res.status(400).json({ message: 'No images found for this vehicle' });
+        }
+        
+        // Update status to processing
+        vehicle.preparationStatus = 'processing';
+        await vehicle.save();
+        
+        console.log(`[Prepare] Starting preparation for vehicle ${vehicleId} with ${imagesToProcess.length} images`);
+        
+        // Prepare images with humanized metadata
+        const gps = gpsLocation || DEFAULT_GPS;
+        const result = await prepareImageBatch(imagesToProcess, {
+            gps: gps,
+            camera: preferredCamera // Optional, will use random if not provided
+        });
+        
+        // Update vehicle with prepared images
+        vehicle.preparedImages = result.results.map(r => r.preparedUrl);
+        vehicle.preparationStatus = result.success ? 'ready' : (result.successCount > 0 ? 'ready' : 'failed');
+        vehicle.lastPreparedAt = new Date();
+        vehicle.preparationMetadata = {
+            camera: result.batchMetadata.camera,
+            software: result.batchMetadata.camera.includes('iPhone') ? 'iOS 17+' : 'Android 14',
+            gpsLocation: gps
+        };
+        
+        await vehicle.save();
+        
+        // Audit Log: Prepare for Marketplace
+        await AuditLog.create({
+            action: 'Prepare for Marketplace',
+            entityType: 'Vehicle',
+            entityId: vehicle._id,
+            user: req.user._id,
+            organization: req.user.organization._id,
+            details: {
+                imagesProcessed: result.successCount,
+                imagesFailed: result.errorCount,
+                camera: result.batchMetadata.camera
+            },
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+        });
+        
+        console.log(`[Prepare] ✅ Completed: ${result.successCount}/${imagesToProcess.length} images prepared`);
+        
+        res.json({
+            success: true,
+            message: `Successfully prepared ${result.successCount} images for marketplace`,
+            vehicle: {
+                _id: vehicle._id,
+                preparedImages: vehicle.preparedImages,
+                preparationStatus: vehicle.preparationStatus,
+                preparationMetadata: vehicle.preparationMetadata
+            },
+            processedCount: result.successCount,
+            failedCount: result.errorCount,
+            errors: result.errors
+        });
+        
+    } catch (error) {
+        console.error('[Prepare] Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// @desc    Batch prepare multiple vehicles for Facebook Marketplace
+// @route   POST /api/vehicles/batch-prepare
+// @access  Protected
+router.post('/batch-prepare', protect, async (req, res) => {
+    try {
+        const { vehicleIds, gpsLocation } = req.body;
+        
+        if (!vehicleIds || !Array.isArray(vehicleIds) || vehicleIds.length === 0) {
+            return res.status(400).json({ message: 'Vehicle IDs array is required' });
+        }
+        
+        const results = {
+            total: vehicleIds.length,
+            success: 0,
+            failed: 0,
+            items: []
+        };
+        
+        const gps = gpsLocation || DEFAULT_GPS;
+        
+        console.log(`[Batch Prepare] Starting batch preparation for ${vehicleIds.length} vehicles`);
+        
+        for (const vehicleId of vehicleIds) {
+            try {
+                const vehicle = await Vehicle.findById(vehicleId);
+                
+                if (!vehicle) {
+                    results.failed++;
+                    results.items.push({ vehicleId, status: 'failed', error: 'Vehicle not found' });
+                    continue;
+                }
+                
+                // Authorization check
+                if (vehicle.organization.toString() !== req.user.organization._id.toString()) {
+                    results.failed++;
+                    results.items.push({ vehicleId, status: 'failed', error: 'Not authorized' });
+                    continue;
+                }
+                
+                const imagesToProcess = vehicle.images || [];
+                
+                if (imagesToProcess.length === 0) {
+                    results.failed++;
+                    results.items.push({ vehicleId, status: 'failed', error: 'No images' });
+                    continue;
+                }
+                
+                // Update status
+                vehicle.preparationStatus = 'processing';
+                await vehicle.save();
+                
+                // Process images
+                const prepResult = await prepareImageBatch(imagesToProcess, { gps });
+                
+                // Debug: Log what we're about to save
+                console.log(`[Batch Prepare] Vehicle ${vehicleId}: ${prepResult.successCount} images prepared`);
+                console.log(`[Batch Prepare] PreparedImages URLs:`, prepResult.results.map(r => r.preparedUrl));
+                
+                // Update vehicle with prepared images
+                const preparedUrls = prepResult.results.map(r => r.preparedUrl);
+                vehicle.preparedImages = preparedUrls;
+                vehicle.preparationStatus = prepResult.successCount > 0 ? 'ready' : 'failed';
+                vehicle.lastPreparedAt = new Date();
+                vehicle.preparationMetadata = {
+                    camera: prepResult.batchMetadata.camera,
+                    gpsLocation: gps
+                };
+                
+                // Save and log result
+                const savedVehicle = await vehicle.save();
+                console.log(`[Batch Prepare] Saved vehicle. PreparedImages count:`, savedVehicle.preparedImages?.length);
+                
+                results.success++;
+                results.items.push({
+                    vehicleId,
+                    status: 'success',
+                    title: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+                    preparedCount: prepResult.successCount,
+                    preparedImages: preparedUrls
+                });
+                
+            } catch (err) {
+                results.failed++;
+                results.items.push({ vehicleId, status: 'failed', error: err.message });
+            }
+        }
+        
+        // Audit Log: Batch Prepare (wrapped to prevent audit failures from breaking main operation)
+        try {
+            await AuditLog.create({
+                action: 'Batch Prepare for Marketplace',
+                entityType: 'Vehicle',
+                entityId: vehicleIds[0],
+                user: req.user._id,
+                organization: req.user.organization._id,
+                details: {
+                    totalVehicles: results.total,
+                    successCount: results.success,
+                    failedCount: results.failed,
+                    vehicleIds: vehicleIds
+                },
+                ipAddress: req.ip,
+                userAgent: req.get('User-Agent'),
+            });
+        } catch (auditErr) {
+            console.error('[Batch Prepare] Audit log failed:', auditErr.message);
+        }
+        
+        console.log(`[Batch Prepare] ✅ Completed: ${results.success}/${results.total} vehicles prepared`);
+        
+        res.json(results);
+        
+    } catch (error) {
+        console.error('[Batch Prepare] Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// @desc    Get available camera models for image preparation
+// @route   GET /api/vehicles/camera-models
+// @access  Protected
+router.get('/camera-models', protect, (req, res) => {
+    res.json({
+        success: true,
+        cameras: getAvailableCameras(),
+        defaultGPS: DEFAULT_GPS
+    });
 });
 
 export default router;

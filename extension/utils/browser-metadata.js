@@ -277,9 +277,9 @@ if (typeof BrowserMetadata === 'undefined') {
         vehicle_price: vehicleData.price || null,
         listing_url: additionalData.listingUrl || null,
 
-        // Image Information
-        image_count: vehicleData.images ? vehicleData.images.length : 0,
-        image_urls: vehicleData.images || [],
+        // Image Information - prefer preparedImages if available
+        image_count: (vehicleData.preparedImages || vehicleData.images) ? (vehicleData.preparedImages || vehicleData.images).length : 0,
+        image_urls: vehicleData.preparedImages || vehicleData.images || [],
         image_edit_prompts: additionalData.imageEditPrompts || [],
         edited_image_urls: additionalData.editedImageUrls || [],
 

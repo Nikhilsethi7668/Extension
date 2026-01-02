@@ -57,6 +57,22 @@ const vehicleSchema = mongoose.Schema(
                 timestamp: { type: Date, default: Date.now },
             },
         ],
+        // Marketplace-ready images (processed with humanized metadata)
+        preparedImages: [String],
+        preparationStatus: {
+            type: String,
+            enum: ['pending', 'processing', 'ready', 'failed'],
+            default: 'pending',
+        },
+        lastPreparedAt: Date,
+        preparationMetadata: {
+            camera: String,
+            software: String,
+            gpsLocation: {
+                latitude: Number,
+                longitude: Number,
+            },
+        },
     },
     {
         timestamps: true,
