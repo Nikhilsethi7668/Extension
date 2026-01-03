@@ -7,6 +7,8 @@ import { generateVehicleContent, processImageWithGemini } from '../services/ai.s
 import { prepareImageBatch, getAvailableCameras, DEFAULT_GPS } from '../services/image-processor.service.js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { scrapeVehicle } from '../services/scraper.service.js';
+import promptUsed from '../models/promptUsed.js';
+import ImagePrompts from '../models/ImagePrompts.js';
 
 const router = express.Router();
 
@@ -187,6 +189,54 @@ router.get('/', protect, async (req, res) => {
             page: pageNum,
             pages: Math.ceil(total / limitNum)
         });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// @desc    Get used prompts for a vehicle by the current user
+// @route   GET /api/vehicles/used-prompts/:vin
+// @access  Protected
+router.get('/used-prompts/:vin', protect, async (req, res) => {
+    try {
+        const { vin } = req.params;
+        const userId = req.user._id;
+
+        const usedPrompts = await promptUsed.find({ vin, userId });
+
+        res.json(usedPrompts);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// @desc    Get available prompts for a vehicle
+// @route   GET /api/vehicles/image-prompts/:vin
+// @access  Protected
+router.get('/image-prompts/:vin', protect, async (req, res) => {
+    try {
+        const { vin } = req.params;
+        const { search } = req.query;
+        const userId = req.user._id;
+        const limit = 30;
+
+        // 1. Find all prompts used by this user for this vehicle
+        const usedPrompts = await promptUsed.find({ vin, userId }).select('promptId');
+        const usedPromptIds = usedPrompts.map(p => p.promptId);
+
+        // 2. Build query for ImagePrompts
+        const query = {
+            _id: { $nin: usedPromptIds } // Exclude used prompts
+        };
+
+        if (search) {
+            query.title = { $regex: search, $options: 'i' };
+        }
+
+        // 3. Fetch available prompts with limit
+        const availablePrompts = await ImagePrompts.find(query).limit(limit);
+
+        res.json(availablePrompts);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -443,7 +493,7 @@ router.post('/:id/generate-ai', protect, async (req, res) => {
 // @route   POST /api/vehicles/:id/remove-bg
 // @access  Protected
 router.post('/:id/remove-bg', protect, async (req, res) => {
-    const { imageUrl, prompt } = req.body; // Accept prompt from user
+    const { imageUrl, prompt,promptId } = req.body; // Accept prompt from user
     const vehicle = await Vehicle.findById(req.params.id);
 
     if (!vehicle) {
@@ -466,7 +516,7 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
         console.log(`Processing background removal for image: ${imageUrl} with prompt: ${prompt || 'Default'}`);
 
         // Use AI Service with Gemini 2.5 Flash
-        const aiResult = await processImageWithGemini(imageUrl, prompt);
+        const aiResult = await processImageWithGemini(imageUrl, prompt,promptId);
         const processedImageUrl = aiResult.processedUrl;
 
         // Update the image in the vehicle record
@@ -478,7 +528,11 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
         }
 
         await vehicle.save();
-
+       if(promptId){ await promptUsed.create({
+            promptId: promptId,
+            vin: vehicle.vin,
+            userId: req.user._id
+        });}
         // Audit Log: Remove Background
         await AuditLog.create({
             action: 'Remove Background',
@@ -1324,6 +1378,100 @@ router.get('/camera-models', protect, (req, res) => {
         cameras: getAvailableCameras(),
         defaultGPS: DEFAULT_GPS
     });
+});
+
+// @desc    Batch edit images with AI
+// @route   POST /api/vehicles/:id/batch-edit-images
+// @access  Protected
+router.post('/:id/batch-edit-images', protect, async (req, res) => {
+    const { images, prompt, promptId } = req.body;
+    
+    try {
+        const vehicle = await Vehicle.findById(req.params.id);
+
+        if (!vehicle) {
+            res.status(404);
+            throw new Error('Vehicle not found');
+        }
+        
+        // Authorization Check
+        if (req.user.role === 'agent' && (!vehicle.assignedUsers || !vehicle.assignedUsers.some(id => id.toString() === req.user._id.toString()))) {
+            res.status(403);
+            throw new Error('Not authorized to access this vehicle');
+        }
+
+        if (!images || !Array.isArray(images) || images.length === 0) {
+            res.status(400);
+            throw new Error('Images array is required');
+        }
+
+        let processedCount = 0;
+        const results = [];
+        
+        // Process sequentially to manage load
+        for (const imageUrl of images) {
+            try {
+                // processImageWithGemini handles promptId lookup if provided
+                const aiResult = await processImageWithGemini(imageUrl, prompt, promptId);
+                const processedImageUrl = aiResult.processedUrl;
+
+                // Update vehicle images
+                const imageIndex = vehicle.images.indexOf(imageUrl);
+                if (imageIndex > -1) {
+                    vehicle.images[imageIndex] = processedImageUrl;
+                } else {
+                    vehicle.images.push(processedImageUrl);
+                }
+
+                processedCount++;
+                results.push({ success: true, original: imageUrl, processed: processedImageUrl });
+            } catch (err) {
+                console.error(`Batch processing failed for image ${imageUrl}:`, err);
+                results.push({ success: false, original: imageUrl, error: err.message });
+            }
+        }
+
+        if (processedCount > 0) {
+            await vehicle.save();
+            
+            // Record Usage if promptId was used
+            if (promptId) {
+                 const existing = await promptUsed.findOne({ vin: vehicle.vin, userId: req.user._id, promptId });
+                 if (!existing) {
+                    await promptUsed.create({
+                        promptId,
+                        vin: vehicle.vin,
+                        userId: req.user._id
+                    });
+                 }
+            }
+            
+            // Audit Log
+            await AuditLog.create({
+                action: 'Batch AI Edit',
+                entityType: 'Vehicle',
+                entityId: vehicle._id,
+                user: req.user._id,
+                organization: req.user.organization._id,
+                details: { 
+                    processedCount, 
+                    totalRequested: images.length,
+                    prompt: prompt || 'Prompt ID: ' + promptId 
+                },
+                ipAddress: req.ip,
+                userAgent: req.get('User-Agent'),
+            });
+        }
+
+        res.json({
+            success: true,
+            processedCount,
+            results
+        });
+        
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
 });
 
 export default router;

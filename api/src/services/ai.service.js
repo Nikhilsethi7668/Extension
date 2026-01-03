@@ -54,6 +54,7 @@ const { fal } = falPkg;
 const { subscribe, storage } = fal;
 import { removeBackground } from '@imgly/background-removal-node';
 import sharp from 'sharp';
+import ImagePrompts from '../models/ImagePrompts.js';
 
 // Helper to upload buffer to Fal
 const uploadToFal = async (buffer, type = 'image/png') => {
@@ -62,7 +63,7 @@ const uploadToFal = async (buffer, type = 'image/png') => {
     return url;
 };
 
-export const processImageWithGemini = async (imageUrl, prompt = 'Remove background') => {
+export const processImageWithGemini = async (imageUrl, prompt = 'Remove background',promptId) => {
     try {
         console.log(`[AI Service] Processing image request. Prompt: "${prompt}"`);
 
@@ -74,7 +75,7 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
         if (!process.env.FAL_KEY) {
             throw new Error('FAL_KEY is missing in .env file');
         }
-
+        const imagePrompt = await ImagePrompts.findById(promptId);
         // 2. INTENT CLASSIFICATION WITH GEMINI
         const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const base64Image = imageBuffer.toString('base64');
@@ -84,7 +85,7 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
         try {
             console.log('[AI Service] Analyzing Intent with Gemini...');
             const analysisPrompt = `
-                Analyze this image and the user's edit prompt: "${prompt}".
+                Analyze this image and the user's edit prompt: "${imagePrompt?.prompt ||prompt}".
                 GOAL: Achieve a pixel-perfect, distortion-free result. Use common sense to ensure the vehicle retains accurate geometry and no parts appear distorted.
 
                 **Keep the car in the image as it is, do not remove it, or change its camera angle or position**

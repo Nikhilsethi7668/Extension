@@ -19,6 +19,8 @@ let imageEditQueue = {};
 let allVehicles = [];
 let currentPage = 1;
 const vehiclesPerPage = 10;
+let selectedPromptId = null;
+let currentVehicleVin = null;
 
 function generateSessionId() {
   return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
@@ -554,6 +556,9 @@ function attachEventListeners() {
       loadVehicles();
     });
   }
+  
+  // Prompt UI Listeners
+  setupPromptListeners();
 }
 
 // Test Fill Facebook Marketplace Form
@@ -1697,10 +1702,129 @@ function checkDuplicateAndWarn(vehicle, btnElement) {
         return; // Stop here, do NOT call postVehicleById
       }
     }
-  }
-
   // If no warning needed, proceed directly
   postVehicleById(vehicle._id);
+}
+
+// Fetch available prompts from API
+async function fetchAvailablePrompts(vin, search = '') {
+  try {
+    if (!currentUser || !currentUser.token) return [];
+    
+    // Construct query parameters
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    
+    const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.availablePrompts || '/vehicles/image-prompts'}/${vin}?${params.toString()}`, {
+      headers: {
+        'Authorization': `Bearer ${currentUser.token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (response.ok) {
+      return await response.json();
+    }
+    return [];
+  } catch (error) {
+    console.error('Error fetching prompts:', error);
+    return [];
+  }
+}
+
+// Display prompts in dropdown
+function displayPrompts(prompts) {
+  const dropdown = document.getElementById('promptSuggestions');
+  if (!dropdown) return;
+
+  if (!prompts || prompts.length === 0) {
+    dropdown.style.display = 'none';
+    return;
+  }
+
+  dropdown.innerHTML = prompts.map(prompt => `
+    <div class="prompt-suggestion-item" data-id="${prompt._id}" data-prompt="${prompt.prompt.replace(/"/g, '&quot;')}">
+        <div class="prompt-suggestion-title">${prompt.title || 'Untitled Prompt'}</div>
+        <div class="prompt-suggestion-text">${prompt.prompt}</div>
+    </div>
+  `).join('');
+
+  // Add click listeners
+  dropdown.querySelectorAll('.prompt-suggestion-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      // Prevent event bubbling if needed
+      e.stopPropagation();
+      const promptId = item.dataset.id;
+      const promptText = item.dataset.prompt;
+      selectPrompt(promptId, promptText);
+    });
+  });
+  
+  // Also prevent input blur from immediately hiding dropdown (mousedown fires before blur)
+  dropdown.addEventListener('mousedown', (e) => {
+      e.preventDefault(); // This is crucial to prevent input blur
+  });
+
+  dropdown.style.display = 'block';
+}
+
+// Handle prompt selection
+function selectPrompt(promptId, promptText) {
+  const input = document.getElementById('bulkAiPrompt');
+  const dropdown = document.getElementById('promptSuggestions');
+  
+  if (input) {
+    input.value = promptText; // User requested: pass its value, if selected
+    selectedPromptId = promptId; // Track selection
+  }
+  
+  if (dropdown) {
+    dropdown.style.display = 'none';
+  }
+}
+
+// Setup Prompt UI Listeners
+function setupPromptListeners() {
+  const input = document.getElementById('bulkAiPrompt');
+  const dropdown = document.getElementById('promptSuggestions');
+  
+  if (!input || !dropdown) return;
+
+  // On Input: Clear selection if typing manually, show filtered suggestions
+  input.addEventListener('input', debounce(async (e) => {
+    // If user types, we clear the specific ID selection because it's now a manual input
+    // User requested: "if user has inputedvalue then make it unselected"
+    // However, if they type, we might want to search again.
+    
+    // Only clear ID if the value doesn't match what we selected (though typing always changes it)
+    selectedPromptId = null; 
+    
+    const searchTerm = e.target.value.trim();
+    if (currentVehicleVin) {
+       const prompts = await fetchAvailablePrompts(currentVehicleVin, searchTerm);
+       displayPrompts(prompts);
+    }
+  }, 300));
+
+  // On Focus: Show suggestions (fetched with empty search or current value)
+  input.addEventListener('focus', async () => {
+    if (currentVehicleVin) {
+       const searchTerm = input.value.trim();
+       // If input is empty, fetch all available (limit applied by API)
+       // If input has value, search by it
+       const prompts = await fetchAvailablePrompts(currentVehicleVin, (selectedPromptId ? '' : searchTerm));
+       displayPrompts(prompts);
+    }
+  });
+
+  // On Blur: Hide dropdown (delayed to allow click)
+  // Note: mousedown on dropdown prevents this blur, handled in displayPrompts
+  input.addEventListener('blur', () => {
+      // Small delay just in case
+      setTimeout(() => {
+          dropdown.style.display = 'none';
+      }, 200);
+  });
 }
 
 function setupModalListeners() {
@@ -2489,6 +2613,10 @@ async function showVehicleImages(vehicleId) {
 
     const result = await response.json();
     const vehicle = result.data;
+    if (vehicle) {
+        window.currentVehicleVin = vehicle.vin;
+        currentVehicleVin = vehicle.vin; // sync local var too
+    }
 
     if (!result.success || !vehicle) {
       throw new Error('Vehicle data not found');
@@ -2720,7 +2848,8 @@ async function processBatchImages() {
       },
       body: JSON.stringify({
         images: imagesArray,
-        prompt: prompt
+        prompt: prompt,
+        promptId: selectedPromptId // Pass selected prompt ID
       })
     });
 
@@ -2751,6 +2880,7 @@ async function processBatchImages() {
       selectedImages.clear();
       updateBatchUI();
       promptInput.value = '';
+      selectedPromptId = null; // Reset prompt selection
 
       // Reload gallery to show new AI images
       await showVehicleImages(window.currentVehicleId);
@@ -3146,107 +3276,14 @@ async function startBulkUpload(type) {
 // Make functions global for inline onclick handlers
 window.startBulkUpload = startBulkUpload;
 
-// --- AI Prompt Suggestions Logic ---
-const PROMPT_VARIANTS = [
-  {
-    label: '⚡ Small & Catchy',
-    desc: 'Short, attractive, approx 50-60 words',
-    value: 'Write a short (50-60 words), attractive, and catchy description that highlights key features to grab attention and drive sales.'
-  },
-  {
-    label: '🔥 Small & Energetic',
-    desc: 'Punchy, high-energy, urgent tone',
-    value: 'Write a punchy, high-energy description (approx. 50 words). Use exciting language to create urgency and enthusiasm.'
-  },
-  {
-    label: '🛡️ Small & Calm',
-    desc: 'Professional, trustworthy, explanatory',
-    value: 'Write a calm, professional, and clear description (approx. 60 words). Focus on explaining the condition and features in a trustworthy tone.'
-  },
-  {
-    label: '✏️ Manual Entry',
-    desc: 'Type your own prompt',
-    value: '' // Clears or leaves as is
-  }
-];
 
-function setupPromptSuggestions(inputId) {
-  const input = document.getElementById(inputId);
-  if (!input) return;
 
-  // Create suggestions container
-  const container = document.createElement('div');
-  container.className = 'prompt-suggestions-box';
-  container.style.cssText = `
-        display: none;
-        position: absolute;
-        background: #1f2937;
-        border: 1px solid #374151;
-        border-radius: 8px;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
-        z-index: 50;
-        width: 100%;
-        max-width: 300px;
-        margin-top: 4px;
-        overflow: hidden;
-    `;
 
-  // Populate options
-  PROMPT_VARIANTS.forEach(variant => {
-    const item = document.createElement('div');
-    item.style.cssText = `
-            padding: 8px 12px;
-            cursor: pointer;
-            border-bottom: 1px solid #374151;
-            transition: background 0.2s;
-        `;
-    item.innerHTML = `
-            <div style="font-weight: 600; font-size: 13px; color: #f3f4f6;">${variant.label}</div>
-            <div style="font-size: 11px; color: #9ca3af;">${variant.desc}</div>
-        `;
 
-    item.onmouseenter = () => item.style.background = '#374151';
-    item.onmouseleave = () => item.style.background = 'transparent';
-
-    item.onclick = (e) => {
-      e.stopPropagation(); // Prevent ensuring blur hides it immediately
-      if (variant.value) {
-        input.value = variant.value;
-      } else {
-        input.value = '';
-        input.focus();
-      }
-      container.style.display = 'none';
-    };
-
-    container.appendChild(item);
-  });
-
-  // Parent wrapper needs relative positioning
-  if (input.parentNode) {
-    input.parentNode.style.position = 'relative';
-    input.parentNode.appendChild(container);
-  }
-
-  // Toggle on click/focus
-  const showSuggestions = () => {
-    // Hide other open logs if any
-    document.querySelectorAll('.prompt-suggestions-box').forEach(el => el.style.display = 'none');
-    container.style.display = 'block';
-  };
-
-  input.addEventListener('focus', showSuggestions);
-  input.addEventListener('click', showSuggestions);
-
-  // Hide on click outside
-  document.addEventListener('click', (e) => {
-    if (!input.contains(e.target) && !container.contains(e.target)) {
-      container.style.display = 'none';
-    }
-  });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-  setupPromptSuggestions('globalAiPrompt');
-  setupPromptSuggestions('bulkAiPrompt');
-});
+
+
+
+
+

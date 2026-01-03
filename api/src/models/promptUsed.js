@@ -9,9 +9,8 @@ const PromptUsedSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref:"User"  
     },
-    vehicleId:{
-        type: mongoose.Schema.Types.ObjectId,
-        ref:"Vehicle"  
+    vin:{
+        type: String,
     }
 },{timestamps:true})
 
