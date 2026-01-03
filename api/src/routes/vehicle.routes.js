@@ -10,6 +10,22 @@ import { scrapeVehicle } from '../services/scraper.service.js';
 
 const router = express.Router();
 
+// Helper function to get base URL from request
+const getBaseUrl = (req) => {
+    const protocol = req.protocol;
+    const host = req.get('host');
+    return `${protocol}://${host}`;
+};
+
+// Helper function to convert relative URLs to full URLs
+const toFullUrl = (relativeUrl, baseUrl) => {
+    if (!relativeUrl) return relativeUrl;
+    if (relativeUrl.startsWith('http://') || relativeUrl.startsWith('https://')) {
+        return relativeUrl; // Already a full URL
+    }
+    return `${baseUrl}${relativeUrl}`;
+};
+
 // @desc    Get all vehicles for an organization
 // @route   GET /api/vehicles
 // @access  Protected
@@ -155,6 +171,16 @@ router.get('/', protect, async (req, res) => {
             vehicles = await vehiclesQuery.skip(skip).limit(limitNum);
         }
 
+        // Convert preparedImages to full URLs for all vehicles
+        const baseUrl = getBaseUrl(req);
+        vehicles = vehicles.map(vehicle => {
+            const v = vehicle.toObject();
+            if (v.preparedImages && v.preparedImages.length > 0) {
+                v.preparedImages = v.preparedImages.map(url => toFullUrl(url, baseUrl));
+            }
+            return v;
+        });
+
         res.json({
             vehicles,
             total,
@@ -222,6 +248,8 @@ router.get('/:id', protect, async (req, res, next) => {
         }
 
         // Transform vehicle data to match testData format for direct posting
+        const baseUrl = getBaseUrl(req);
+        
         const formattedData = {
             _id: vehicle._id,
             year: vehicle.year ? String(vehicle.year) : ' ',
@@ -236,6 +264,9 @@ router.get('/:id', protect, async (req, res, next) => {
             images: vehicle.images && vehicle.images.length > 0
                 ? vehicle.images
                 : [],
+            preparedImages: vehicle.preparedImages && vehicle.preparedImages.length > 0
+                ? vehicle.preparedImages.map(url => toFullUrl(url, baseUrl))
+                : [], // Include prepared images with full URLs
             exteriorColor: vehicle.exteriorColor || '',
             interiorColor: vehicle.interiorColor || '',
             fuelType: vehicle.fuelType || ' ',
@@ -1138,12 +1169,16 @@ router.post('/:id/prepare-for-marketplace', protect, async (req, res) => {
         
         console.log(`[Prepare] ✅ Completed: ${result.successCount}/${imagesToProcess.length} images prepared`);
         
+        // Convert relative URLs to full URLs
+        const baseUrl = getBaseUrl(req);
+        const fullPreparedImages = vehicle.preparedImages.map(url => toFullUrl(url, baseUrl));
+        
         res.json({
             success: true,
             message: `Successfully prepared ${result.successCount} images for marketplace`,
             vehicle: {
                 _id: vehicle._id,
-                preparedImages: vehicle.preparedImages,
+                preparedImages: fullPreparedImages,
                 preparationStatus: vehicle.preparationStatus,
                 preparationMetadata: vehicle.preparationMetadata
             },
@@ -1230,13 +1265,17 @@ router.post('/batch-prepare', protect, async (req, res) => {
                 const savedVehicle = await vehicle.save();
                 console.log(`[Batch Prepare] Saved vehicle. PreparedImages count:`, savedVehicle.preparedImages?.length);
                 
+                // Convert to full URLs for response
+                const baseUrl = getBaseUrl(req);
+                const fullPreparedUrls = preparedUrls.map(url => toFullUrl(url, baseUrl));
+                
                 results.success++;
                 results.items.push({
                     vehicleId,
                     status: 'success',
                     title: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
                     preparedCount: prepResult.successCount,
-                    preparedImages: preparedUrls
+                    preparedImages: fullPreparedUrls
                 });
                 
             } catch (err) {

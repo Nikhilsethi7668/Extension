@@ -400,6 +400,39 @@ function attachEventListeners() {
     scrapeBtn.addEventListener('click', scrapeCurrentPage);
   }
 
+  // Instagram Ad Posting
+  const postToInstaAdBtn = document.getElementById('postToInstaAdBtn');
+  if (postToInstaAdBtn) {
+    postToInstaAdBtn.addEventListener('click', async () => {
+      try {
+        const [tab] = await safeChromeCall(
+          () => chrome.tabs.query({ active: true, currentWindow: true }),
+          'Failed to get active tab'
+        );
+
+        if (!tab) {
+          showNotification('No active tab found', 'error');
+          return;
+        }
+
+        if (!tab.url.includes('facebook.com')) {
+          showNotification('Please go to Facebook first', 'info');
+          return;
+        }
+
+        // Execute the automation script
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content/instagram-ad-poster.js']
+        });
+
+      } catch (error) {
+        console.error('Error posting to Insta Ad:', error);
+        showNotification('Failed to start automation: ' + error.message, 'error');
+      }
+    });
+  }
+
   // AI Description
   const generateDescBtn = document.getElementById('generateDescBtn');
   if (generateDescBtn) {
@@ -2977,7 +3010,7 @@ function showBulkUploadOptions() {
                     <div style="background: #fff3cd; color: #856404; padding: 10px; border-radius: 4px; margin-bottom: 15px; font-size: 12px;">
                         <strong>⚠️ Risk Warning:</strong><br>
                         Uploading many images rapidly can trigger Facebook's spam detection. 
-                        To minimize this risk, we will upload images one by one with random delays (2-5 seconds).
+                        To minimize this risk, we will upload images one by one with random delays (5-10 seconds).
                         Please do not interact with the page while this is running.
                     </div>
                     <p>Which images would you like to upload?</p>
@@ -3089,7 +3122,7 @@ async function startBulkUpload(type) {
 
     // Random Humanizing Delay (Skip if last item or stopped)
     if (i < imagesToUpload.length - 1 && !isStopped) {
-      const delay = Math.floor(Math.random() * 3000) + 2000;
+      const delay = Math.floor(Math.random() * 5000) + 3000;
       updateLoaderStatus(img.url, 'success', `Uploaded. Waiting ${delay / 1000}s...`);
 
       // Split delay into small chunks to allow immediate Pause/Stop response

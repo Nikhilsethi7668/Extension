@@ -10,6 +10,7 @@
         "init-admin": "node src/scripts/init_admin.js"
     },
     "dependencies": {
+        "@fal-ai/client": "^1.8.1",
         "@google/generative-ai": "^0.24.1",
         "@imgly/background-removal-node": "^1.4.5",
         "axios": "^1.7.9",

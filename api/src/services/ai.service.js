@@ -48,10 +48,19 @@ export const generateVehicleContent = async (vehicle, instructions, sentiment = 
     }
 };
 
-// OpenAI Integration for Image Generation
+// Fal.ai Integration for Image Generation
+import falPkg from "@fal-ai/client";
+const { fal } = falPkg;
+const { subscribe, storage } = fal;
 import { removeBackground } from '@imgly/background-removal-node';
 import sharp from 'sharp';
-import FormData from 'form-data';
+
+// Helper to upload buffer to Fal
+const uploadToFal = async (buffer, type = 'image/png') => {
+    const blob = new Blob([buffer], { type });
+    const url = await storage.upload(blob);
+    return url;
+};
 
 export const processImageWithGemini = async (imageUrl, prompt = 'Remove background') => {
     try {
@@ -61,14 +70,12 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
         const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
         const imageBuffer = Buffer.from(imageResponse.data);
 
-        // CHECK: Ensure OpenAI Key is available
-        const openAiKey = process.env.OPENAI_API_KEY;
-        if (!openAiKey) {
-            throw new Error('OPENAI_API_KEY is missing in .env file');
+        // CHECK: Ensure Fal Key is available (Fal client uses FAL_KEY env var automatically, but good to check)
+        if (!process.env.FAL_KEY) {
+            throw new Error('FAL_KEY is missing in .env file');
         }
 
         // 2. INTENT CLASSIFICATION WITH GEMINI
-        // We use Gemini to decide: Does the user want to change the CAR (Generate) or just the BACKGROUND (Smart Edit)?
         const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const base64Image = imageBuffer.toString('base64');
         let visualDescription = "";
@@ -80,7 +87,7 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
                 Analyze this image and the user's edit prompt: "${prompt}".
                 GOAL: Achieve a pixel-perfect, distortion-free result. Use common sense to ensure the vehicle retains accurate geometry and no parts appear distorted.
 
-                **Keep the car in the image as it is, do not remove it. or change its camera angle or position**
+                **Keep the car in the image as it is, do not remove it, or change its camera angle or position**
                 Task 1: Describe the image in detail (key "visualDescription"). Focus on the vehicle's integrity.
                 Task 2: Determine if the user wants to modify the ACTUAL VEHICLE ITSELF (e.g. change color, add spoiler, fix dent, change wheels, convert to convertible) or JUST THE BACKGROUND/ENVIRONMENT (e.g. showroom, beach, white background, remove background, sunny day).
                 
@@ -89,7 +96,7 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
                 
                 IMPORTANT: If the prompt mentions "remove background" or "transparent background", the intent MUST be "MODIFY_BACKGROUND".
                 NOTE: For "remove background", the goal is to remove background clutter but PRESERVE the road/ground and the vehicle (do not disturb the road or vehicle).
-
+                
                 Output JSON only:
                 {
                     "visualDescription": "...",
@@ -103,7 +110,6 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
             ]);
 
             const textResponse = analysisResult.response.text();
-            // Clean markdown
             const jsonStr = textResponse.replace(/```json|```/g, '').trim();
             const result = JSON.parse(jsonStr);
 
@@ -116,181 +122,99 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
             visualDescription = "A vehicle";
         }
 
-        // 3. EXECUTE BASED ON INTENT
+        // 3. PREPARE FOR FLUX (Mask Generation)
+        console.log('[AI Service] Preparing masks for Flux Inpainting...');
 
-        // A) SMART EDIT (Background Change - Preserve Car)
-        if (intent === 'SMART_EDIT') {
-            console.log('[AI Service] Executing Smart Edit (BG Removal + Inpainting)...');
-
-            try {
-                // Step A: Remove Background using @imgly (High quality, local)
-                // PRE-PROCESS: Convert Buffer to Standard PNG using Sharp first.
-                console.log('[AI Service] Converting input to standard PNG...');
-                const pngBuffer = await sharp(imageBuffer).png().toBuffer();
-
-                // Convert to Blob - @imgly expects Blob/Buffer/Path
-                // Data URL failed, Buffer failed (maybe?), so let's try explicit Blob
-                const blob = new Blob([pngBuffer], { type: 'image/png' });
-
-                console.log(`[AI Service] Removing background (using Blob of size ${blob.size})...`);
-                const bgRemovedBlob = await removeBackground(blob);
-                const bgRemovedBuffer = Buffer.from(await bgRemovedBlob.arrayBuffer());
-                console.log(`[AI Service] Background removed. Size: ${bgRemovedBuffer.length}`);
-
-                // Step B: Ensure PNG format and Resize for DALL-E (Must be square, <4MB)
-                const inputImage = await sharp(bgRemovedBuffer)
-                    .resize(1024, 1024, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
-                    .png()
-                    .toBuffer();
-
-                // Step C: Prepare FormData for OpenAI
-                const formData = new FormData();
-                formData.append('image', inputImage, { filename: 'image.png', contentType: 'image/png' });
-                formData.append('prompt', `${prompt}. High quality, photorealistic, 8k, masterpiece, professional automotive photography. No distortion, preserve car shape, accurate geometry.`);
-                formData.append('n', 1);
-                formData.append('size', '1024x1024');
-
-                console.log('[AI Service] Sending to OpenAI DALL-E 2 Edit API...');
-
-                // Step D: Call OpenAI Edit API
-                const openaiResponse = await axios.post(
-                    'https://api.openai.com/v1/images/edits',
-                    formData,
-                    {
-                        headers: {
-                            ...formData.getHeaders(),
-                            'Authorization': `Bearer ${openAiKey}`
-                        }
-                    }
-                );
-
-                if (openaiResponse.data && openaiResponse.data.data && openaiResponse.data.data.length > 0) {
-                    const generatedData = openaiResponse.data.data[0];
-
-                    // Step E: Save result
-                    const resultUrl = generatedData.url;
-                    const resultImgRes = await axios.get(resultUrl, { responseType: 'arraybuffer' });
-                    const resultBuffer = Buffer.from(resultImgRes.data);
-
-                    const fileName = `smart-edit-${Date.now()}.png`;
-                    const savedPath = await saveImageLocally(resultBuffer, fileName);
-                    const processedUrl = `http://localhost:5573${savedPath}`;
-
-                    console.log(`[AI Service] ✅ Smart Edit Complete: ${processedUrl}`);
-
-                    return {
-                        success: true,
-                        originalUrl: imageUrl,
-                        processedUrl: processedUrl,
-                        provider: 'openai-dall-e-2-edit-smart',
-                        wasGenerated: true
-                    };
-                }
-            } catch (err) {
-                console.error('[AI Service] Smart Edit Failed:', err);
-                if (err.response) {
-                    console.error('[AI Service] OpenAI Response Data:', JSON.stringify(err.response.data, null, 2));
-                }
-                throw new Error(`Smart Edit Failed: ${err.message}`);
-            }
-        }
-
-        // B) MODIFY VEHICLE (Edit the Car, Keep Background)
-        // User wants true "Editing" (e.g. change color), not regeneration of the whole scene.
-        // Solution: Invert the mask. Make the CAR transparent (to be filled), keep BACKGROUND opaque (protected).
-
-        console.log('[AI Service] Executing Vehicle Edit (Inverted Mask Inpainting)...');
-
-        // Step A: Remove Background to isolate subject
-        // Pre-process as PNG Blob
+        // Convert to PNG Buffer for sharp/imgly
         const pngBuffer = await sharp(imageBuffer).png().toBuffer();
         const blob = new Blob([pngBuffer], { type: 'image/png' });
 
+        // Remove Background to get the subject (Car)
         const bgRemovedBlob = await removeBackground(blob);
         const bgRemovedBuffer = Buffer.from(await bgRemovedBlob.arrayBuffer());
 
-        // Step B: Create an Inverted Mask
-        // Input: Car is Opaque, BG is Transparent.
-        // Output for Mask: Car must be Transparent (to edit), BG must be Opaque (to protect).
-        const { data, info } = await sharp(bgRemovedBuffer)
-            .ensureAlpha()
-            .raw()
-            .toBuffer({ resolveWithObject: true });
+        // Upload Original Image to Fal
+        const originalImageUrl = await uploadToFal(imageBuffer);
+        
+        let maskBuffer;
 
-        // Iterate through pixels to invert alpha for masking
-        // 4 channels: R, G, B, Alpha
-        for (let i = 0; i < data.length; i += 4) {
-            const alpha = data[i + 3];
-            // If Alpha is high (Car), make it 0 (Transparent -> Edit). 
-            // If Alpha is low (BG), make it 255 (Opaque -> Protect).
-            if (alpha > 128) {
-                data[i + 3] = 0; // Mask this area (Edit it)
-            } else {
-                data[i + 3] = 255; // Protect this area
-            }
+        if (intent === 'SMART_EDIT') {
+            // INTENT: Change Background, Keep Car.
+            // MASK: White = Modify (Background), Black = Protect (Car).
+            // bgRemovedBuffer Alpha: Car=255 (White), BG=0 (Black).
+            // We need to INVERT the alpha channel.
+            console.log('[AI Service] Creating Inverted Mask (Edit BG, Protect Car)...');
+            maskBuffer = await sharp(bgRemovedBuffer)
+                .ensureAlpha()
+                .extractChannel(3) // Get Alpha
+                .negate()          // Invert (Car=0, BG=255)
+                .toBuffer();
+        } else {
+            // INTENT: Change Car, Keep Background.
+            // MASK: White = Modify (Car), Black = Protect (Background).
+            // bgRemovedBuffer Alpha: Car=255 (White), BG=0 (Black).
+            // We use Alpha channel AS IS.
+            console.log('[AI Service] Creating Standard Mask (Edit Car, Protect BG)...');
+            maskBuffer = await sharp(bgRemovedBuffer)
+                .ensureAlpha()
+                .extractChannel(3) // Get Alpha
+                .toBuffer();
         }
 
-        const invertedMaskBuffer = await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } })
-            .resize(1024, 1024, { fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 255 } })
-            .png()
-            .toBuffer();
+        // Upload Mask to Fal
+        const maskUrl = await uploadToFal(maskBuffer);
 
-        // DALL-E Edit requires the 'image' to be RGBA
-        const originalResized = await sharp(imageBuffer)
-            .resize(1024, 1024, { fit: 'contain' })
-            .png()
-            .ensureAlpha()
-            .toBuffer();
+        console.log(`[AI Service] Calling Fal.ai Flux Inpainting. Intent: ${intent}`);
+        console.log(`[AI Service] Original URL: ${originalImageUrl}`);
+        console.log(`[AI Service] Mask URL: ${maskUrl}`);
 
-        // Step C: Prepare FormData
-        // When providing a 'mask', the 'image' should be the original full image.
-        const formData = new FormData();
-        formData.append('image', originalResized, { filename: 'image.png', contentType: 'image/png' });
-        formData.append('mask', invertedMaskBuffer, { filename: 'mask.png', contentType: 'image/png' });
-        formData.append('prompt', `${prompt}. High quality, photorealistic, 8k, masterpiece. No distortion, ensure accurate vehicle geometry, do not alter vehicle body shape unless explicitly asked.`);
-        formData.append('n', 1);
-        formData.append('size', '1024x1024');
-
-        console.log('[AI Service] Sending to DALL-E 2 Edit (Inverted)...');
-
-        const openaiResponse = await axios.post(
-            'https://api.openai.com/v1/images/edits',
-            formData,
-            {
-                headers: {
-                    ...formData.getHeaders(),
-                    'Authorization': `Bearer ${openAiKey}`
+        // 4. CALL FAL.AI
+        const falResult = await subscribe('fal-ai/flux/dev/inpainting', {
+            input: {
+                prompt: `${prompt}. ${visualDescription}. High quality, photorealistic, 8k, masterpiece.`,
+                image_url: originalImageUrl,
+                mask_url: maskUrl,
+                enable_safety_checker: false, // Optional: disable if strict safety is not needed for vehicles
+                image_size: "landscape_4_3" // Good for car listings
+            },
+            logs: true,
+            onQueueUpdate: (update) => {
+                if (update.status === 'IN_PROGRESS') {
+                    update.logs.map((log) => log.message).forEach(msg => console.log(`[Fal] ${msg}`));
                 }
-            }
-        );
+            },
+        });
 
-        if (openaiResponse.data?.data?.[0]) {
-            const resultUrl = openaiResponse.data.data[0].url;
+        if (falResult.data && falResult.data.images && falResult.data.images.length > 0) {
+            const resultUrl = falResult.data.images[0].url;
+            console.log(`[AI Service] Fal Generation Success: ${resultUrl}`);
+
+            // Download and Save Locally
             const resultImgRes = await axios.get(resultUrl, { responseType: 'arraybuffer' });
-            const savedPath = await saveImageLocally(Buffer.from(resultImgRes.data), `vehicle-edit-${Date.now()}.png`);
+            const resultBuffer = Buffer.from(resultImgRes.data);
+            
+            const fileName = `fal-edit-${Date.now()}.png`;
+            const savedPath = await saveImageLocally(resultBuffer, fileName);
+            const processedUrl = `http://localhost:5573${savedPath}`;
 
-            console.log(`[AI Service] ✅ Vehicle Edit Complete.`);
             return {
                 success: true,
                 originalUrl: imageUrl,
-                processedUrl: `http://localhost:5573${savedPath}`,
-                provider: 'openai-dall-e-2-edit-vehicle',
+                processedUrl: processedUrl,
+                provider: 'fal-ai-flux-inpainting',
                 wasGenerated: true,
                 metadata: {
+                    intent: intent,
                     prompt: prompt,
-                    originalDescription: visualDescription.substring(0, 100) + '...',
-                    processedAt: new Date().toISOString()
+                    originalDescription: visualDescription.substring(0, 50) + '...'
                 }
             };
         }
-
-        throw new Error('No image data received from OpenAI');
+        
+        throw new Error('No images returned from Fal.ai');
 
     } catch (error) {
-        console.error('[AI Service] Image Generation Error:', error.response?.data || error.message);
-        if (error.response?.data?.error) {
-            console.error(`[AI Service] OpenAI Error: ${JSON.stringify(error.response.data.error)}`);
-        }
-        throw new Error(`Failed to process image: ${error.message}`);
+        console.error('[AI Service] Fal Processing Error:', error);
+        throw new Error(`Failed to process image with Fal: ${error.message}`);
     }
 };
