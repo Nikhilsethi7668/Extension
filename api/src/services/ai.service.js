@@ -2,8 +2,11 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
 import { saveImageLocally } from './storage.service.js';
 import axios from 'axios';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
-dotenv.config();
+// FORCE HARDCODE KEY (User Request due to env issues)
+process.env.FAL_KEY = '1e80787c-9a39-4f09-9eac-d89f349f5a1e:9f8d078dce42d7c391b0891bb3bf011a';
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
@@ -55,6 +58,7 @@ const { subscribe, storage } = fal;
 import { removeBackground } from '@imgly/background-removal-node';
 import sharp from 'sharp';
 import ImagePrompts from '../models/ImagePrompts.js';
+import { prepareImage } from './image-processor.service.js';
 
 // Helper to upload buffer to Fal
 const uploadToFal = async (buffer, type = 'image/png') => {
@@ -63,7 +67,7 @@ const uploadToFal = async (buffer, type = 'image/png') => {
     return url;
 };
 
-export const processImageWithGemini = async (imageUrl, prompt = 'Remove background',promptId) => {
+export const processImageWithGemini = async (imageUrl, prompt = 'Remove background', promptId) => {
     try {
         console.log(`[AI Service] Processing image request. Prompt: "${prompt}"`);
 
@@ -85,7 +89,7 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
         try {
             console.log('[AI Service] Analyzing Intent with Gemini...');
             const analysisPrompt = `
-                Analyze this image and the user's edit prompt: "${imagePrompt?.prompt ||prompt}".
+                Analyze this image and the user's edit prompt: "${imagePrompt?.prompt || prompt}".
                 GOAL: Achieve a pixel-perfect, distortion-free result. Use common sense to ensure the vehicle retains accurate geometry and no parts appear distorted.
 
                 **Keep the car in the image as it is, do not remove it, or change its camera angle or position**
@@ -136,25 +140,29 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
 
         // Upload Original Image to Fal
         const originalImageUrl = await uploadToFal(imageBuffer);
-        
+
         let maskBuffer;
 
         if (intent === 'SMART_EDIT') {
             // INTENT: Change Background, Keep Car.
             // MASK: White = Modify (Background), Black = Protect (Car).
             // bgRemovedBuffer Alpha: Car=255 (White), BG=0 (Black).
-            // We need to INVERT the alpha channel.
-            console.log('[AI Service] Creating Inverted Mask (Edit BG, Protect Car)...');
+
+            // DILATION STEP: Expand the Car Mask (White) slightly to ensure edges are protected.
+            // If we don't dilate, the boundary might be modified. 
+            // Logic: Blur -> Threshold (Low) = Expands White Area.
+
+            console.log('[AI Service] Creating Inverted Mask (Dilated to Protect Car entirely)...');
             maskBuffer = await sharp(bgRemovedBuffer)
                 .ensureAlpha()
-                .extractChannel(3) // Get Alpha
-                .negate()          // Invert (Car=0, BG=255)
+                .extractChannel(3) // Get Alpha (Car=White)
+                .blur(5)           // Blur edges (White bleeds into Black)
+                .threshold(10)     // Threshold low to capture blur (Expands Car)
+                .negate()          // Invert (Car=0/Black, BG=255/White)
                 .toBuffer();
         } else {
             // INTENT: Change Car, Keep Background.
-            // MASK: White = Modify (Car), Black = Protect (Background).
-            // bgRemovedBuffer Alpha: Car=255 (White), BG=0 (Black).
-            // We use Alpha channel AS IS.
+            // ... (Logic stays same or similar)
             console.log('[AI Service] Creating Standard Mask (Edit Car, Protect BG)...');
             maskBuffer = await sharp(bgRemovedBuffer)
                 .ensureAlpha()
@@ -170,13 +178,15 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
         console.log(`[AI Service] Mask URL: ${maskUrl}`);
 
         // 4. CALL FAL.AI
-        const falResult = await subscribe('fal-ai/flux/dev/inpainting', {
+        // Switching to 'fal-ai/flux-general/inpainting' for better control over preservation.
+        const falResult = await subscribe('fal-ai/flux-general/inpainting', {
             input: {
-                prompt: `${prompt}. ${visualDescription}. High quality, photorealistic, 8k, masterpiece.`,
+                prompt: `${prompt}. ${visualDescription}. High quality, photorealistic, 8k, masterpiece. Do not modify the vehicle body. Keep vehicle geometry unchanged.`,
                 image_url: originalImageUrl,
                 mask_url: maskUrl,
-                enable_safety_checker: false, // Optional: disable if strict safety is not needed for vehicles
-                image_size: "landscape_4_3" // Good for car listings
+                enable_safety_checker: false,
+                image_size: "landscape_4_3",
+                strength: 0.95 // Ensure effective inpainting in masked area
             },
             logs: true,
             onQueueUpdate: (update) => {
@@ -190,13 +200,22 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
             const resultUrl = falResult.data.images[0].url;
             console.log(`[AI Service] Fal Generation Success: ${resultUrl}`);
 
-            // Download and Save Locally
-            const resultImgRes = await axios.get(resultUrl, { responseType: 'arraybuffer' });
-            const resultBuffer = Buffer.from(resultImgRes.data);
-            
-            const fileName = `fal-edit-${Date.now()}.png`;
-            const savedPath = await saveImageLocally(resultBuffer, fileName);
-            const processedUrl = `http://localhost:5573${savedPath}`;
+            // 5. Apply STEALTH Pipeline to Result (Safeguard)
+            // This ensures AI generated images also have geometric perturbation + fake metadata
+            console.log(`[AI Service] Applying Stealth Protocol to AI result...`);
+
+            const stealthResult = await prepareImage(resultUrl, {
+                // Use default random camera/metadata
+            });
+
+            if (!stealthResult.success) {
+                throw new Error(`Stealth processing failed: ${stealthResult.error}`);
+            }
+
+            // Construct full URL (Internal localhost for now, routes will handle full URL mapping)
+            // But we need to return something the frontend can use or the backend saves.
+            // savedPath was relative. stealthResult.relativePath is `/uploads/prepared/...`
+            const processedUrl = `http://localhost:5573${stealthResult.relativePath}`;
 
             return {
                 success: true,
@@ -211,7 +230,7 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
                 }
             };
         }
-        
+
         throw new Error('No images returned from Fal.ai');
 
     } catch (error) {

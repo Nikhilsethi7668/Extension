@@ -49,7 +49,7 @@ router.get('/my-org', protect, async (req, res) => {
 // @route   POST /api/organizations
 // @access  Super Admin
 router.post('/', protect, superAdmin, async (req, res) => {
-    const { name, aiProvider, geminiApiKey, openaiApiKey, maxAgents } = req.body;
+    const { name, aiProvider, geminiApiKey, openaiApiKey, maxAgents, gpsLocation } = req.body;
 
     try {
         const slug = name.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, ''); // Simple slugify
@@ -68,7 +68,13 @@ router.post('/', protect, superAdmin, async (req, res) => {
             settings: {
                 aiProvider: aiProvider || 'gemini',
                 geminiApiKey,
-                openaiApiKey
+                openaiApiKey,
+                gpsLocation: gpsLocation || {
+                    latitude: 25.2048,
+                    longitude: 55.2708,
+                    city: 'Dubai',
+                    country: 'UAE'
+                }
             }
         });
 
@@ -157,6 +163,43 @@ router.put('/:id/regenerate-api-key', protect, superAdmin, async (req, res) => {
             _id: org._id,
             apiKey: org.apiKey
         });
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+});
+
+// @desc    Update organization settings (AI, GPS)
+// @route   PUT /api/organizations/:id/settings
+// @access  Super Admin
+router.put('/:id/settings', protect, superAdmin, async (req, res) => {
+    const { aiProvider, geminiApiKey, openaiApiKey, gpsLocation } = req.body;
+
+    try {
+        const org = await Organization.findById(req.params.id);
+
+        if (!org) {
+            res.status(404);
+            throw new Error('Organization not found');
+        }
+
+        // Initialize settings if they don't exist
+        if (!org.settings) org.settings = {};
+
+        // Update provided fields
+        if (aiProvider) org.settings.aiProvider = aiProvider;
+        if (geminiApiKey !== undefined) org.settings.geminiApiKey = geminiApiKey;
+        if (openaiApiKey !== undefined) org.settings.openaiApiKey = openaiApiKey;
+
+        if (gpsLocation) {
+            org.settings.gpsLocation = {
+                ...org.settings.gpsLocation,
+                ...gpsLocation
+            };
+        }
+
+        await org.save();
+
+        res.json(org);
     } catch (error) {
         res.status(400).json({ message: error.message });
     }

@@ -30,8 +30,7 @@ const Inventory = () => {
     const [selectedVehicleForAssignment, setSelectedVehicleForAssignment] = useState(null);
 
     // Marketplace Preparation State
-    const [preparingVehicle, setPreparingVehicle] = useState(false);
-    const [batchPreparing, setBatchPreparing] = useState(false);
+    // State removed: preparingVehicle, batchPreparing (Deprecated)
 
     // Assignment State
     const [currentUser, setCurrentUser] = useState(null);
@@ -313,51 +312,7 @@ const Inventory = () => {
         }
     };
 
-    // Marketplace Preparation Handlers
-    const handlePrepareForMarketplace = async (vehicleId) => {
-        setPreparingVehicle(true);
-        try {
-            const { data } = await apiClient.post(`/vehicles/${vehicleId}/prepare-for-marketplace`);
-            if (data.success) {
-                alert(`Successfully prepared ${data.processedCount} images for marketplace!`);
-                // Update the selected vehicle with new data
-                if (selectedVehicle?._id === vehicleId) {
-                    setSelectedVehicle(prev => ({
-                        ...prev,
-                        preparedImages: data.vehicle.preparedImages,
-                        preparationStatus: data.vehicle.preparationStatus,
-                        preparationMetadata: data.vehicle.preparationMetadata
-                    }));
-                }
-                fetchVehicles();
-            } else {
-                alert('Preparation failed: ' + (data.message || 'Unknown error'));
-            }
-        } catch (error) {
-            console.error(error);
-            alert('Failed to prepare images: ' + (error.response?.data?.message || error.message));
-        } finally {
-            setPreparingVehicle(false);
-        }
-    };
-
-    const handleBatchPrepare = async () => {
-        if (selectedIds.length === 0) return;
-        setBatchPreparing(true);
-        try {
-            const { data } = await apiClient.post('/vehicles/batch-prepare', {
-                vehicleIds: selectedIds
-            });
-            alert(`Batch preparation complete: ${data.success} succeeded, ${data.failed} failed`);
-            setSelectedIds([]);
-            fetchVehicles();
-        } catch (error) {
-            console.error(error);
-            alert('Batch preparation failed: ' + (error.response?.data?.message || error.message));
-        } finally {
-            setBatchPreparing(false);
-        }
-    };
+    // Marketplace Preparation Handlers REMOVED (Auto-Stealth on Scrape)
 
     const isAdmin = currentUser && ['org_admin', 'super_admin'].includes(currentUser.role);
 
@@ -389,27 +344,16 @@ const Inventory = () => {
                     {isAdmin && selectedIds.length > 0 && (() => {
                         // Check if any selected vehicle needs preparation
                         const selectedVehicles = vehicles.filter(v => selectedIds.includes(v._id));
-                        const needsPreparation = selectedVehicles.some(v => 
-                            !(v.preparedImages && v.preparedImages.length > 0 && 
-                              v.images && v.images.length > 0 && 
-                              v.preparationStatus === 'ready')
+                        const needsPreparation = selectedVehicles.some(v =>
+                            !(v.preparedImages && v.preparedImages.length > 0 &&
+                                v.images && v.images.length > 0 &&
+                                v.preparationStatus === 'ready')
                         );
-                        
+
                         return (
                             <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: 'primary.dark', color: 'white', px: 2, mr: 2, borderRadius: 1, height: 40, gap: 1 }}>
                                 <Typography variant="body2" sx={{ mr: 1 }}>{selectedIds.length} Selected</Typography>
-                                {needsPreparation && (
-                                    <Button
-                                        size="small"
-                                        variant="contained"
-                                        color="secondary"
-                                        startIcon={batchPreparing ? <Loader size={16} className="animate-spin" /> : <Zap size={16} />}
-                                        onClick={handleBatchPrepare}
-                                        disabled={batchPreparing}
-                                    >
-                                        {batchPreparing ? 'Preparing...' : 'Prepare'}
-                                    </Button>
-                                )}
+                                {/* Removed Batch Prepare (Auto-Stealth) */}
                                 <Button
                                     size="small"
                                     variant="contained"
@@ -863,13 +807,13 @@ const Inventory = () => {
                                         label={selectedVehicle.preparationStatus || 'pending'}
                                         color={
                                             selectedVehicle.preparationStatus === 'ready' ? 'success' :
-                                            selectedVehicle.preparationStatus === 'processing' ? 'warning' :
-                                            selectedVehicle.preparationStatus === 'failed' ? 'error' : 'default'
+                                                selectedVehicle.preparationStatus === 'processing' ? 'warning' :
+                                                    selectedVehicle.preparationStatus === 'failed' ? 'error' : 'default'
                                         }
                                         icon={selectedVehicle.preparationStatus === 'ready' ? <CheckCircle size={14} /> : undefined}
                                     />
                                 </Box>
-                                
+
                                 {selectedVehicle.preparationStatus === 'ready' && selectedVehicle.preparedImages?.length > 0 && (
                                     <Box sx={{ mb: 2 }}>
                                         <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 1 }}>
@@ -877,22 +821,8 @@ const Inventory = () => {
                                         </Typography>
                                     </Box>
                                 )}
-                                
-                                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
-                                    Prepares images with humanized metadata (camera model, timestamps, GPS) and unique pixel fingerprints to avoid detection.
-                                </Typography>
-                                
-                                <Button
-                                    variant="contained"
-                                    color="secondary"
-                                    fullWidth
-                                    startIcon={preparingVehicle ? <Loader size={16} className="animate-spin" /> : <Zap size={16} />}
-                                    onClick={() => handlePrepareForMarketplace(selectedVehicle._id)}
-                                    disabled={preparingVehicle || !selectedVehicle.images?.length}
-                                >
-                                    {preparingVehicle ? 'Preparing Images...' : 
-                                     selectedVehicle.preparationStatus === 'ready' ? 'Re-Prepare Images' : 'Prepare for Marketplace'}
-                                </Button>
+
+                                {/* Removed Manual Prepare Button (Auto-Stealth on Scrape) */}
                             </Box>
                         </DialogContent>
                         <DialogActions>

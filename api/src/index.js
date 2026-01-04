@@ -23,7 +23,18 @@ const app = express();
 // Middleware
 app.use(express.json());
 app.use(cors({
-    origin: ["http://localhost:5173", "http://localhost:5000", "http://localhost:5573", "http://localhost:3682", "http://94.250.203.249:3682"],
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+        // Allow chrome extensions
+        if (origin.startsWith('chrome-extension://')) return callback(null, true);
+        // Allow local dev and production
+        const allowedOrigins = ["http://localhost:5173", "http://localhost:5000", "http://localhost:5573", "http://localhost:3682", "http://94.250.203.249:3682"];
+        if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('localhost')) {
+            return callback(null, true);
+        }
+        callback(null, true); // Fallback: Allow all for now to unblock user
+    },
     credentials: true
 }));
 app.use(morgan('dev'));

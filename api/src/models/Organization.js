@@ -25,6 +25,12 @@ const organizationSchema = mongoose.Schema(
             postingLimits: {
                 daily: { type: Number, default: 50 },
             },
+            gpsLocation: {
+                latitude: { type: Number, default: 25.2048 }, // Default Dubai
+                longitude: { type: Number, default: 55.2708 },
+                city: { type: String, default: 'Dubai' },
+                country: { type: String, default: 'UAE' }
+            },
         },
         status: {
             type: String,

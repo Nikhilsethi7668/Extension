@@ -1,7 +1,7 @@
 /**
- * Image Processor Service
- * Prepares vehicle images for Facebook Marketplace with humanized metadata and pixel uniqueness
- */
+* Image Processor Service
+* Prepares vehicle images for Facebook Marketplace with humanized metadata and pixel uniqueness
+*/
 
 import sharp from 'sharp';
 import axios from 'axios';
@@ -64,7 +64,7 @@ export const generateHumanFilename = (extension = 'jpg') => {
             return `${dateStr}_${Math.floor(100 + Math.random() * 899)}.${extension}`;
         }
     ];
-    
+
     return patterns[Math.floor(Math.random() * patterns.length)]();
 };
 
@@ -78,9 +78,9 @@ export const generateUniqueDateTime = (index = 0, baseTime = new Date()) => {
     const minOffset = 30; // seconds
     const maxOffset = 180; // seconds
     const offsetSeconds = index * (minOffset + Math.random() * (maxOffset - minOffset));
-    
+
     const datetime = new Date(baseTime.getTime() - (offsetSeconds * 1000));
-    
+
     // Format: YYYY:MM:DD HH:MM:SS
     const year = datetime.getFullYear();
     const month = String(datetime.getMonth() + 1).padStart(2, '0');
@@ -88,7 +88,7 @@ export const generateUniqueDateTime = (index = 0, baseTime = new Date()) => {
     const hour = String(datetime.getHours()).padStart(2, '0');
     const min = String(datetime.getMinutes()).padStart(2, '0');
     const sec = String(datetime.getSeconds()).padStart(2, '0');
-    
+
     return `${year}:${month}:${day} ${hour}:${min}:${sec}`;
 };
 
@@ -99,17 +99,17 @@ export const generateUniqueDateTime = (index = 0, baseTime = new Date()) => {
 export const makePixelUnique = async (imageBuffer) => {
     // Random brightness adjustment: 0.99 to 1.01 (±1%)
     const brightness = 0.99 + Math.random() * 0.02;
-    
+
     // Random contrast adjustment: very subtle
     const contrast = 0.99 + Math.random() * 0.02;
-    
+
     // Random saturation adjustment
     const saturation = 0.99 + Math.random() * 0.02;
-    
+
     // Apply subtle gamma shift for additional uniqueness
     // Note: Sharp requires gamma to be between 1.0 and 3.0
     const gamma = 1.0 + Math.random() * 0.05; // Range: 1.0 to 1.05
-    
+
     return sharp(imageBuffer)
         .modulate({
             brightness: brightness,
@@ -125,18 +125,53 @@ export const makePixelUnique = async (imageBuffer) => {
  */
 export const resizeForMarketplace = async (imageBuffer, maxSize = 2048) => {
     const metadata = await sharp(imageBuffer).metadata();
-    
+
     // Only resize if larger than max size
     if (metadata.width <= maxSize && metadata.height <= maxSize) {
         return imageBuffer;
     }
-    
+
     return sharp(imageBuffer)
         .resize(maxSize, maxSize, {
             fit: 'inside',
             withoutEnlargement: true
         })
         .jpeg({ quality: 92 }) // High quality JPEG
+        .toBuffer();
+};
+
+/**
+ * Apply geometric perturbations (Micro-rotation + Cropping)
+ * This defeats pHash and other geometric hashing algorithms by shifting the pixel grid
+ */
+export const applyGeometricPerturbation = async (imageBuffer) => {
+    // 1. Load image to get dimensions
+    const image = sharp(imageBuffer);
+    const metadata = await image.metadata();
+    const { width, height } = metadata;
+
+    // 2. Micro-Rotation: Random angle between -1.5 and +1.5 degrees
+    // This is invisible to eye but rotates the pixel grid
+    const angle = (Math.random() * 3) - 1.5;
+
+    // 3. Smart Cropping (2-4%)
+    // We crop to remove any black edges from rotation AND to shift the frame
+    const cropPercent = 0.02 + (Math.random() * 0.02);
+    const cropX = Math.floor(width * cropPercent);
+    const cropY = Math.floor(height * cropPercent);
+    const cropWidth = width - (cropX * 2);
+    const cropHeight = height - (cropY * 2);
+
+    return image
+        .rotate(angle, {
+            background: '#ffffff' // White background for any tiny gaps (though crop removes them)
+        })
+        .extract({
+            left: cropX,
+            top: cropY,
+            width: cropWidth,
+            height: cropHeight
+        })
         .toBuffer();
 };
 
@@ -148,7 +183,7 @@ export const injectMetadata = async (imageBuffer, options = {}) => {
     const camera = options.camera || getRandomCamera();
     const gps = options.gps || DEFAULT_GPS;
     const datetime = options.datetime || generateUniqueDateTime();
-    
+
     // Sharp can embed EXIF data through the withMetadata option
     // We create a metadata object that includes our humanized data
     return sharp(imageBuffer)
@@ -189,43 +224,51 @@ export const injectMetadata = async (imageBuffer, options = {}) => {
 export const prepareImage = async (imageUrl, options = {}) => {
     try {
         console.log(`[Image Processor] Starting preparation for: ${imageUrl}`);
-        
+
         // Step 1: Fetch the original image
         const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
         let imageBuffer = Buffer.from(response.data);
-                
+
         // Step 2: Resize for marketplace (2048px max)
         imageBuffer = await resizeForMarketplace(imageBuffer, options.maxSize || 2048);
-        
+
         // Step 3: Make pixels unique (subtle variations)
         imageBuffer = await makePixelUnique(imageBuffer);
-        
-        // Step 4: Inject humanized metadata
+
+        // Step 4: Apply Geometric Perturbation (Rotation + Crop) - NUCLEAR STEALTH
+        try {
+            imageBuffer = await applyGeometricPerturbation(imageBuffer);
+        } catch (geoError) {
+            console.warn(`[Image Processor] Geometric perturbation failed (skipping): ${geoError.message}`);
+            // Continue if rotation fails (e.g. tiny images)
+        }
+
+        // Step 5: Inject humanized metadata
         const camera = options.camera || getRandomCamera();
         const gps = options.gps || DEFAULT_GPS;
         const datetime = options.datetime || generateUniqueDateTime(options.index || 0);
-        
+
         imageBuffer = await injectMetadata(imageBuffer, {
             camera,
             gps,
             datetime
         });
-        
+
         // Step 5: Generate human-like filename and save
         const filename = options.filename || `prepared_${generateHumanFilename('jpg')}`;
-        
+
         // Ensure prepared directory exists
         const preparedDir = path.join(__dirname, '../../public/uploads/prepared');
         if (!fs.existsSync(preparedDir)) {
             fs.mkdirSync(preparedDir, { recursive: true });
         }
-        
+
         const filePath = path.join(preparedDir, filename);
         fs.writeFileSync(filePath, imageBuffer);
-        
+
         const savedUrl = `/uploads/prepared/${filename}`;
         console.log(`[Image Processor] ✅ Saved prepared image: ${savedUrl}`);
-        
+
         return {
             success: true,
             originalUrl: imageUrl,
@@ -238,7 +281,7 @@ export const prepareImage = async (imageUrl, options = {}) => {
                 gps: gps
             }
         };
-        
+
     } catch (error) {
         console.error(`[Image Processor] Error preparing image: ${error.message}`);
         return {
@@ -256,18 +299,18 @@ export const prepareImage = async (imageUrl, options = {}) => {
 export const prepareImageBatch = async (imageUrls, options = {}) => {
     const results = [];
     const errors = [];
-    
+
     // Use a consistent camera for the batch (simulates same phone)
     const batchCamera = options.camera || getRandomCamera();
     const baseTime = new Date();
     const gps = options.gps || DEFAULT_GPS;
-    
+
     console.log(`[Image Processor] Starting batch preparation of ${imageUrls.length} images`);
     console.log(`[Image Processor] Using camera: ${batchCamera.make} ${batchCamera.model}`);
-    
+
     for (let i = 0; i < imageUrls.length; i++) {
         const imageUrl = imageUrls[i];
-        
+
         try {
             const result = await prepareImage(imageUrl, {
                 camera: batchCamera,
@@ -276,23 +319,23 @@ export const prepareImageBatch = async (imageUrls, options = {}) => {
                 datetime: generateUniqueDateTime(i, baseTime),
                 maxSize: options.maxSize || 2048
             });
-            
+
             if (result.success) {
                 results.push(result);
             } else {
                 errors.push({ url: imageUrl, error: result.error });
             }
-            
+
             // Small delay between processing to avoid overwhelming resources
             await new Promise(resolve => setTimeout(resolve, 100));
-            
+
         } catch (error) {
             errors.push({ url: imageUrl, error: error.message });
         }
     }
-    
+
     console.log(`[Image Processor] Batch complete: ${results.length} success, ${errors.length} failed`);
-    
+
     return {
         success: errors.length === 0,
         totalProcessed: imageUrls.length,
@@ -322,7 +365,9 @@ export const getAvailableCameras = () => {
 export default {
     prepareImage,
     prepareImageBatch,
+    prepareImageBatch,
     makePixelUnique,
+    applyGeometricPerturbation,
     resizeForMarketplace,
     injectMetadata,
     generateHumanFilename,

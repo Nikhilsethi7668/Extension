@@ -11,6 +11,83 @@ import promptUsed from '../models/promptUsed.js';
 import ImagePrompts from '../models/ImagePrompts.js';
 
 const router = express.Router();
+import fs from 'fs';
+import path from 'path';
+
+// @desc    Sync Prompts from JSON to DB
+// @route   POST /api/vehicles/sync-prompts
+// @access  Protected (Admin only really, but strict protect for now)
+router.post('/sync-prompts', protect, async (req, res) => {
+    try {
+        const promptsPath = path.join(process.cwd(), 'prompts.json'); // Root of API
+        // If file not in root, try current dir
+        let finalPath = promptsPath;
+        if (!fs.existsSync(finalPath)) {
+            finalPath = path.join(process.cwd(), 'src/prompts.json');
+        }
+
+        if (!fs.existsSync(finalPath)) {
+            // Fallback to absolute path known from tool usage if needed, or error
+            // Try relative to this file? No, process.cwd() is safest in node
+            return res.status(404).json({ message: 'prompts.json not found' });
+        }
+
+        const rawData = fs.readFileSync(finalPath);
+        const prompts = JSON.parse(rawData);
+
+        // Bulk Write to avoid timeout
+        // Strategy: Clear all? Or Upsert? 
+        // User wants "summary of what prompt will do". If we updated JSON, we should probably clear and reload or upsert.
+        // Let's upsert based on title/prompt combo to avoid duplicates.
+
+        const operations = prompts.map(p => ({
+            updateOne: {
+                filter: { title: p.title, prompt: p.prompt },
+                update: { $set: { title: p.title, prompt: p.prompt } },
+                upsert: true
+            }
+        }));
+
+        const result = await ImagePrompts.bulkWrite(operations);
+
+        res.json({ success: true, message: `Synced ${result.upsertedCount + result.modifiedCount} prompts` });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// @desc    Get Recommended Prompts for Vehicle
+// @route   GET /api/vehicles/:id/recommend-prompts
+// @access  Protected
+router.get('/:id/recommend-prompts', protect, async (req, res) => {
+    try {
+        const vehicleId = req.params.id;
+
+        // 1. Get Used Prompts for this vehicle AND this user
+        // We only hide prompts this specific user has used on this specific vehicle.
+        const usedLog = await promptUsed.find({
+            vehicle: vehicleId,
+            user: req.user._id
+        }).select('promptId');
+        const usedIds = usedLog.map(u => u.promptId);
+
+        // 2. Aggregate random sample excluding usedIds
+        const validPrompts = await ImagePrompts.aggregate([
+            { $match: { _id: { $nin: usedIds } } },
+            { $sample: { size: 4 } }
+        ]);
+
+        // Fallback if we ran out of unused prompts
+        if (validPrompts.length < 4) {
+            const extra = await ImagePrompts.aggregate([{ $sample: { size: 4 - validPrompts.length } }]);
+            validPrompts.push(...extra);
+        }
+
+        res.json(validPrompts);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
 
 // Helper function to get base URL from request
 const getBaseUrl = (req) => {
@@ -26,6 +103,39 @@ const toFullUrl = (relativeUrl, baseUrl) => {
         return relativeUrl; // Already a full URL
     }
     return `${baseUrl}${relativeUrl}`;
+};
+
+// Helper function to automatically process stealth images
+const autoPrepareStealth = async (vehicle, customGps = null) => {
+    if (!vehicle.images || vehicle.images.length === 0) return vehicle;
+
+    // Use Custom GPS (from Org) or Default
+    const gps = customGps || DEFAULT_GPS;
+
+    try {
+        console.log(`[Auto-Stealth] Processing vehicle ${vehicle._id} with GPS: ${JSON.stringify(gps)}...`);
+
+        const result = await prepareImageBatch(vehicle.images, {
+            gps: gps,
+            camera: null // Random
+        });
+
+        if (result.success || result.successCount > 0) {
+            vehicle.preparedImages = result.results.map(r => r.preparedUrl);
+            vehicle.preparationStatus = 'ready';
+            vehicle.lastPreparedAt = new Date();
+            vehicle.preparationMetadata = {
+                camera: result.batchMetadata.camera,
+                software: 'Auto-Stealth',
+                gpsLocation: gps
+            };
+            await vehicle.save();
+            console.log(`[Auto-Stealth] ✅ Processed ${result.successCount} images for ${vehicle._id}`);
+        }
+    } catch (e) {
+        console.error(`[Auto-Stealth] Failed: ${e.message}`);
+    }
+    return vehicle;
 };
 
 // @desc    Get all vehicles for an organization
@@ -211,6 +321,28 @@ router.get('/used-prompts/:vin', protect, async (req, res) => {
 });
 
 // @desc    Get available prompts for a vehicle
+// @route   GET /api/vehicles/image-prompts
+// @access  Protected
+router.get('/image-prompts', protect, async (req, res) => {
+    try {
+        const { search } = req.query;
+        const query = {};
+        if (search) {
+            // Search both title and prompt text
+            query.$or = [
+                { title: { $regex: search, $options: 'i' } },
+                { prompt: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        // Return top 50 matches
+        const prompts = await ImagePrompts.find(query).limit(50);
+        res.json(prompts);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
 // @route   GET /api/vehicles/image-prompts/:vin
 // @access  Protected
 router.get('/image-prompts/:vin', protect, async (req, res) => {
@@ -299,7 +431,7 @@ router.get('/:id', protect, async (req, res, next) => {
 
         // Transform vehicle data to match testData format for direct posting
         const baseUrl = getBaseUrl(req);
-        
+
         const formattedData = {
             _id: vehicle._id,
             year: vehicle.year ? String(vehicle.year) : ' ',
@@ -311,9 +443,7 @@ router.get('/:id', protect, async (req, res, next) => {
             title: vehicle.aiContent?.title || `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || 'Vehicle Listing',
             description: vehicle.description || vehicle.aiContent?.description ||
                 `Excellent condition ${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}. Well maintained. All service records available. No accidents. Perfect for daily commute or family use. Contact for more details!`,
-            images: vehicle.images && vehicle.images.length > 0
-                ? vehicle.images
-                : [],
+            images: (vehicle.images || []).map(url => toFullUrl(url, baseUrl)),
             preparedImages: vehicle.preparedImages && vehicle.preparedImages.length > 0
                 ? vehicle.preparedImages.map(url => toFullUrl(url, baseUrl))
                 : [], // Include prepared images with full URLs
@@ -439,6 +569,12 @@ router.post('/scrape', protect, async (req, res) => {
             userAgent: req.get('User-Agent'),
         });
 
+        // Auto-Stealth Processing (Async - don't block response too long, or do? User said "save them as original and also apply stealth")
+        // Since this is manual single add, we can await it for better UX.
+        // Get GPS from Organization Settings
+        const orgGps = req.user.organization?.settings?.gpsLocation || null;
+        await autoPrepareStealth(vehicle, orgGps);
+
         res.status(201).json(vehicle);
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -493,7 +629,7 @@ router.post('/:id/generate-ai', protect, async (req, res) => {
 // @route   POST /api/vehicles/:id/remove-bg
 // @access  Protected
 router.post('/:id/remove-bg', protect, async (req, res) => {
-    const { imageUrl, prompt,promptId } = req.body; // Accept prompt from user
+    const { imageUrl, prompt, promptId } = req.body; // Accept prompt from user
     const vehicle = await Vehicle.findById(req.params.id);
 
     if (!vehicle) {
@@ -516,7 +652,7 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
         console.log(`Processing background removal for image: ${imageUrl} with prompt: ${prompt || 'Default'}`);
 
         // Use AI Service with Gemini 2.5 Flash
-        const aiResult = await processImageWithGemini(imageUrl, prompt,promptId);
+        const aiResult = await processImageWithGemini(imageUrl, prompt, promptId);
         const processedImageUrl = aiResult.processedUrl;
 
         // Update the image in the vehicle record
@@ -528,11 +664,13 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
         }
 
         await vehicle.save();
-       if(promptId){ await promptUsed.create({
-            promptId: promptId,
-            vin: vehicle.vin,
-            userId: req.user._id
-        });}
+        if (promptId) {
+            await promptUsed.create({
+                promptId: promptId,
+                vin: vehicle.vin,
+                userId: req.user._id
+            });
+        }
         // Audit Log: Remove Background
         await AuditLog.create({
             action: 'Remove Background',
@@ -742,6 +880,10 @@ router.post('/scrape-bulk', protect, async (req, res) => {
                                 organization: req.user.organization._id,
                                 assignedUsers: assignedUserId ? [assignedUserId] : (req.user.role === 'agent' ? [req.user._id] : []),
                             });
+
+                            // Auto-Stealth
+                            const orgGps = req.user.organization?.settings?.gpsLocation || null;
+                            await autoPrepareStealth(vehicle, orgGps);
 
                             results.success++;
                             totalScrapedCount++;
@@ -960,6 +1102,18 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
             // Option 1: Append to existing
             vehicle.aiImages.push(...newAiImages);
 
+            // Track Usage (if promptId was available, or find it?)
+            // If user selected from recommendation, frontend should send `promptId`.
+            // If user typed custom text, we might not have ID.
+            // Check req.body for promptId
+            if (req.body.promptId) {
+                await promptUsed.create({
+                    vehicle: vehicle._id,
+                    promptId: req.body.promptId,
+                    user: req.user._id
+                });
+            }
+
             // Option 2: Overwrite? No, "push the urls in it" implies simple addition.
             // But we should probably filter duplicates if needed.
 
@@ -1152,47 +1306,47 @@ router.post('/:id/prepare-for-marketplace', protect, async (req, res) => {
     try {
         const vehicleId = req.params.id;
         const { gpsLocation, preferredCamera } = req.body;
-        
+
         const vehicle = await Vehicle.findById(vehicleId);
-        
+
         if (!vehicle) {
             return res.status(404).json({ message: 'Vehicle not found' });
         }
-        
+
         // Authorization Check
         const userOrgId = req.user.organization._id.toString();
         const vehicleOrgId = vehicle.organization.toString();
-        
+
         if (userOrgId !== vehicleOrgId) {
             return res.status(403).json({ message: 'Not authorized to access this vehicle' });
         }
-        
+
         // Agent access check
-        if (req.user.role === 'agent' && vehicle.assignedUsers && 
+        if (req.user.role === 'agent' && vehicle.assignedUsers &&
             !vehicle.assignedUsers.some(id => id.toString() === req.user._id.toString())) {
             return res.status(403).json({ message: 'Not authorized to access this vehicle' });
         }
-        
+
         // Get images to process (prefer original images)
         const imagesToProcess = vehicle.images || [];
-        
+
         if (imagesToProcess.length === 0) {
             return res.status(400).json({ message: 'No images found for this vehicle' });
         }
-        
+
         // Update status to processing
         vehicle.preparationStatus = 'processing';
         await vehicle.save();
-        
+
         console.log(`[Prepare] Starting preparation for vehicle ${vehicleId} with ${imagesToProcess.length} images`);
-        
+
         // Prepare images with humanized metadata
         const gps = gpsLocation || DEFAULT_GPS;
         const result = await prepareImageBatch(imagesToProcess, {
             gps: gps,
             camera: preferredCamera // Optional, will use random if not provided
         });
-        
+
         // Update vehicle with prepared images
         vehicle.preparedImages = result.results.map(r => r.preparedUrl);
         vehicle.preparationStatus = result.success ? 'ready' : (result.successCount > 0 ? 'ready' : 'failed');
@@ -1202,9 +1356,9 @@ router.post('/:id/prepare-for-marketplace', protect, async (req, res) => {
             software: result.batchMetadata.camera.includes('iPhone') ? 'iOS 17+' : 'Android 14',
             gpsLocation: gps
         };
-        
+
         await vehicle.save();
-        
+
         // Audit Log: Prepare for Marketplace
         await AuditLog.create({
             action: 'Prepare for Marketplace',
@@ -1220,13 +1374,13 @@ router.post('/:id/prepare-for-marketplace', protect, async (req, res) => {
             ipAddress: req.ip,
             userAgent: req.get('User-Agent'),
         });
-        
+
         console.log(`[Prepare] ✅ Completed: ${result.successCount}/${imagesToProcess.length} images prepared`);
-        
+
         // Convert relative URLs to full URLs
         const baseUrl = getBaseUrl(req);
         const fullPreparedImages = vehicle.preparedImages.map(url => toFullUrl(url, baseUrl));
-        
+
         res.json({
             success: true,
             message: `Successfully prepared ${result.successCount} images for marketplace`,
@@ -1240,7 +1394,7 @@ router.post('/:id/prepare-for-marketplace', protect, async (req, res) => {
             failedCount: result.errorCount,
             errors: result.errors
         });
-        
+
     } catch (error) {
         console.error('[Prepare] Error:', error);
         res.status(500).json({ success: false, message: error.message });
@@ -1253,58 +1407,58 @@ router.post('/:id/prepare-for-marketplace', protect, async (req, res) => {
 router.post('/batch-prepare', protect, async (req, res) => {
     try {
         const { vehicleIds, gpsLocation } = req.body;
-        
+
         if (!vehicleIds || !Array.isArray(vehicleIds) || vehicleIds.length === 0) {
             return res.status(400).json({ message: 'Vehicle IDs array is required' });
         }
-        
+
         const results = {
             total: vehicleIds.length,
             success: 0,
             failed: 0,
             items: []
         };
-        
+
         const gps = gpsLocation || DEFAULT_GPS;
-        
+
         console.log(`[Batch Prepare] Starting batch preparation for ${vehicleIds.length} vehicles`);
-        
+
         for (const vehicleId of vehicleIds) {
             try {
                 const vehicle = await Vehicle.findById(vehicleId);
-                
+
                 if (!vehicle) {
                     results.failed++;
                     results.items.push({ vehicleId, status: 'failed', error: 'Vehicle not found' });
                     continue;
                 }
-                
+
                 // Authorization check
                 if (vehicle.organization.toString() !== req.user.organization._id.toString()) {
                     results.failed++;
                     results.items.push({ vehicleId, status: 'failed', error: 'Not authorized' });
                     continue;
                 }
-                
+
                 const imagesToProcess = vehicle.images || [];
-                
+
                 if (imagesToProcess.length === 0) {
                     results.failed++;
                     results.items.push({ vehicleId, status: 'failed', error: 'No images' });
                     continue;
                 }
-                
+
                 // Update status
                 vehicle.preparationStatus = 'processing';
                 await vehicle.save();
-                
+
                 // Process images
                 const prepResult = await prepareImageBatch(imagesToProcess, { gps });
-                
+
                 // Debug: Log what we're about to save
                 console.log(`[Batch Prepare] Vehicle ${vehicleId}: ${prepResult.successCount} images prepared`);
                 console.log(`[Batch Prepare] PreparedImages URLs:`, prepResult.results.map(r => r.preparedUrl));
-                
+
                 // Update vehicle with prepared images
                 const preparedUrls = prepResult.results.map(r => r.preparedUrl);
                 vehicle.preparedImages = preparedUrls;
@@ -1314,15 +1468,15 @@ router.post('/batch-prepare', protect, async (req, res) => {
                     camera: prepResult.batchMetadata.camera,
                     gpsLocation: gps
                 };
-                
+
                 // Save and log result
                 const savedVehicle = await vehicle.save();
                 console.log(`[Batch Prepare] Saved vehicle. PreparedImages count:`, savedVehicle.preparedImages?.length);
-                
+
                 // Convert to full URLs for response
                 const baseUrl = getBaseUrl(req);
                 const fullPreparedUrls = preparedUrls.map(url => toFullUrl(url, baseUrl));
-                
+
                 results.success++;
                 results.items.push({
                     vehicleId,
@@ -1331,13 +1485,13 @@ router.post('/batch-prepare', protect, async (req, res) => {
                     preparedCount: prepResult.successCount,
                     preparedImages: fullPreparedUrls
                 });
-                
+
             } catch (err) {
                 results.failed++;
                 results.items.push({ vehicleId, status: 'failed', error: err.message });
             }
         }
-        
+
         // Audit Log: Batch Prepare (wrapped to prevent audit failures from breaking main operation)
         try {
             await AuditLog.create({
@@ -1358,11 +1512,11 @@ router.post('/batch-prepare', protect, async (req, res) => {
         } catch (auditErr) {
             console.error('[Batch Prepare] Audit log failed:', auditErr.message);
         }
-        
+
         console.log(`[Batch Prepare] ✅ Completed: ${results.success}/${results.total} vehicles prepared`);
-        
+
         res.json(results);
-        
+
     } catch (error) {
         console.error('[Batch Prepare] Error:', error);
         res.status(500).json({ success: false, message: error.message });
@@ -1385,7 +1539,7 @@ router.get('/camera-models', protect, (req, res) => {
 // @access  Protected
 router.post('/:id/batch-edit-images', protect, async (req, res) => {
     const { images, prompt, promptId } = req.body;
-    
+
     try {
         const vehicle = await Vehicle.findById(req.params.id);
 
@@ -1393,7 +1547,7 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
             res.status(404);
             throw new Error('Vehicle not found');
         }
-        
+
         // Authorization Check
         if (req.user.role === 'agent' && (!vehicle.assignedUsers || !vehicle.assignedUsers.some(id => id.toString() === req.user._id.toString()))) {
             res.status(403);
@@ -1407,7 +1561,7 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
 
         let processedCount = 0;
         const results = [];
-        
+
         // Process sequentially to manage load
         for (const imageUrl of images) {
             try {
@@ -1433,19 +1587,19 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
 
         if (processedCount > 0) {
             await vehicle.save();
-            
+
             // Record Usage if promptId was used
             if (promptId) {
-                 const existing = await promptUsed.findOne({ vin: vehicle.vin, userId: req.user._id, promptId });
-                 if (!existing) {
+                const existing = await promptUsed.findOne({ vin: vehicle.vin, userId: req.user._id, promptId });
+                if (!existing) {
                     await promptUsed.create({
                         promptId,
                         vin: vehicle.vin,
                         userId: req.user._id
                     });
-                 }
+                }
             }
-            
+
             // Audit Log
             await AuditLog.create({
                 action: 'Batch AI Edit',
@@ -1453,10 +1607,10 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
                 entityId: vehicle._id,
                 user: req.user._id,
                 organization: req.user.organization._id,
-                details: { 
-                    processedCount, 
+                details: {
+                    processedCount,
                     totalRequested: images.length,
-                    prompt: prompt || 'Prompt ID: ' + promptId 
+                    prompt: prompt || 'Prompt ID: ' + promptId
                 },
                 ipAddress: req.ip,
                 userAgent: req.get('User-Agent'),
@@ -1468,7 +1622,7 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
             processedCount,
             results
         });
-        
+
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

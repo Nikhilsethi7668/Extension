@@ -5,7 +5,7 @@ const CONFIG = {
   // Extension Information
   name: 'Vehicle Scraper & FB Marketplace Auto-Lister',
   version: '1.0.0',
-  
+
   // Supported Sites
   supportedSites: [
     {
@@ -30,14 +30,14 @@ const CONFIG = {
       scraper: 'cargurus'
     }
   ],
-  
+
   // Facebook Marketplace URLs
   facebook: {
     marketplace: 'https://www.facebook.com/marketplace',
     createVehicle: 'https://www.facebook.com/marketplace/create/vehicle',
     yourListings: 'https://www.facebook.com/marketplace/you/selling'
   },
-  
+
   // Auto-fill Configuration
   autofill: {
     maxAttempts: 30,
@@ -46,7 +46,7 @@ const CONFIG = {
     clickDelay: 500,
     imageUploadDelay: 1000
   },
-  
+
   // Image Settings
   images: {
     maxCount: 24, // Facebook limit
@@ -58,7 +58,7 @@ const CONFIG = {
       large: { width: 1920, height: 1440 }
     }
   },
-  
+
   // AI Configuration
   ai: {
     defaultModel: 'gpt-4',
@@ -66,28 +66,28 @@ const CONFIG = {
     temperature: 0.7,
     defaultInstructions: 'Write an engaging and professional vehicle listing description that highlights key features and appeals to potential buyers.'
   },
-  
+
   // Queue Settings
   queue: {
     maxItems: 50,
     postDelay: 3000, // Delay between batch posts (ms)
     autoSave: true
   },
-  
+
   // Session Settings
   session: {
     tokenExpiry: '24h',
     validateInterval: 30 * 60 * 1000, // 30 minutes
     rememberMe: true
   },
-  
+
   // Logging Settings
   logging: {
     enabled: true,
     level: 'info', // 'debug', 'info', 'warn', 'error'
     maxEntries: 100
   },
-  
+
   // Error Messages
   errors: {
     scrapeNoData: 'Could not extract vehicle data from this page',
@@ -100,7 +100,7 @@ const CONFIG = {
     invalidCredentials: 'Invalid user ID or password',
     accountInactive: 'Your account is not active. Contact administrator'
   },
-  
+
   // Success Messages
   success: {
     scrapeComplete: 'Vehicle data scraped successfully',
@@ -109,7 +109,7 @@ const CONFIG = {
     loginSuccess: 'Login successful',
     descriptionGenerated: 'Description generated successfully'
   },
-  
+
   // Vehicle Categories with Emojis
   categories: [
     { value: 'car', label: 'Car', emoji: '🚗' },
@@ -118,7 +118,7 @@ const CONFIG = {
     { value: 'van', label: 'Van', emoji: '🚚' },
     { value: 'motorcycle', label: 'Motorcycle', emoji: '🏍️' }
   ],
-  
+
   // Emoji Styles
   emojiStyles: [
     { value: 'none', label: 'None' },
@@ -127,17 +127,17 @@ const CONFIG = {
     { value: 'star', label: 'Star', emoji: '⭐' },
     { value: 'checkmark', label: 'Checkmark', emoji: '✅' }
   ],
-  
+
   // Posting Options
   postingOptions: [
     { value: 'marketplace', label: 'Marketplace Only' },
     { value: 'marketplace_groups', label: 'Marketplace + Groups' },
     { value: 'groups', label: 'Groups Only' }
   ],
-  
+
   // Distance Options (miles)
   distanceOptions: [20, 40, 60, 80, 100, 150],
-  
+
   // Field Validation Rules
   validation: {
     year: {
