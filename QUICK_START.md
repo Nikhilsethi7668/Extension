@@ -1,4 +1,4 @@
-# 🚀 QUICK START GUIDE - Shifty Auto Lister
+# 🚀 QUICK START GUIDE - Flash Fender
 
 ## ✅ Extension is Ready!
 
@@ -32,7 +32,7 @@ Click "Select Folder"
 ## 🎨 Using the Extension
 
 ### Open Side Panel
-1. Click **Shifty Auto Lister** icon in toolbar
+1. Click **Flash Fender** icon in toolbar
 2. Side panel opens on the **RIGHT side** of your browser
 3. You see the **Login Screen**
 
@@ -51,7 +51,7 @@ After login, you can:
 ## ⚙️ Configuration
 
 ### API Setup
-Ensure your local API is running on `http://localhost:5001` for full functionality.
+Ensure your local API is running on `http://localhost:5573` for full functionality.
 
 ### Dashboard
 Manage your inventory and users at `http://localhost:5173`.

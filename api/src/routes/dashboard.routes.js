@@ -59,12 +59,18 @@ router.get('/stats', protect, async (req, res) => {
             // Agent: Their vehicles and their posts
             const totalVehicles = await Vehicle.countDocuments({
                 organization: req.user.organization._id || req.user.organization,
-                assignedUser: req.user._id
+                $or: [
+                    { assignedUser: req.user._id },
+                    { assignedUsers: req.user._id }
+                ]
             });
 
             const vehicles = await Vehicle.find({
                 organization: req.user.organization._id || req.user.organization,
-                assignedUser: req.user._id
+                $or: [
+                    { assignedUser: req.user._id },
+                    { assignedUsers: req.user._id }
+                ]
             });
 
             let totalPosts = 0;
@@ -128,7 +134,11 @@ router.get('/timeline', protect, async (req, res) => {
         } else if (req.user.role === 'agent') {
             // Agent sees only their vehicles
             query.organization = req.user.organization._id || req.user.organization;
-            query.assignedUser = req.user._id;
+            // Check both legacy single assignment and new array assignment
+            query.$or = [
+                { assignedUser: req.user._id },
+                { assignedUsers: req.user._id }
+            ];
         } else {
             // Admin sees organization vehicles
             query.organization = req.user.organization._id || req.user.organization;

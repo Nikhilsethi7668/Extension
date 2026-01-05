@@ -15,8 +15,39 @@ export const scrapeVehicle = async (url, options = {}) => {
         const $ = cheerio.load(data);
         const domain = new URL(url).hostname;
 
-        // --- Search Page Detection & URL Extraction (for full image galleries) ---
-        if (url.includes('all-cars') || url.includes('cars-for-sale/searchresults')) {
+        // --- Brown Boys Auto Listing Detection ---
+        if (url.includes('brownboysauto.com') && (url.includes('/cars') || url.includes('/inventory') || url.includes('Minyear'))) {
+            const vehicleUrls = [];
+
+            // Extract links: look for detail page patterns
+            $('a').each((i, el) => {
+                const href = $(el).attr('href');
+                if (href && (href.includes('/inventory/') && href.match(/[0-9]{4}/))) {
+                    // Normalize URL
+                    if (href.startsWith('http')) {
+                        vehicleUrls.push(href);
+                    } else {
+                        vehicleUrls.push(new URL(href, url).toString());
+                    }
+                }
+                // Also try generic /cars/id pattern if exists
+                else if (href && href.match(/\/cars\/[0-9]+$/)) {
+                    if (href.startsWith('http')) {
+                        vehicleUrls.push(href);
+                    } else {
+                        vehicleUrls.push(new URL(href, url).toString());
+                    }
+                }
+            });
+
+            const distinctUrls = [...new Set(vehicleUrls)];
+            if (distinctUrls.length > 0) {
+                return { type: 'expanded_search', urls: distinctUrls };
+            }
+        }
+
+        // --- Search Page Detection (Autotrader) ---
+        if (url.includes('autotrader.com') && (url.includes('all-cars') || url.includes('cars-for-sale/searchresults'))) {
             const vehicleUrls = [];
 
             const nextDataScript = $('#__NEXT_DATA__').html();
@@ -100,6 +131,8 @@ export const scrapeVehicle = async (url, options = {}) => {
                 throw new Error('Could not extract vehicle URLs');
             }
         }
+
+
 
         // --- Regular Single Vehicle Scraping with Full Images ---
         const vehicle = {
@@ -370,6 +403,53 @@ export const scrapeVehicle = async (url, options = {}) => {
         // Return vehicle data
         if (!vehicle.make || !vehicle.model) {
             throw new Error('Could not extract vehicle make/model');
+        }
+
+        // --- Brown Boys Auto Scraping ---
+        if (url.includes('brownboysauto.com')) {
+            // Details are often in .vehicle_single_detail_div__container
+            $('.vehicle_single_detail_div__container').each((i, el) => {
+                const label = $(el).find('span:first-child').text().trim().replace(/:$/, '');
+                const valueText = $(el).find('span:last-of-type').text().trim();
+                // Handle complex value containers (colors)
+                const complexValue = $(el).find('div.d-flex span.d-none').text().trim();
+                const value = complexValue || valueText;
+
+                if (label === 'Year') vehicle.year = parseInt(value);
+                if (label === 'Make') vehicle.make = value;
+                if (label === 'Model') vehicle.model = value;
+                if (label === 'Body Style') vehicle.bodyStyle = value;
+                if (label === 'Odometer') vehicle.mileage = parseInt(value.replace(/[^0-9]/g, ''));
+                if (label === 'Transmission') vehicle.transmission = value;
+                if (label === 'Exterior Color') vehicle.exteriorColor = value;
+                if (label === 'Interior Color') vehicle.interiorColor = value;
+                if (label === 'Vin') vehicle.vin = value;
+                if (label === 'Fuel Type') vehicle.fuelType = value;
+                if (label === 'Stock Number') vehicle.stockNumber = value;
+                if (label === 'Engine') vehicle.engine = value;
+            });
+
+            // Images
+            $('.image-gallery-slide img').each((i, el) => {
+                const src = $(el).attr('src');
+                if (src && !vehicle.images.includes(src)) {
+                    vehicle.images.push(src);
+                }
+            });
+
+            // Description
+            const desc = $('.DetaileProductCustomrWeb-description-text').text().trim();
+            if (desc) vehicle.description = desc;
+
+            // Price fallbacks
+            // Attempt to find price in likely locations if not found
+            if (!vehicle.price) {
+                // Common selectors
+                const priceText = $('.price-value, .final-price').text();
+                if (priceText) vehicle.price = parseInt(priceText.replace(/[^0-9]/g, ''));
+            }
+
+            return vehicle;
         }
 
         return vehicle;

@@ -235,7 +235,7 @@ const Dashboard = () => {
                     <>
                         <Grid item xs={12} sm={6} md={4}>
                             <StatCard
-                                title="Total Vehicles"
+                                title={user?.role === 'agent' ? "Assigned Vehicles" : "Total Vehicles"}
                                 value={stats.totalVehicles || 0}
                                 icon={CarFront}
                                 color="#3b82f6"

@@ -23,7 +23,6 @@
       return false;
     }
   }
-
   // Helper function to safely call chrome APIs
   async function safeChromeStorageGet(keys) {
     if (!isExtensionContextValid()) {
@@ -456,7 +455,7 @@
         // console.log('Button clicked:', text); // Reduce spam
 
         // Check if this is likely the final publish action
-        if (text === 'publish' || text === 'post') {
+        if (text === 'publish' || text === 'post' || text.includes('publish')) {
           console.log('Publish action detected!');
 
           // Remove listener immediately to prevent duplicates
@@ -1975,7 +1974,19 @@
     await sleep(200);
 
     // Type the location value character by character
-    const locationValue = pendingPost.dealerAddress;
+    // Clean the location value to help Facebook's autocomplete
+    // remove zip code (e.g. 70634) and "USA"
+    let locationValue = pendingPost.dealerAddress || '';
+
+    // Remove Zip Code (5 digits at the end)
+    locationValue = locationValue.replace(/\s+\d{5}(-\d{4})?$/, '');
+
+    // Remove Country
+    locationValue = locationValue.replace(/,\s*(USA|United States)$/i, '');
+
+    locationValue = locationValue.trim();
+
+    console.log(`Cleaned location value: "${pendingPost.dealerAddress}" -> "${locationValue}"`);
     for (let i = 0; i < locationValue.length; i++) {
       locationInput.value += locationValue[i];
       locationInput.dispatchEvent(new Event('input', { bubbles: true }));

@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Shifty Auto Lister</title>
+  <title>Flash Fender</title>
   <link rel="stylesheet" href="popup.css">
   <link rel="stylesheet" href="loader-styles.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -16,7 +16,7 @@
   <div class="container">
     <!-- Header Section -->
     <div class="header">
-      <h1>🚗 Shifty Auto Lister</h1>
+      <h1>🚗 Flash Fender</h1>
     </div>
 
     <!-- Login Section (shown by default) -->
@@ -98,6 +98,9 @@
             <span class="input-icon">✨</span>
             <input type="text" id="bulkAiPrompt" width="100%" class="input-field"
               placeholder="Select images and type AI prompt..." />
+            <div id="promptSuggestions" class="prompt-suggestions" style="display: none;">
+              <!-- Suggestions will be injected here -->
+            </div>
           </div>
         </div>
         <div class="image-filters">
@@ -105,6 +108,10 @@
           <button class="filter-btn" data-filter="original">Original</button>
           <button class="filter-btn" data-filter="ai">AI Generated</button>
         </div>
+        <button id="bulkUploadBtn" class="btn btn-secondary"
+          style="background: #2563eb; color: white; padding: 6px 12px; font-size: 12px; margin-top: 8px; width: 100%;">
+          <span>☁️</span> Upload All Images
+        </button>
       </div>
 
       <div id="imagesGallery" class="images-gallery">
@@ -122,7 +129,7 @@
     </div>
 
     <!-- Main Controls (Hidden until logged in) -->
-    <div id="mainControls" class="main-controls">
+    <div id="mainControls" class="main-controls" style="display: none;">
 
       <!-- Account Status Header -->
       <div class="account-header">
@@ -135,6 +142,11 @@
         <button class="btn btn-secondary" id="viewVehiclesBtn" style="width: 100%; margin-top: 12px;">
           <span>🚗</span>
           <span>View Vehicles</span>
+        </button>
+        <button class="btn btn-secondary" id="postToInstaAdBtn"
+          style="width: 100%; margin-top: 12px; background-color: #E1306C; color: white;">
+          <span>📸</span>
+          <span>Post to Insta Ad</span>
         </button>
       </div>
       <!-- Activity Log -->

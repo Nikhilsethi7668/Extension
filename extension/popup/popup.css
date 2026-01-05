@@ -1421,6 +1421,52 @@ input:checked+.slider:before {
   /* Remove uppercase if previously set */
 }
 
+/* Prompt Suggestions Dropdown */
+.prompt-suggestions {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  margin-top: 4px;
+}
+
+.prompt-suggestion-item {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-main);
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-light);
+  transition: background-color 0.2s;
+}
+
+.prompt-suggestion-item:last-child {
+  border-bottom: none;
+}
+
+.prompt-suggestion-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.prompt-suggestion-title {
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.prompt-suggestion-text {
+    font-size: 11px;
+    color: var(--text-sub);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* Modal Styles */
 .modal-overlay {
   position: fixed;

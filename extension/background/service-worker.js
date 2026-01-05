@@ -1,7 +1,7 @@
 // service-worker.js - Background Service Worker
 console.log('Service Worker Loaded');
 
-const BACKEND_URL = 'http://localhost:5001/api';
+const BACKEND_URL = 'http://localhost:5573/api';
 
 // Enable side panel behavior: open side panel when the extension icon is clicked
 chrome.sidePanel
@@ -152,7 +152,7 @@ async function handleFillFormWithTestData(testData, tabId = null) {
 async function handleFillFormWithTestDataFromAPI(customData = null, tabId = null) {
   try {
     // Fetch test data from API
-    const API_BASE_URL = 'http://localhost:5001/api';
+    const API_BASE_URL = 'http://localhost:5573/api';
     const url = `${API_BASE_URL}/test-data`;
     const options = {
       method: customData ? 'POST' : 'GET',

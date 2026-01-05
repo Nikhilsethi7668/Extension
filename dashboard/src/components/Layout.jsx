@@ -69,7 +69,7 @@ const Layout = ({ children, title, actions }) => {
                     </Box>
                     <Box>
                         <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.1 }}>
-                            FaceBookMark
+                            Flash Fender
                         </Typography>
                         <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
                             VEHICLE ADMIN
