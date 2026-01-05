@@ -35,33 +35,10 @@ export async function scrapeBrownBoysViaAPI(options = {}) {
     const listingUrl = `https://www.brownboysauto.com/cars?${urlParams.toString()}`;
     console.log(`[HTML Scraper] 🔗 Target URL: ${listingUrl}`);
 
-    // Try ScraperAPI first if key is configured
-    if (SCRAPER_API_KEY) {
-        console.log('[HTML Scraper] 🔑 ScraperAPI key found, using proxy service...');
-        try {
-            return await scrapeWithScraperAPI(listingUrl, targetCount, existingVins);
-        } catch (error) {
-            console.log(`[HTML Scraper] ⚠️ ScraperAPI failed: ${error.message}, trying free proxy...`);
-        }
-    }
+    // On US Server, try direct Puppeteer first
+    console.log('[HTML Scraper] 🇺🇸 Running on US Sever - Attempting direct connection...');
 
-    // Try free proxy services as a fallback
-    console.log('[HTML Scraper] 🌐 Trying free proxy services...');
-    try {
-        return await scrapeWithFreeProxy(listingUrl, targetCount, existingVins);
-    } catch (error) {
-        console.log(`[HTML Scraper] ⚠️ Free proxy failed: ${error.message}, trying Google Translate...`);
-    }
-
-    // Try Google Translate Proxy (Last Resort Bypass)
-    console.log('[HTML Scraper] 🌐 Trying Google Translate bypass...');
-    try {
-        return await scrapeWithGoogleTranslate(listingUrl, targetCount, existingVins);
-    } catch (error) {
-        console.log(`[HTML Scraper] ⚠️ Google Translate failed: ${error.message}, trying Puppeteer...`);
-    }
-
-    // Fallback to direct Puppeteer (may be blocked by Cloudflare)
+    // Fallback to direct Puppeteer
     return await scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filters);
 }
 
