@@ -10,7 +10,7 @@ services:
       - PORT=5573
       - GEMINI_API_KEY=AIzaSyBf452ABtErGZ9-RWQxYAmZXvQp3k2sgek
       - FAL_KEY=1e80787c-9a39-4f09-9eac-d89f349f5a1e:9f8d078dce42d7c391b0891bb3bf011a
-      - MONGO_URI=mongodb://extension:Password1234@mongo:27017/facebookmark?authSource=admin
+      - MONGO_URI=${MONGO_URI}
       - JWT_SECRET=dev_secret_key_12345
     volumes:
       - ./api:/app
@@ -46,8 +46,8 @@ services:
     ports:
       - "27017:27017" # Exposed to host for local tools / concurrent local dev
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=extension
-      - MONGO_INITDB_ROOT_PASSWORD=Password1234
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME:-extension}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-Password1234}
     volumes:
       - mongo-data:/data/db
     networks:

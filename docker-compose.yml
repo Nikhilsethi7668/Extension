@@ -4,9 +4,9 @@ services:
     ports:
       - "5573:5573"
     environment:
-      - NODE_ENV=development
+      - NODE_ENV=production
       - PORT=5573
-      - MONGO_URI=mongodb://extension:Password1234@mongo:27017/facebookmark?authSource=admin
+      - MONGO_URI=${MONGO_URI}
     volumes:
       - ./api:/app
       - /app/node_modules
@@ -39,8 +39,8 @@ services:
     ports:
       - "27017:27017"
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=extension
-      - MONGO_INITDB_ROOT_PASSWORD=Password1234
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME:-extension}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-Password1234}
     volumes:
       - mongo-data:/data/db
     networks:
