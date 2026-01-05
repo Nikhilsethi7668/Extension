@@ -41,12 +41,129 @@ export async function scrapeBrownBoysViaAPI(options = {}) {
         try {
             return await scrapeWithScraperAPI(listingUrl, targetCount, existingVins);
         } catch (error) {
-            console.log(`[HTML Scraper] ⚠️ ScraperAPI failed: ${error.message}, trying direct...`);
+            console.log(`[HTML Scraper] ⚠️ ScraperAPI failed: ${error.message}, trying free proxy...`);
         }
+    }
+
+    // Try free proxy services as a fallback
+    console.log('[HTML Scraper] 🌐 Trying free proxy services...');
+    try {
+        return await scrapeWithFreeProxy(listingUrl, targetCount, existingVins);
+    } catch (error) {
+        console.log(`[HTML Scraper] ⚠️ Free proxy failed: ${error.message}, trying Puppeteer...`);
     }
 
     // Fallback to direct Puppeteer (may be blocked by Cloudflare)
     return await scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filters);
+}
+
+/**
+ * Scrape using free proxy services (AllOrigins, etc.)
+ */
+async function scrapeWithFreeProxy(listingUrl, targetCount, existingVins) {
+    console.log('[FreeProxy] 🌐 Attempting to fetch via free proxy...');
+
+    // Try multiple free proxy services
+    const proxies = [
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(listingUrl)}`,
+        `https://corsproxy.io/?${encodeURIComponent(listingUrl)}`,
+    ];
+
+    let html = null;
+
+    for (const proxyUrl of proxies) {
+        try {
+            console.log(`[FreeProxy] 📡 Trying: ${proxyUrl.substring(0, 50)}...`);
+            const response = await axios.get(proxyUrl, {
+                timeout: 30000,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                }
+            });
+
+            // Check if we got actual content (not Cloudflare block)
+            if (response.data && !response.data.includes('Cloudflare') && !response.data.includes('blocked')) {
+                html = response.data;
+                console.log('[FreeProxy] ✅ Successfully fetched via proxy');
+                break;
+            }
+        } catch (err) {
+            console.log(`[FreeProxy] ⚠️ Proxy failed: ${err.message}`);
+        }
+    }
+
+    if (!html) {
+        throw new Error('All free proxies failed');
+    }
+
+    // Parse with cheerio
+    const $ = cheerio.load(html);
+    const scrapedVehicles = [];
+    let totalSkipped = 0;
+
+    const vehicleCards = $('.special-vehicle');
+    console.log(`[FreeProxy] 📦 Found ${vehicleCards.length} vehicle cards`);
+
+    if (vehicleCards.length === 0) {
+        throw new Error('No vehicles found - proxy may have been blocked');
+    }
+
+    vehicleCards.each((index, card) => {
+        if (scrapedVehicles.length >= targetCount) return false;
+
+        try {
+            const $card = $(card);
+            const detailLink = $card.find('a[href*="/cars/used/"]').attr('href');
+            if (!detailLink) return;
+
+            const urlMatch = detailLink.match(/\/cars\/used\/(\d{4})-(.+)-(\d+)$/);
+            if (!urlMatch) return;
+
+            const year = parseInt(urlMatch[1]);
+            const vehicleId = urlMatch[3];
+            const parts = urlMatch[2].split('-');
+            const make = parts[0] ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1) : '';
+            const model = parts.slice(1).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+
+            const imageUrl = $card.find('img').attr('src') || '';
+            const priceText = $card.find('.main-bg').text().replace(/[^0-9.]/g, '');
+            const price = parseFloat(priceText) || 0;
+            const title = $card.find('.font-weight-bold').last().text().trim() || `${year} ${make} ${model}`;
+
+            const vin = `BROWNBOYS-${vehicleId}`;
+
+            if (existingVins.has(vin)) {
+                totalSkipped++;
+                return;
+            }
+
+            scrapedVehicles.push({
+                vehicleId,
+                vin,
+                year,
+                make,
+                model,
+                title,
+                price,
+                mileage: 0,
+                sourceUrl: `https://www.brownboysauto.com${detailLink}`,
+                images: imageUrl ? [imageUrl.replace('thumb-', '')] : []
+            });
+
+            console.log(`[FreeProxy] ✅ Scraped: ${title} (${scrapedVehicles.length}/${targetCount})`);
+        } catch (err) {
+            console.log(`[FreeProxy] ⚠️ Error: ${err.message}`);
+        }
+    });
+
+    console.log(`[FreeProxy] 🏁 Complete! Scraped ${scrapedVehicles.length} vehicles`);
+
+    return {
+        vehicles: scrapedVehicles,
+        totalScraped: scrapedVehicles.length,
+        totalSkipped,
+        pagesProcessed: 1
+    };
 }
 
 /**
