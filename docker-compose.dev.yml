@@ -11,13 +11,16 @@ services:
       - GEMINI_API_KEY=AIzaSyBf452ABtErGZ9-RWQxYAmZXvQp3k2sgek
       - FAL_KEY=1e80787c-9a39-4f09-9eac-d89f349f5a1e:9f8d078dce42d7c391b0891bb3bf011a
       - JWT_SECRET=dev_secret_key_12345
+      - MONGO_USERNAME=extension
+      - MONGO_PASSWORD=Password1234
+      - MONGO_HOST=mongo
+      - MONGO_PORT=27017
+      - MONGO_DATABASE=facebookmark
+      - MONGO_AUTH_SOURCE=admin
     volumes:
       - ./api:/app
       - /app/node_modules
       - ./api/public/uploads:/app/public/uploads
-    # Override CMD to ensure nodemon is used for hot reloading if available in scripts
-    # or install it globally if not present (but preferably rely on package.json script)
-    # Assuming 'npm run dev' runs nodemon as per package.json which usually exists in dev setups
     command: npm run dev
     depends_on:
       - mongo
@@ -43,7 +46,7 @@ services:
   mongo:
     image: mongo:latest
     ports:
-      - "0.0.0.0:27018:27017" # Accessible from anywhere
+      - "0.0.0.0:27018:27017"
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME:-extension}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-Password1234}

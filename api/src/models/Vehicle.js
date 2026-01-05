@@ -28,12 +28,26 @@ const vehicleSchema = mongoose.Schema(
         images: [String], // URLs to images
         aiImages: [String], // URLs to AI processed images
         sourceUrl: String,
+        imageSource: String, // 'api_standard', 'api_deep_search', 'puppeteer_fallback'
         fuelType: String,
         condition: String, // New/Used
         transmission: String,
         exteriorColor: String,
         interiorColor: String,
         bodyStyle: String,
+        drivetrain: String,
+        engine: String,
+        engineSize: String,
+        doors: Number,
+        passengers: Number,
+        stockNumber: String,
+        cityFuel: String,
+        hwyFuel: String,
+        specialPrice: Number,
+        msrp: Number,
+        features: [String], // Vehicle features from detail API
+        engineCylinders: String,
+        carfaxLink: String,
         status: {
             type: String,
             enum: ['available', 'posted', 'sold_pending_removal', 'sold'],

@@ -839,10 +839,22 @@ router.post('/scrape-bulk', protect, async (req, res) => {
         // If we are scraping a SEARCH page, we might get many vehicles. We need to tell the scraper how many we still need.
         const remainingLimit = limit ? (limit - totalScrapedCount) : null;
 
+        // Fetch existing VINs for this organization (for skip logic)
+        const existingVehicles = await Vehicle.find(
+            { organization: req.user.organization._id, vin: { $exists: true, $ne: '' } },
+            { vin: 1, _id: 0 }
+        ).lean();
+        const existingVins = new Set(existingVehicles.map(v => v.vin));
+
         processed.add(trimmedUrl);
 
         try {
-            const result = await scrapeVehicle(trimmedUrl, { limit: remainingLimit });
+            console.log('[Route] Calling scrapeVehicle for:', trimmedUrl);
+            console.log(`[Route] Existing VINs in DB: ${existingVins.size}`);
+            const result = await scrapeVehicle(trimmedUrl, {
+                limit: remainingLimit,
+                existingVins
+            });
 
             // Handle Bulk Vehicles (Search Page with Full Data)
             if (result.type === 'bulk_vehicles') {
@@ -865,12 +877,59 @@ router.post('/scrape-bulk', protect, async (req, res) => {
                         });
 
                         if (existing && vehicleData.vin) {
-                            results.failed++;
-                            results.items.push({
-                                url: vehicleData.sourceUrl,
-                                status: 'failed',
-                                error: `Vehicle with VIN ${vehicleData.vin} already exists.`
-                            });
+                            // UPDATE existing vehicle instead of skipping
+                            try {
+                                // Update ALL fields including images
+                                existing.year = vehicleData.year || existing.year;
+                                existing.make = vehicleData.make || existing.make;
+                                existing.model = vehicleData.model || existing.model;
+                                existing.trim = vehicleData.trim || existing.trim;
+                                existing.price = vehicleData.price || existing.price;
+                                existing.mileage = vehicleData.mileage || existing.mileage;
+                                existing.exteriorColor = vehicleData.exteriorColor || existing.exteriorColor;
+                                existing.interiorColor = vehicleData.interiorColor || existing.interiorColor;
+                                existing.transmission = vehicleData.transmission || existing.transmission;
+                                existing.drivetrain = vehicleData.drivetrain || existing.drivetrain;
+                                existing.fuelType = vehicleData.fuelType || existing.fuelType;
+                                existing.engine = vehicleData.engine || existing.engine;
+                                existing.description = vehicleData.description || existing.description;
+                                existing.features = vehicleData.features?.length > 0 ? vehicleData.features : existing.features;
+                                existing.stockNumber = vehicleData.stockNumber || existing.stockNumber;
+                                existing.location = vehicleData.location || existing.location;
+                                existing.carfaxLink = vehicleData.carfaxLink || existing.carfaxLink;
+
+                                // ALWAYS update images if new ones are better
+                                if (vehicleData.images && vehicleData.images.length > 0) {
+                                    // Only update if new images are likely real (not just logos)
+                                    const hasRealImages = vehicleData.images.some(img =>
+                                        !img.toLowerCase().includes('logo') &&
+                                        !img.toLowerCase().includes('icon') &&
+                                        img.match(/\.(jpg|jpeg|png|webp)/i)
+                                    );
+                                    if (hasRealImages) {
+                                        existing.images = vehicleData.images;
+                                        existing.imageSource = vehicleData.imageSource || 'updated';
+                                    }
+                                }
+
+                                await existing.save();
+
+                                results.success++;
+                                totalScrapedCount++;
+                                results.items.push({
+                                    url: vehicleData.sourceUrl,
+                                    status: 'updated',
+                                    vehicleId: existing._id,
+                                    title: `${existing.year} ${existing.make} ${existing.model}`
+                                });
+                            } catch (err) {
+                                results.failed++;
+                                results.items.push({
+                                    url: vehicleData.sourceUrl,
+                                    status: 'failed',
+                                    error: `Update failed: ${err.message}`
+                                });
+                            }
                             continue;
                         }
 

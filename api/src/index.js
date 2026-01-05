@@ -41,7 +41,7 @@ app.use(morgan('dev'));
 
 // Route Registration
 app.use((req, res, next) => {
-    console.log(`[DEBUG] ${req.method} ${req.url}`);
+    console.log(`[SUPER DEBUG] ${req.method} ${req.url}`);
     console.log('[DEBUG] Headers:', JSON.stringify(req.headers));
     next();
 });

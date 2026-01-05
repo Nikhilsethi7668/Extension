@@ -47,7 +47,7 @@ export const protect = async (req, res, next) => {
                 return next(new Error('Your account is inactive'));
             }
 
-            if (user.organization && user.organization.status !== 'active') {
+            if (user.role !== 'super_admin' && user.organization && user.organization.status !== 'active') {
                 res.status(403);
                 return next(new Error('Your organization is inactive'));
             }
@@ -82,7 +82,7 @@ export const protect = async (req, res, next) => {
                 return next(new Error('Account inactive'));
             }
 
-            if (user.organization.status !== 'active') {
+            if (user.role !== 'super_admin' && user.organization.status !== 'active') {
                 console.log('Protect Middleware: Org inactive');
                 res.status(403);
                 return next(new Error('Organization inactive'));

@@ -1,7 +1,9 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import { scrapeBrownBoysViaAPI } from '../utils/brownBoysApiScraper.js';
 
 export const scrapeVehicle = async (url, options = {}) => {
+    console.log('[Scraper] Start scraping:', url);
     try {
         const { data } = await axios.get(url, {
             headers: {
@@ -15,35 +17,201 @@ export const scrapeVehicle = async (url, options = {}) => {
         const $ = cheerio.load(data);
         const domain = new URL(url).hostname;
 
-        // --- Brown Boys Auto Listing Detection ---
-        if (url.includes('brownboysauto.com') && (url.includes('/cars') || url.includes('/inventory') || url.includes('Minyear'))) {
-            const vehicleUrls = [];
+        // --- Brown Boys Auto Logic ---
+        if (url.includes('brownboysauto.com')) {
+            console.log('[Scraper] Brown Boys Auto URL detected:', url);
 
-            // Extract links: look for detail page patterns
-            $('a').each((i, el) => {
-                const href = $(el).attr('href');
-                if (href && (href.includes('/inventory/') && href.match(/[0-9]{4}/))) {
-                    // Normalize URL
-                    if (href.startsWith('http')) {
-                        vehicleUrls.push(href);
-                    } else {
-                        vehicleUrls.push(new URL(href, url).toString());
-                    }
-                }
-                // Also try generic /cars/id pattern if exists
-                else if (href && href.match(/\/cars\/[0-9]+$/)) {
-                    if (href.startsWith('http')) {
-                        vehicleUrls.push(href);
-                    } else {
-                        vehicleUrls.push(new URL(href, url).toString());
-                    }
-                }
-            });
+            // Detect if this is a listing or detail page
+            const isListingPage = url.includes('/cars?');
+            const isDetailPage = url.match(/\/cars\/used\/[\w-]+-\d+$/);
 
-            const distinctUrls = [...new Set(vehicleUrls)];
-            if (distinctUrls.length > 0) {
-                return { type: 'expanded_search', urls: distinctUrls };
+            console.log(`[Scraper] Page type - Listing: ${!!isListingPage}, Detail: ${!!isDetailPage}`);
+
+            // CASE 1: Listing Page - Use API scraping (NO UI/browser needed!)
+            if (isListingPage && !isDetailPage) {
+                console.log('[Scraper] Listing page detected, using API-based scraping');
+
+                // Parse filters from URL
+                const urlObj = new URL(url);
+                const filters = {
+                    make: urlObj.searchParams.get('make') || '',
+                    model: urlObj.searchParams.get('model') || '',
+                    year_start: parseInt(urlObj.searchParams.get('Minyear')) || 2017,
+                    year_end: parseInt(urlObj.searchParams.get('Maxyear')) || 2026
+                };
+
+                try {
+                    const result = await scrapeBrownBoysViaAPI({
+                        targetCount: options.limit || 50,
+                        existingVins: options.existingVins || new Set(),
+                        filters
+                    });
+
+                    console.log(`[Scraper] API scraper returned ${result.totalScraped} vehicles (${result.totalSkipped} skipped)`);
+
+                    // Return vehicles directly (not URLs, actual vehicle data!)
+                    return {
+                        type: 'bulk_vehicles',
+                        vehicles: result.vehicles,
+                        totalScraped: result.totalScraped,
+                        totalSkipped: result.totalSkipped
+                    };
+                } catch (apiError) {
+                    console.error('[Scraper] API scraping failed:', apiError.message);
+                    // Continue to fallback methods below
+                }
             }
+
+            // Try JSON for detail pages
+            const nextDataScript = $('#__NEXT_DATA__').html();
+            console.log(`[Scraper] __NEXT_DATA__ found: ${!!nextDataScript}`);
+
+            if (nextDataScript) {
+                try {
+                    const json = JSON.parse(nextDataScript);
+                    const pageProps = json.props?.pageProps || {};
+
+                    // CASE 2: Detail Page (JSON approach)
+                    if (pageProps.data && pageProps.data.Vehicle) {
+                        console.log('[Scraper] Detail page data found via JSON');
+                        const vJSON = pageProps.data;
+                        const vCore = vJSON.Vehicle;
+
+                        const vehicleData = {
+                            vin: vCore.vin_number,
+                            year: vCore.model_year,
+                            make: vCore.make,
+                            model: vCore.model,
+                            trim: vCore.trim,
+                            bodyStyle: vCore.body_style,
+                            price: vJSON.sell_price || 0,
+                            mileage: vJSON.odometer || 0,
+                            stockNumber: vJSON.stock_NO || vJSON.stock_no_cast,
+                            transmission: vCore.Transmission?.name || vCore.transmission,
+                            drivetrain: vCore.drive_type,
+                            exteriorColor: vCore.exterior_color?.name,
+                            interiorColor: vCore.interior_color?.name,
+                            fuelType: vCore.fuel_type,
+                            engine: vCore.engine_cylinders,
+                            features: [],
+                            images: [],
+                            sourceUrl: url
+                        };
+
+                        // Price fallback
+                        if (!vehicleData.price) {
+                            const priceText = $('.main-bg.text-white.position-absolute.rounded-pill').first().text().replace(/[^0-9]/g, '');
+                            if (priceText) vehicleData.price = parseInt(priceText);
+                        }
+
+                        // Images from thumbnails
+                        $('.image-gallery-thumbnail-image').each((i, el) => {
+                            let src = $(el).attr('src');
+                            if (src) {
+                                // Replace 'thumb-' with full image if needed
+                                src = src.replace('/thumb-', '/');
+                                if (!src.startsWith('http')) src = `https://www.brownboysauto.com${src}`;
+                                if (!vehicleData.images.includes(src)) vehicleData.images.push(src);
+                            }
+                        });
+
+                        // Description
+                        const desc = $('.DetaileProductCustomrWeb-description-text').text().trim();
+                        if (desc) vehicleData.description = desc;
+
+                        // Features from JSON
+                        if (vCore.standard) {
+                            Object.values(vCore.standard).forEach(list => {
+                                if (Array.isArray(list)) vehicleData.features.push(...list);
+                            });
+                        }
+
+                        return vehicleData;
+                    }
+                } catch (e) {
+                    console.error('[Scraper] JSON parsing failed:', e.message);
+                }
+            }
+
+            // HTML FALLBACK: Listing Page
+            if (isListingPage && !isDetailPage) {
+                console.log('[Scraper] Attempting HTML extraction for listing page');
+                const vehicleUrls = [];
+
+                // Extract from vehicle cards
+                $('a[href^="/cars/used/"]').each((i, el) => {
+                    const href = $(el).attr('href');
+                    if (href && href.includes('/cars/used/')) {
+                        const fullUrl = `https://www.brownboysauto.com${href}`;
+                        if (!vehicleUrls.includes(fullUrl)) {
+                            vehicleUrls.push(fullUrl);
+                        }
+                    }
+                });
+
+                if (vehicleUrls.length > 0) {
+                    console.log(`[Scraper] Extracted ${vehicleUrls.length} URLs from HTML`);
+                    return { type: 'expanded_search', urls: vehicleUrls };
+                }
+            }
+
+            // HTML FALLBACK: Detail Page
+            if (isDetailPage) {
+                console.log('[Scraper] Attempting HTML extraction for detail page');
+                const vehicleData = {
+                    images: [],
+                    features: [],
+                    sourceUrl: url
+                };
+
+                // Extract details from detail divs
+                $('.vehicle_single_detail_div__container').each((i, el) => {
+                    const label = $(el).find('span:first-child').text().trim().replace(/\s*:$/, '');
+                    const value = $(el).find('span:last-child').text().trim();
+
+                    if (label === 'Year') vehicleData.year = parseInt(value);
+                    if (label === 'Make') vehicleData.make = value;
+                    if (label === 'Model') vehicleData.model = value;
+                    if (label === 'Body Style') vehicleData.bodyStyle = value;
+                    if (label === 'Odometer') vehicleData.mileage = parseInt(value.replace(/[^0-9]/g, ''));
+                    if (label === 'Transmission') vehicleData.transmission = value;
+                    if (label === 'Exterior Color') vehicleData.exteriorColor = value;
+                    if (label === 'Interior Color') vehicleData.interiorColor = value;
+                    if (label === 'Vin') vehicleData.vin = value;
+                    if (label === 'Fuel Type') vehicleData.fuelType = value;
+                    if (label === 'Stock Number') vehicleData.stockNumber = value;
+                    if (label === 'Engine') vehicleData.engine = value;
+                    if (label === 'Drivetrain') vehicleData.drivetrain = value;
+                });
+
+                // Extract price
+                const priceText = $('.main-bg.text-white.position-absolute.rounded-pill').first().text();
+                if (priceText && !priceText.includes('Call')) {
+                    vehicleData.price = parseInt(priceText.replace(/[^0-9]/g, ''));
+                }
+
+                // Extract images from gallery
+                $('.image-gallery-thumbnail-image').each((i, el) => {
+                    let src = $(el).attr('src');
+                    if (src) {
+                        src = src.replace('/thumb-', '/');
+                        if (!src.startsWith('http')) src = `https:${src}`;
+                        if (!vehicleData.images.includes(src)) vehicleData.images.push(src);
+                    }
+                });
+
+                // Extract description
+                const desc = $('.DetaileProductCustomrWeb-description-text').text().trim();
+                if (desc) vehicleData.description = desc;
+
+                // If we got basic fields, return
+                if (vehicleData.make && vehicleData.model) {
+                    console.log('[Scraper] Successfully extracted vehicle from HTML');
+                    return vehicleData;
+                }
+            }
+
+            console.warn('[Scraper] Brown Boys Auto: All extraction methods failed');
         }
 
         // --- Search Page Detection (Autotrader) ---
@@ -405,51 +573,10 @@ export const scrapeVehicle = async (url, options = {}) => {
             throw new Error('Could not extract vehicle make/model');
         }
 
-        // --- Brown Boys Auto Scraping ---
+        // --- Brown Boys Auto Scraping Check ---
+        // Verify we didn't miss something if it fell through
         if (url.includes('brownboysauto.com')) {
-            // Details are often in .vehicle_single_detail_div__container
-            $('.vehicle_single_detail_div__container').each((i, el) => {
-                const label = $(el).find('span:first-child').text().trim().replace(/:$/, '');
-                const valueText = $(el).find('span:last-of-type').text().trim();
-                // Handle complex value containers (colors)
-                const complexValue = $(el).find('div.d-flex span.d-none').text().trim();
-                const value = complexValue || valueText;
-
-                if (label === 'Year') vehicle.year = parseInt(value);
-                if (label === 'Make') vehicle.make = value;
-                if (label === 'Model') vehicle.model = value;
-                if (label === 'Body Style') vehicle.bodyStyle = value;
-                if (label === 'Odometer') vehicle.mileage = parseInt(value.replace(/[^0-9]/g, ''));
-                if (label === 'Transmission') vehicle.transmission = value;
-                if (label === 'Exterior Color') vehicle.exteriorColor = value;
-                if (label === 'Interior Color') vehicle.interiorColor = value;
-                if (label === 'Vin') vehicle.vin = value;
-                if (label === 'Fuel Type') vehicle.fuelType = value;
-                if (label === 'Stock Number') vehicle.stockNumber = value;
-                if (label === 'Engine') vehicle.engine = value;
-            });
-
-            // Images
-            $('.image-gallery-slide img').each((i, el) => {
-                const src = $(el).attr('src');
-                if (src && !vehicle.images.includes(src)) {
-                    vehicle.images.push(src);
-                }
-            });
-
-            // Description
-            const desc = $('.DetaileProductCustomrWeb-description-text').text().trim();
-            if (desc) vehicle.description = desc;
-
-            // Price fallbacks
-            // Attempt to find price in likely locations if not found
-            if (!vehicle.price) {
-                // Common selectors
-                const priceText = $('.price-value, .final-price').text();
-                if (priceText) vehicle.price = parseInt(priceText.replace(/[^0-9]/g, ''));
-            }
-
-            return vehicle;
+            console.warn('[Scraper] Brown Boys Auto: Fell through to generic scraper. Logic likely failed.');
         }
 
         return vehicle;

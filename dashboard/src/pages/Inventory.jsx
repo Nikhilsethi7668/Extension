@@ -759,37 +759,88 @@ const Inventory = () => {
                                 )}
                             </Box>
 
-                            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
-                                <Box>
-                                    <Typography variant="overline" color="text.secondary">Vehicle Details</Typography>
-                                    <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <Typography variant="body2" color="text.secondary">VIN</Typography>
-                                            <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{selectedVehicle.vin}</Typography>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 3 }}>
+                                    <Box>
+                                        <Typography variant="overline" color="text.secondary">Vehicle Details</Typography>
+                                        <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Typography variant="body2" color="text.secondary">VIN</Typography>
+                                                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>{selectedVehicle.vin}</Typography>
+                                            </Box>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Typography variant="body2" color="text.secondary">Stock #</Typography>
+                                                <Typography variant="body2">{selectedVehicle.stockNumber || '-'}</Typography>
+                                            </Box>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Typography variant="body2" color="text.secondary">Mileage</Typography>
+                                                <Typography variant="body2">{selectedVehicle.mileage?.toLocaleString() || '-'}</Typography>
+                                            </Box>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Typography variant="body2" color="text.secondary">Price</Typography>
+                                                <Typography variant="body2" fontWeight={600} color="success.light">
+                                                    ${selectedVehicle.price?.toLocaleString() || '-'}
+                                                </Typography>
+                                            </Box>
+                                            {selectedVehicle.msrp > 0 && (
+                                                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                    <Typography variant="body2" color="text.secondary">MSRP</Typography>
+                                                    <Typography variant="body2">${selectedVehicle.msrp?.toLocaleString()}</Typography>
+                                                </Box>
+                                            )}
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Typography variant="body2" color="text.secondary">Location</Typography>
+                                                <Typography variant="body2">{selectedVehicle.location || '-'}</Typography>
+                                            </Box>
                                         </Box>
-                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <Typography variant="body2" color="text.secondary">Mileage</Typography>
-                                            <Typography variant="body2">{selectedVehicle.mileage?.toLocaleString() || '-'}</Typography>
-                                        </Box>
-                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <Typography variant="body2" color="text.secondary">Price</Typography>
-                                            <Typography variant="body2" fontWeight={600} color="success.light">${selectedVehicle.price?.toLocaleString() || '-'}</Typography>
-                                        </Box>
-                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <Typography variant="body2" color="text.secondary">Location</Typography>
-                                            <Typography variant="body2">{selectedVehicle.location || '-'}</Typography>
-                                        </Box>
-                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                            <Typography variant="body2" color="text.secondary">Fuel Type</Typography>
-                                            <Typography variant="body2">{selectedVehicle.fuelType || '-'}</Typography>
+                                    </Box>
+                                    <Box>
+                                        <Typography variant="overline" color="text.secondary">Specs & Colors</Typography>
+                                        <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Typography variant="body2" color="text.secondary">Transmission</Typography>
+                                                <Typography variant="body2">{selectedVehicle.transmission || '-'}</Typography>
+                                            </Box>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Typography variant="body2" color="text.secondary">Drivetrain</Typography>
+                                                <Typography variant="body2">{selectedVehicle.drivetrain || '-'}</Typography>
+                                            </Box>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Typography variant="body2" color="text.secondary">Engine</Typography>
+                                                <Typography variant="body2" sx={{ maxWidth: '60%', textAlign: 'right' }}>
+                                                    {selectedVehicle.engineCylinders || selectedVehicle.engine || '-'}
+                                                </Typography>
+                                            </Box>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Typography variant="body2" color="text.secondary">Fuel Type</Typography>
+                                                <Typography variant="body2">{selectedVehicle.fuelType || '-'}</Typography>
+                                            </Box>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Typography variant="body2" color="text.secondary">Exterior</Typography>
+                                                <Typography variant="body2">{selectedVehicle.exteriorColor || '-'}</Typography>
+                                            </Box>
+                                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                <Typography variant="body2" color="text.secondary">Interior</Typography>
+                                                <Typography variant="body2">{selectedVehicle.interiorColor || '-'}</Typography>
+                                            </Box>
                                         </Box>
                                     </Box>
                                 </Box>
+
+                                {selectedVehicle.features && selectedVehicle.features.length > 0 && (
+                                    <Box>
+                                        <Typography variant="overline" color="text.secondary">Features ({selectedVehicle.features.length})</Typography>
+                                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 1, maxHeight: 100, overflowY: 'auto' }}>
+                                            {selectedVehicle.features.map((feature, idx) => (
+                                                <Chip key={idx} label={feature} size="small" variant="outlined" sx={{ fontSize: '0.7rem', height: 24 }} />
+                                            ))}
+                                        </Box>
+                                    </Box>
+                                )}
+
                                 <Box>
                                     <Typography variant="overline" color="text.secondary">Description</Typography>
-                                    <Typography variant="body2" sx={{ mt: 1, maxHeight: 150, overflowY: 'auto' }}>
-                                        {selectedVehicle.description || 'No description available.'}
-                                    </Typography>
+                                    <Typography variant="body2" sx={{ mt: 1, maxHeight: 150, overflowY: 'auto', whiteSpace: 'pre-wrap' }} dangerouslySetInnerHTML={{ __html: selectedVehicle.description || 'No description available.' }} />
                                 </Box>
                             </Box>
 
