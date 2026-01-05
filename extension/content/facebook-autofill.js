@@ -23,7 +23,6 @@
       return false;
     }
   }
-
   // Helper function to safely call chrome APIs
   async function safeChromeStorageGet(keys) {
     if (!isExtensionContextValid()) {

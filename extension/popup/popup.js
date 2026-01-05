@@ -969,6 +969,7 @@ async function scrapeCurrentPage() {
     if (tab.url.includes('autotrader.com')) scraperType = 'autotrader';
     else if (tab.url.includes('cars.com')) scraperType = 'cars';
     else if (tab.url.includes('cargurus.com')) scraperType = 'cargurus';
+    else if (tab.url.includes('brownboysauto.com')) scraperType = 'brownboys';
     else {
       showNotification('Not a supported vehicle site (Autotrader, Cars.com, CarGurus)', 'error');
       return;

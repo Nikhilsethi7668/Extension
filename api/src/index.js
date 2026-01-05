@@ -40,6 +40,11 @@ app.use(cors({
 app.use(morgan('dev'));
 
 // Route Registration
+app.use((req, res, next) => {
+    console.log(`[DEBUG] ${req.method} ${req.url}`);
+    console.log('[DEBUG] Headers:', JSON.stringify(req.headers));
+    next();
+});
 app.use('/api/auth', authRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/organizations', organizationRoutes);
