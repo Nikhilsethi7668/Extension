@@ -50,11 +50,140 @@ export async function scrapeBrownBoysViaAPI(options = {}) {
     try {
         return await scrapeWithFreeProxy(listingUrl, targetCount, existingVins);
     } catch (error) {
-        console.log(`[HTML Scraper] ⚠️ Free proxy failed: ${error.message}, trying Puppeteer...`);
+        console.log(`[HTML Scraper] ⚠️ Free proxy failed: ${error.message}, trying Google Translate...`);
+    }
+
+    // Try Google Translate Proxy (Last Resort Bypass)
+    console.log('[HTML Scraper] 🌐 Trying Google Translate bypass...');
+    try {
+        return await scrapeWithGoogleTranslate(listingUrl, targetCount, existingVins);
+    } catch (error) {
+        console.log(`[HTML Scraper] ⚠️ Google Translate failed: ${error.message}, trying Puppeteer...`);
     }
 
     // Fallback to direct Puppeteer (may be blocked by Cloudflare)
     return await scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filters);
+}
+
+/**
+ * Scrape using Google Translate as a proxy to bypass IP blocks
+ */
+async function scrapeWithGoogleTranslate(listingUrl, targetCount, existingVins) {
+    console.log('[GTranslate] 🌐 Attempting to fetch via Google Translate...');
+
+    // Construct Google Translate URL
+    // Pattern: https://www-brownboysauto-com.translate.goog/cars?minyear=2017...
+    const urlObj = new URL(listingUrl);
+    const hostPart = urlObj.hostname.replace(/\./g, '-');
+    const translateUrl = `https://${hostPart}.translate.goog${urlObj.pathname}${urlObj.search}&_x_tr_sl=auto&_x_tr_tl=en&_x_tr_hl=en&_x_tr_pto=wapp`;
+
+    console.log(`[GTranslate] 🔗 Proxy URL: ${translateUrl}`);
+
+    const response = await axios.get(translateUrl, {
+        timeout: 30000,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+    });
+
+    // Check for success
+    if (!response.data || response.data.includes('Cloudflare') && response.data.includes('blocked')) {
+        throw new Error('Google Translate blocked by Cloudflare');
+    }
+
+    console.log('[GTranslate] ✅ Successfully fetched content');
+
+    // Parse with cheerio
+    const $ = cheerio.load(response.data);
+    const scrapedVehicles = [];
+    let totalSkipped = 0;
+
+    // In translated pages, domains might be rewritten, so checking hrefs needs care
+    // Also, Google sometimes injects iframes, so we need to be robust
+
+    const vehicleCards = $('.special-vehicle');
+    console.log(`[GTranslate] 📦 Found ${vehicleCards.length} vehicle cards`);
+
+    if (vehicleCards.length === 0) {
+        // Debug: Dump part of body if no cards found
+        console.log(`[GTranslate] 📝 Body preview: ${$('body').text().substring(0, 200).replace(/\n/g, ' ')}`);
+        throw new Error('No vehicles found in translated page');
+    }
+
+    vehicleCards.each((index, card) => {
+        if (scrapedVehicles.length >= targetCount) return false;
+
+        try {
+            const $card = $(card);
+
+            // Link might be rewritten to translate.goog
+            let detailLink = $card.find('a[href*="/cars/used/"]').attr('href');
+            if (!detailLink) return;
+
+            // Clean up the link (remove google translate parts if present)
+            // It might look like: https://www-brownboysauto-com.translate.goog/cars/used/...?_x_tr...
+            // We just need the path part usually
+
+            // Extract the original vehicle ID and year/make/model from the URL structure
+            // Look for pattern: /cars/used/2020-volkswagen-passat-513643
+            const urlMatch = detailLink.match(/\/cars\/used\/(\d{4})-(.+)-(\d+)/);
+            if (!urlMatch) return;
+
+            const year = parseInt(urlMatch[1]);
+            const vehicleId = urlMatch[3];
+            const makeModelPart = urlMatch[2];
+
+            const parts = makeModelPart.split('-');
+            const make = parts[0] ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1) : '';
+            const model = parts.slice(1).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+
+            // Image source might also be rewritten
+            const img = $card.find('img');
+            let imageUrl = img.attr('src') || '';
+            // If it's a google translate image proxy, try to extract original or use it
+            // usually it just works or points to original domain
+
+            const priceText = $card.find('.main-bg').text().replace(/[^0-9.]/g, '');
+            const price = parseFloat(priceText) || 0;
+            const title = $card.find('.font-weight-bold').last().text().trim() || `${year} ${make} ${model}`;
+
+            const vin = `BROWNBOYS-${vehicleId}`;
+
+            if (existingVins.has(vin)) {
+                totalSkipped++;
+                return;
+            }
+
+            // Reconstruct original valid URL
+            const sourceUrl = `https://www.brownboysauto.com/cars/used/${year}-${makeModelPart}-${vehicleId}`;
+
+            scrapedVehicles.push({
+                vehicleId,
+                vin,
+                year,
+                make,
+                model,
+                title,
+                price,
+                mileage: 0,
+                sourceUrl,
+                images: imageUrl ? [imageUrl.replace('thumb-', '')] : []
+            });
+
+            console.log(`[GTranslate] ✅ Scraped: ${title} (${scrapedVehicles.length}/${targetCount})`);
+        } catch (err) {
+            console.log(`[GTranslate] ⚠️ Error parsing card: ${err.message}`);
+        }
+    });
+
+    console.log(`[GTranslate] 🏁 Complete! Scraped ${scrapedVehicles.length} vehicles`);
+
+    return {
+        vehicles: scrapedVehicles,
+        totalScraped: scrapedVehicles.length,
+        totalSkipped,
+        pagesProcessed: 1
+    };
 }
 
 /**
