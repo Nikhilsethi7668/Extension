@@ -67,6 +67,25 @@ export async function scrapeBrownBoysViaAPI(options = {}) {
 
         console.log('[HTML Scraper] ✅ Page loaded successfully');
 
+        // Extra wait for JS to render and Cloudflare to pass
+        console.log('[HTML Scraper] ⏳ Waiting for page to fully render...');
+        await new Promise(resolve => setTimeout(resolve, 5000));
+
+        // Debug: Log page title and check for Cloudflare challenge
+        const pageTitle = await page.title();
+        console.log(`[HTML Scraper] 📄 Page title: ${pageTitle}`);
+
+        // Check if we hit a Cloudflare challenge
+        const pageContent = await page.content();
+        if (pageContent.includes('cf-browser-verification') || pageContent.includes('Just a moment')) {
+            console.log('[HTML Scraper] ⚠️ Cloudflare challenge detected, waiting longer...');
+            await new Promise(resolve => setTimeout(resolve, 10000));
+        }
+
+        // Debug: Log first 500 chars of body to see what we got
+        const bodyText = await page.evaluate(() => document.body?.innerText?.substring(0, 500) || 'NO BODY');
+        console.log(`[HTML Scraper] 📝 Body preview: ${bodyText.replace(/\n/g, ' ')}`);
+
         // Wait for vehicle cards to load
         await page.waitForSelector('.special-vehicle, a[href*="/cars/used/"]', { timeout: 30000 }).catch(() => {
             console.log('[HTML Scraper] ⚠️ Selector not found, trying alternative...');
