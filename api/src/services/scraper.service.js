@@ -4,10 +4,8 @@ import { scrapeBrownBoysViaAPI } from '../utils/brownBoysApiScraper.js';
 
 export const scrapeVehicle = async (url, options = {}) => {
     console.log('[Scraper] Start scraping:', url);
-
     // --- EARLY HANDLING FOR BROWN BOYS LISTING PAGES ---
-    // Skip HTML fetch for listing pages (their website blocks server IPs)
-    // Go directly to their API which doesn't have IP restrictions
+    // Go directly to our custom scraper function which handles Puppeteer/Proxies
     if (url.includes('brownboysauto.com') && url.includes('/cars?')) {
         console.log('[Scraper] Brown Boys listing URL detected - using direct API scraping (skip HTML fetch)');
 
@@ -21,6 +19,7 @@ export const scrapeVehicle = async (url, options = {}) => {
         };
 
         try {
+            // Import dynamically or ensure it is imported at top
             const result = await scrapeBrownBoysViaAPI({
                 targetCount: options.limit || 50,
                 existingVins: options.existingVins || new Set(),
@@ -29,7 +28,6 @@ export const scrapeVehicle = async (url, options = {}) => {
 
             console.log(`[Scraper] API scraper returned ${result.totalScraped} vehicles (${result.totalSkipped} skipped)`);
 
-            // Return vehicles directly (not URLs, actual vehicle data!)
             return {
                 type: 'bulk_vehicles',
                 vehicles: result.vehicles,
@@ -55,12 +53,50 @@ export const scrapeVehicle = async (url, options = {}) => {
         const $ = cheerio.load(data);
         const domain = new URL(url).hostname;
 
-        // --- Brown Boys Auto Logic (for detail pages only now) ---
+        // --- Brown Boys Auto Logic ---
         if (url.includes('brownboysauto.com')) {
-            console.log('[Scraper] Brown Boys Auto detail URL detected:', url);
+            console.log('[Scraper] Brown Boys Auto URL detected:', url);
 
+            // Detect if this is a listing or detail page
+            const isListingPage = url.includes('/cars?');
             const isDetailPage = url.match(/\/cars\/used\/[\w-]+-\d+$/);
-            console.log(`[Scraper] Page type - Detail: ${!!isDetailPage}`);
+
+            console.log(`[Scraper] Page type - Listing: ${!!isListingPage}, Detail: ${!!isDetailPage}`);
+
+            // CASE 1: Listing Page - Use API scraping (NO UI/browser needed!)
+            if (isListingPage && !isDetailPage) {
+                console.log('[Scraper] Listing page detected, using API-based scraping');
+
+                // Parse filters from URL
+                const urlObj = new URL(url);
+                const filters = {
+                    make: urlObj.searchParams.get('make') || '',
+                    model: urlObj.searchParams.get('model') || '',
+                    year_start: parseInt(urlObj.searchParams.get('Minyear')) || 2017,
+                    year_end: parseInt(urlObj.searchParams.get('Maxyear')) || 2026
+                };
+
+                try {
+                    const result = await scrapeBrownBoysViaAPI({
+                        targetCount: options.limit || 50,
+                        existingVins: options.existingVins || new Set(),
+                        filters
+                    });
+
+                    console.log(`[Scraper] API scraper returned ${result.totalScraped} vehicles (${result.totalSkipped} skipped)`);
+
+                    // Return vehicles directly (not URLs, actual vehicle data!)
+                    return {
+                        type: 'bulk_vehicles',
+                        vehicles: result.vehicles,
+                        totalScraped: result.totalScraped,
+                        totalSkipped: result.totalSkipped
+                    };
+                } catch (apiError) {
+                    console.error('[Scraper] API scraping failed:', apiError.message);
+                    // Continue to fallback methods below
+                }
+            }
 
             // Try JSON for detail pages
             const nextDataScript = $('#__NEXT_DATA__').html();
