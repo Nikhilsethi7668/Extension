@@ -477,16 +477,56 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
 
                 // Extract Images from data2 array (High Res)
                 let images = [];
+                const prefix = imagePrefix; // Use the one we resolved
+
                 if (data.data2 && Array.isArray(data.data2)) {
+                    console.log(`[Puppeteer] 📸 Found 'data2' with ${data.data2.length} images`);
                     images = data.data2.map(img => {
-                        const src = img.media_src; // e.g. /1452782bcltd/img.jpg
-                        return src.startsWith('http') ? src : `${imagePrefix}${src}`;
+                        const src = img.media_src;
+                        return src.startsWith('http') ? src : `${prefix}${src}`;
                     });
-                } else if (data.cover_image) {
-                    // Fallback to cover image
-                    const src = data.cover_image;
-                    images.push(src.startsWith('http') ? src : `${imagePrefix}${src}`);
+                } else {
+                    console.log(`[Puppeteer] ⚠️ 'data2' missing or invalid. Keys in data: ${Object.keys(data).join(', ')}`);
                 }
+
+                // Fallback to cover image if still empty
+                if (images.length === 0 && data.cover_image) {
+                    console.log('[Puppeteer] 📸 Using cover_image fallback');
+                    const src = data.cover_image;
+                    images.push(src.startsWith('http') ? src : `${prefix}${src}`);
+                }
+
+                // SECONDARY FALLBACK: Scrape HTML if JSON images are scarce (< 2)
+                if (images.length < 2) {
+                    console.log('[Puppeteer] 📉 Few images found in JSON. Attempting HTML gallery scrape...');
+                    const htmlImages = await page.evaluate(() => {
+                        const srcs = [];
+                        // Try standard gallery
+                        document.querySelectorAll('.image-gallery-thumbnail-image').forEach(img => {
+                            if (img.src) srcs.push(img.src);
+                        });
+                        // Try clean gallery slides
+                        document.querySelectorAll('.image-gallery-image').forEach(img => {
+                            if (img.src) srcs.push(img.src);
+                        });
+                        return srcs;
+                    });
+
+                    if (htmlImages.length > 0) {
+                        console.log(`[Puppeteer] 📸 Found ${htmlImages.length} images via HTML`);
+                        // Merge unique
+                        htmlImages.forEach(src => {
+                            // Clean thumb URLs
+                            const fullSrc = src.replace('thumb-', '').replace('/thumb/', '/');
+                            // Check existence
+                            if (!images.includes(fullSrc) && !images.some(existing => existing.includes(fullSrc.split('/').pop()))) {
+                                images.push(fullSrc);
+                            }
+                        });
+                    }
+                }
+
+                console.log(`[Puppeteer] 🖼️ Final Image Count: ${images.length}`);
 
                 // Extract Features
                 let features = [];
