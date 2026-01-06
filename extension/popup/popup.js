@@ -1949,8 +1949,22 @@ async function executePostToFacebook(vehicleData = null) {
     // Prepare post data with cleaning
     const cleanValue = (val) => (val && val.trim() !== '' ? val : null);
 
+    // Merge edited images from queue if they exist
+    let finalImages = [...(dataToPost.images || [])];
+    if (typeof imageEditQueue !== 'undefined') {
+      Object.keys(imageEditQueue).forEach(index => {
+        const edit = imageEditQueue[index];
+        // Ensure we're replacing the correct index and the edit has a URL
+        if (edit && edit.editedUrl && index < finalImages.length) {
+          console.log(`Using edited image for index ${index}: ${edit.editedUrl}`);
+          finalImages[index] = edit.editedUrl;
+        }
+      });
+    }
+
     const postData = {
       ...dataToPost,
+      images: finalImages, // Use merged images
       transmission: cleanValue(dataToPost.transmission),
       bodyStyle: cleanValue(dataToPost.bodyStyle),
       condition: cleanValue(dataToPost.condition),
@@ -2806,9 +2820,27 @@ function displayImagesGallery(images) {
   }
 
   images.forEach((imageUrl, index) => {
+    // FIX: Ensure URL is absolute and uses remote server (not localhost)
+    let fullUrl = imageUrl;
+    const baseHost = API_CONFIG.baseUrl.replace(/\/api\/?$/, '');
+
+    if (imageUrl) {
+      if (imageUrl.startsWith('/')) {
+        fullUrl = `${baseHost}${imageUrl}`;
+      } else if (imageUrl.includes('localhost') || imageUrl.includes('127.0.0.1')) {
+        // Replace localhost origin with remote origin for AI generated images
+        try {
+          const urlObj = new URL(imageUrl);
+          fullUrl = `${baseHost}${urlObj.pathname}${urlObj.search}`;
+        } catch (e) {
+          console.error('Invalid URL replacement:', imageUrl);
+        }
+      }
+    }
+
     const item = document.createElement('div');
     item.className = 'gallery-item';
-    item.dataset.url = imageUrl;
+    item.dataset.url = fullUrl;
 
     // Checkbox for bulk selection
     const checkbox = document.createElement('div');
@@ -2817,42 +2849,61 @@ function displayImagesGallery(images) {
     // Click on checkbox toggles selection
     checkbox.addEventListener('click', (e) => {
       e.stopPropagation();
-      toggleImageSelection(imageUrl, item, checkbox);
+      toggleImageSelection(fullUrl, item, checkbox);
     });
 
-    // Inner HTML
-    item.innerHTML = `
-      <img src="${imageUrl}" alt="Vehicle Image ${index + 1}" onerror="this.src='icons/icon48.png'">
-      <div class="image-upload-overlay">
+    // Create image element programmatically to avoid CSP issues with inline onerror
+    const img = document.createElement('img');
+    img.src = fullUrl;
+    img.alt = `Vehicle Image ${index + 1}`;
+    img.addEventListener('error', function () {
+      this.src = 'icons/icon48.png'; // Fallback icon
+    });
+
+    const overlay = document.createElement('div');
+    overlay.className = 'image-upload-overlay';
+    overlay.innerHTML = `
         <div class="overlay-buttons">
-          <button class="view-large-btn" data-url="${imageUrl}" title="View Full Size">
+          <button class="view-large-btn" data-url="${fullUrl}" title="View Full Size">
              <span>👁️</span>
           </button>
-          <button class="upload-single-btn" data-url="${imageUrl}" title="Upload to Facebook">
+          <button class="upload-single-btn" data-url="${fullUrl}" title="Upload to Facebook">
             <span>📤</span>
           </button>
         </div>
-      </div>
     `;
 
+    // Assemble item
+    item.appendChild(img);
+    item.appendChild(overlay);
     item.appendChild(checkbox);
 
     // Click on item toggles selection
     item.addEventListener('click', (e) => {
       // If clicking button, don't toggle selection
       if (e.target.closest('button')) return;
-      toggleImageSelection(imageUrl, item, checkbox);
+      toggleImageSelection(fullUrl, item, checkbox);
     });
 
-    // Handle view button
-    const viewBtn = item.querySelector('.view-large-btn');
-    viewBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openLightbox(imageUrl);
-    });
+    // Handle view button usage
+    const viewBtn = overlay.querySelector('.view-large-btn');
+    if (viewBtn) {
+      viewBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        // Assuming showImagePreview is global or needs to use logic
+        const largeView = document.getElementById('imageLargeView');
+        const largeImg = document.getElementById('largeImage');
+        if (largeView && largeImg) {
+          largeImg.src = fullUrl;
+          largeView.style.display = 'flex';
+        }
+      });
+    }
+
 
     // Attach click listener for upload
-    const uploadBtn = item.querySelector('.upload-single-btn');
+    // Attach click listener for upload
+    const uploadBtn = overlay.querySelector('.upload-single-btn');
     uploadBtn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const url = e.target.closest('.upload-single-btn').getAttribute('data-url');
