@@ -408,15 +408,57 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
         console.log(`[Puppeteer] 🔗 Navigating to Listing: ${listingUrl}`);
         await page.goto(listingUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
-        // Wait for vehicle cards to ensure list is loaded
+        // Wait for initial vehicle cards
         try {
             await page.waitForSelector('.special-vehicle', { timeout: 30000 });
         } catch (e) {
-            console.log('[Puppeteer] ⚠️ No vehicle cards found on listing page');
+            console.log('[Puppeteer] ⚠️ No vehicle cards found initially');
             return { vehicles: [], totalScraped: 0, totalSkipped: 0, pagesProcessed: 0, error: 'No vehicles found' };
         }
 
-        // 2. Extract Detail URLs
+        // INFINITE SCROLL LOGIC
+        let previousCount = 0;
+        let consecutiveNoLoad = 0;
+        const MAX_NO_LOAD_RETRIES = 1; // Stop if no new cars after 1 try (per user: "stop else")
+
+        console.log('[Puppeteer] 🔄 Starting Infinite Scroll...');
+
+        while (true) {
+            // Count current vehicles
+            const currentCount = await page.evaluate(() => document.querySelectorAll('.special-vehicle').length);
+
+            // Check if we reached user limit (if provided)
+            if (targetCount && currentCount >= targetCount) {
+                console.log(`[Puppeteer] 🛑 Reached target count (${currentCount} >= ${targetCount}). Stopping scroll.`);
+                break;
+            }
+
+            console.log(`[Puppeteer] 🚙 Current vehicle count: ${currentCount}`);
+
+            if (currentCount === previousCount) {
+                consecutiveNoLoad++;
+                if (consecutiveNoLoad > MAX_NO_LOAD_RETRIES) {
+                    console.log(`[Puppeteer] 🛑 No new vehicles loaded after ${MAX_NO_LOAD_RETRIES} retries. End of list.`);
+                    break;
+                }
+                console.log(`[Puppeteer] ⚠️ No new cars. Retrying scroll (${consecutiveNoLoad}/${MAX_NO_LOAD_RETRIES})...`);
+            } else {
+                consecutiveNoLoad = 0; // Reset if we found new cars
+                previousCount = currentCount;
+            }
+
+            // Scroll to bottom
+            await page.evaluate(() => {
+                window.scrollTo(0, document.body.scrollHeight);
+            });
+
+            // Wait 7-10 seconds (User requested 7-10s)
+            const waitTime = 7000 + Math.random() * 3000;
+            console.log(`[Puppeteer] ⏳ Waiting ${Math.round(waitTime / 1000)}s for load...`);
+            await new Promise(r => setTimeout(r, waitTime));
+        }
+
+        // 2. Extract Detail URLs (After scrolling is done)
         const detailUrls = await page.evaluate(() => {
             const urls = [];
             document.querySelectorAll('.special-vehicle a[href*="/cars/used/"]').forEach(a => {
