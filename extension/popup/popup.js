@@ -1,6 +1,6 @@
 // popup.js - Main popup controller
 const API_CONFIG = {
-  baseUrl: 'http://localhost:5573/api',
+  baseUrl: 'http://66.94.120.78:5573/api',
   endpoints: {
     agentLogin: '/auth/dashboard-api-login',
     validateKey: '/auth/validate-key',
@@ -394,6 +394,28 @@ function attachEventListeners() {
   if (apiTokenInput) {
     apiTokenInput.addEventListener('keypress', (e) => {
       if (e.key === 'Enter') login();
+    });
+  }
+
+  // AI Recommendation Buttons
+  const aiRecBtns = document.querySelectorAll('.ai-rec-btn');
+  const globalAiPrompt = document.getElementById('globalAiPrompt');
+
+  if (globalAiPrompt) {
+    aiRecBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const prompt = btn.getAttribute('data-prompt');
+        if (prompt) {
+          globalAiPrompt.value = prompt;
+          globalAiPrompt.focus();
+          // Optional: visual feedback
+          const originalText = btn.textContent;
+          btn.textContent = '✓ Applied';
+          setTimeout(() => {
+            btn.textContent = originalText;
+          }, 1000);
+        }
+      });
     });
   }
 

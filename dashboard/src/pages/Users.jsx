@@ -246,13 +246,39 @@ const Users = () => {
                                         </TableCell>
                                         <TableCell>
                                             {user.apiKey ? (
-                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'background.default', p: 0.5, borderRadius: 1, width: 'fit-content', border: '1px solid rgba(255,255,255,0.05)' }}>
-                                                    <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
-                                                        {user.apiKey.substring(0, 12)}...
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'background.default', p: 0.5, borderRadius: 1, width: '100%', maxWidth: '300px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                                                    <Typography
+                                                        variant="caption"
+                                                        sx={{
+                                                            fontFamily: 'monospace',
+                                                            color: 'text.secondary',
+                                                            whiteSpace: 'nowrap',
+                                                            overflow: 'hidden',
+                                                            textOverflow: 'ellipsis',
+                                                            userSelect: 'all', // ALLOW SELECTION
+                                                            cursor: 'text',
+                                                            flex: 1
+                                                        }}
+                                                        onClick={(e) => {
+                                                            const range = document.createRange();
+                                                            range.selectNodeContents(e.target);
+                                                            const sel = window.getSelection();
+                                                            sel.removeAllRanges();
+                                                            sel.addRange(range);
+                                                        }}
+                                                    >
+                                                        {user.apiKey}
                                                     </Typography>
                                                     <Tooltip title={apiKeyCopied === user.apiKey ? "Copied!" : "Copy Key"}>
-                                                        <IconButton size="small" sx={{ p: 0.5 }} onClick={() => handleCopyApiKey(user.apiKey)}>
-                                                            <Copy size={12} />
+                                                        <IconButton
+                                                            size="small"
+                                                            sx={{ p: 0.5, flexShrink: 0 }}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation(); // Prevent text selection on click
+                                                                handleCopyApiKey(user.apiKey);
+                                                            }}
+                                                        >
+                                                            {apiKeyCopied === user.apiKey ? <UsersIcon size={12} color="green" /> : <Copy size={12} />}
                                                         </IconButton>
                                                     </Tooltip>
                                                 </Box>

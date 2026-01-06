@@ -409,6 +409,15 @@
         await sleep(500);
       }
 
+      // Fill Checkboxes (Clean Title, No Damage)
+      if (!filledFields.has('checkboxes')) {
+        console.log('Attempting to fill checkboxes...');
+        await fillCleanTitle();
+        await fillNoDamage();
+        filledFields.add('checkboxes');
+        await sleep(500);
+      }
+
       /* 
       // Handle images (only once)
       if (!filledFields.has('images') && postData?.images && postData.images.length > 0) {
@@ -1468,45 +1477,115 @@
 
     console.log('=== Starting fillMake ===');
 
-    // Strategy 1: Find input by label containing "Make"
-    const allLabels = document.querySelectorAll('label');
-    for (const label of allLabels) {
-      const labelText = label.textContent || '';
-      if (labelText.toLowerCase().includes('make') && !labelText.toLowerCase().includes('model')) {
-        const input = label.querySelector('input[type="text"], input:not([type="file"])');
-        if (input && isVisible(input)) {
-          console.log('Found make input via label');
-          return await fillInput([input], postData.make);
-        }
-      }
-    }
-
-    // Strategy 2: Find input near span containing "Make"
-    const makeSpans = Array.from(document.querySelectorAll('span')).filter(span => {
-      const text = span.textContent || '';
-      return text.toLowerCase().trim() === 'make';
-    });
-
-    for (const span of makeSpans) {
-      // Look for input in parent or sibling elements
-      const parent = span.closest('label, div');
-      if (parent) {
-        const input = parent.querySelector('input[type="text"], input:not([type="file"])');
-        if (input && isVisible(input)) {
-          console.log('Found make input near Make span');
-          return await fillInput([input], postData.make);
-        }
-      }
-    }
-
-    // Strategy 3: Standard selectors
+    // Strategy: Find generic "Make" input and simulate typing to trigger dropdown
     const selectors = [
       'input[placeholder*="make" i]',
       'input[aria-label*="make" i]',
       'input[placeholder*="brand" i]'
     ];
 
-    return await fillInput(selectors, postData.make);
+    // Find input
+    let makeInput = null;
+    for (const selector of selectors) {
+      const el = document.querySelector(selector);
+      if (el && isVisible(el)) {
+        makeInput = el;
+        break;
+      }
+    }
+
+    // Fallback: Label search
+    if (!makeInput) {
+      const allLabels = document.querySelectorAll('label');
+      for (const label of allLabels) {
+        const labelText = label.textContent || '';
+        if (labelText.toLowerCase().includes('make') && !labelText.toLowerCase().includes('model')) {
+          const input = label.querySelector('input[type="text"], input:not([type="file"])');
+          if (input && isVisible(input)) {
+            makeInput = input;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!makeInput) {
+      console.log('Make input not found');
+      return false;
+    }
+
+    // Process logic similar to Location - Type and Wait for Autocomplete
+
+    // Click first to ensure active state
+    makeInput.click();
+    await sleep(200);
+    makeInput.focus();
+    await sleep(300);
+
+    makeInput.value = '';
+    makeInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await sleep(200);
+
+    const makeValue = postData.make;
+    console.log(`Typing Make: "${makeValue}"`);
+
+    for (let i = 0; i < makeValue.length; i++) {
+      makeInput.value += makeValue[i];
+      makeInput.dispatchEvent(new Event('input', { bubbles: true }));
+      await sleep(80 + Math.random() * 40);
+    }
+
+    // Trigger autocomplete
+    makeInput.dispatchEvent(new Event('input', { bubbles: true }));
+    await sleep(1500); // Wait longer for results
+
+    makeInput.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      code: 'ArrowDown',
+      keyCode: 40,
+      bubbles: true
+    }));
+    await sleep(500);
+
+    // Try to select first option
+    try {
+      // Look for listbox options
+      const allListboxes = document.querySelectorAll('[role="listbox"]');
+      let options = [];
+      for (const listbox of allListboxes) {
+        if (isVisible(listbox)) {
+          const opts = listbox.querySelectorAll('[role="option"]');
+          if (opts.length > 0) {
+            options = [...opts];
+            break;
+          }
+        }
+      }
+
+      if (options.length > 0) {
+        console.log(`Found ${options.length} make suggestions. Selecting first.`);
+        const firstOption = options[0];
+        firstOption.scrollIntoView({ block: 'center' });
+        await sleep(200);
+        fbSelectOption(firstOption);
+        await sleep(500);
+        return true;
+      } else {
+        console.log('No make suggestions found, submitting typed value');
+        makeInput.dispatchEvent(new KeyboardEvent("keydown", {
+          key: "Enter",
+          code: "Enter",
+          keyCode: 13,
+          bubbles: true
+        }));
+        return true;
+      }
+
+    } catch (e) {
+      console.error('Error selecting make:', e);
+    }
+
+    return true; // Return true as we filled the input at least
   }
 
   async function fillModel() {
@@ -1976,10 +2055,13 @@
     // Type the location value character by character
     // Clean the location value to help Facebook's autocomplete
     // remove zip code (e.g. 70634) and "USA"
-    let locationValue = pendingPost.dealerAddress || '';
+    // Type the location value character by character
+    // Clean the location value to help Facebook's autocomplete
+    let locationValue = pendingPost.dealerAddress || 'British Columbia'; // Default to BC as requested
 
     // Remove Zip Code (5 digits at the end)
     locationValue = locationValue.replace(/\s+\d{5}(-\d{4})?$/, '');
+
 
     // Remove Country
     locationValue = locationValue.replace(/,\s*(USA|United States)$/i, '');
@@ -3045,7 +3127,9 @@
     console.log('=== Starting fillCondition ===');
 
     // Try index-based selection first (dropdown approach)
-    const conditionSelected = await selectCondition(pendingPost.condition);
+    // Default to 'Very Good' if condition is missing, as requested
+    const conditionValue = pendingPost.condition || 'Very Good';
+    const conditionSelected = await selectCondition(conditionValue);
 
     if (conditionSelected) {
       return true;
@@ -3053,10 +3137,10 @@
 
     // Fallback to text-based selection
     console.log('Dropdown selection failed, trying text-based selection...');
-    const condition = pendingPost.condition.toLowerCase();
-    const isNew = condition.includes('new');
+    const condition = pendingPost.condition ? pendingPost.condition.toLowerCase() : 'very good';
 
-    const conditionElement = findElementByText([
+    const isNew = condition.includes('new');
+    const targetTexts = [
       isNew ? 'New' : 'Used',
       isNew ? 'Brand New' : 'Pre-owned',
       'Excellent',
@@ -3064,7 +3148,15 @@
       'Good',
       'Fair',
       'Poor'
-    ]);
+    ];
+
+    // Fallback for default
+    if (condition === 'very good') {
+      targetTexts.unshift('Very Good');
+      targetTexts.unshift('very good');
+    }
+
+    const conditionElement = findElementByText(targetTexts);
 
     if (conditionElement) {
       simulateClick(conditionElement);
@@ -3873,6 +3965,109 @@
   if (observer) {
     startErrorCheck();
   }
+
+  // --- Checkbox/Radio Functions (Added) ---
+
+  async function fillCleanTitle() {
+    console.log('=== Filling Clean Title ===');
+    const texts = ["This vehicle has a clean title", "Clean title"];
+
+    for (const text of texts) {
+      const labels = Array.from(document.querySelectorAll('label')).filter(l => (l.innerText || l.textContent).includes(text));
+
+      for (const label of labels) {
+        if (!isVisible(label)) continue;
+
+        const input = label.querySelector('input[type="checkbox"], input[type="radio"]');
+        if (input) {
+          if (!input.checked) {
+            console.log(`Clicking Clean Title checkbox inside label: ${text}`);
+            input.click();
+            await sleep(300);
+          }
+          return true;
+        }
+
+        const divCheckbox = label.querySelector('div[role="checkbox"], div[role="radio"]');
+        if (divCheckbox) {
+          if (divCheckbox.getAttribute('aria-checked') !== 'true') {
+            console.log(`Clicking Clean Title div-checkbox: ${text}`);
+            divCheckbox.click();
+            await sleep(300);
+          }
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  async function fillNoDamage() {
+    console.log('=== Filling No Damage ===');
+    const labels = Array.from(document.querySelectorAll('label')).filter(l => (l.innerText || l.textContent).includes("no significant damage"));
+
+    for (const label of labels) {
+      if (!isVisible(label)) continue;
+      const input = label.querySelector('input[type="checkbox"]');
+      if (input) {
+        if (!input.checked) {
+          console.log('Clicking No Damage checkbox');
+          input.click();
+          await sleep(300);
+        }
+        return true;
+      }
+
+      const divCheckbox = label.querySelector('div[role="checkbox"]');
+      if (divCheckbox) {
+        if (divCheckbox.getAttribute('aria-checked') !== 'true') {
+          console.log('Clicking No Damage div-checkbox');
+          divCheckbox.click();
+          await sleep(300);
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // --- Checkbox/Radio Functions (Added) ---
+
+  async function fillCleanTitle() {
+    console.log('=== Filling Clean Title ===');
+    const texts = ["This vehicle has a clean title", "Clean title"];
+
+    for (const text of texts) {
+      const labels = Array.from(document.querySelectorAll('label')).filter(l => (l.innerText || l.textContent).includes(text));
+
+      for (const label of labels) {
+        if (!isVisible(label)) continue;
+
+        const input = label.querySelector('input[type="checkbox"], input[type="radio"]');
+        if (input) {
+          if (!input.checked) {
+            console.log(`Clicking Clean Title checkbox inside label: ${text}`);
+            input.click();
+            await sleep(300);
+          }
+          return true;
+        }
+
+        const divCheckbox = label.querySelector('div[role="checkbox"], div[role="radio"]');
+        if (divCheckbox) {
+          if (divCheckbox.getAttribute('aria-checked') !== 'true') {
+            console.log(`Clicking Clean Title div-checkbox: ${text}`);
+            divCheckbox.click();
+            await sleep(300);
+          }
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+
 
 })();
 

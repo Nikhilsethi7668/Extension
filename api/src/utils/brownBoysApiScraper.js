@@ -380,9 +380,6 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
     let totalSkipped = 0;
     let browser = null;
 
-    // Resolve Existing URLs Set (handle missing arg)
-    const knownUrls = existingUrls || new Set();
-
     try {
         console.log('[Puppeteer] 🌐 Launching stealth browser...');
 
@@ -407,236 +404,272 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
         await page.setViewport({ width: 1920, height: 1080 });
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-        // 1. Navigate to Listing Page
-        console.log(`[Puppeteer] 🔗 Navigating to Listing: ${listingUrl}`);
-        await page.goto(listingUrl, { waitUntil: 'networkidle2', timeout: 60000 });
+        // 1. Navigate to Listing Page to establish context/cookies
+        console.log(`[Puppeteer] 🔗 Navigating to Context: https://www.brownboysauto.com/cars`);
+        await page.goto('https://www.brownboysauto.com/cars', { waitUntil: 'networkidle2', timeout: 60000 });
 
-        // Wait for initial vehicle cards
-        try {
-            await page.waitForSelector('.special-vehicle', { timeout: 30000 });
-        } catch (e) {
-            console.log('[Puppeteer] ⚠️ No vehicle cards found initially');
-            return { vehicles: [], totalScraped: 0, totalSkipped: 0, pagesProcessed: 0, error: 'No vehicles found' };
-        }
+        // API Pagination Loop
+        let currentPage = 1;
+        let hasMore = true;
+        const BATCH_SIZE = 10; // API default seems to be 10
 
-        // INFINITE SCROLL LOGIC
-        let previousCount = 0;
-        let consecutiveNoLoad = 0;
-        const MAX_NO_LOAD_RETRIES = 1; // Stop if no new cars after 1 try
+        console.log('[Puppeteer] 🔄 Starting API-based Pagination...');
 
-        console.log('[Puppeteer] 🔄 Starting Infinite Scroll...');
+        while (hasMore && scrapedVehicles.length < targetCount) {
+            console.log(`[Puppeteer] 📄 Fetching Page ${currentPage}...`);
 
-        while (true) {
-            // Count current vehicles and get their links to check duplicates
-            const currentListingData = await page.evaluate(() => {
-                const links = [];
-                document.querySelectorAll('.special-vehicle a[href*="/cars/used/"]').forEach(a => {
-                    const href = a.getAttribute('href');
-                    if (href) links.push(`https://www.brownboysauto.com${href}`);
-                });
-                return [...new Set(links)]; // Unique on page
-            });
+            // Construct API URL
+            // https://api.hillzusers.com/api/dealership/advance/search/vehicles/brownboysauto.com?page=1&limit=10&keywords=
+            const apiUrl = `https://api.hillzusers.com/api/dealership/advance/search/vehicles/brownboysauto.com?page=${currentPage}&limit=${BATCH_SIZE}&keywords=`;
 
-            const currentTotal = currentListingData.length;
+            // Fetch data inside page context (bypasses CORS/Cloudflare)
+            const apiResult = await page.evaluate(async (url) => {
+                try {
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                    if (!res.ok) return { error: `Status ${res.status}` };
+                    return { data: await res.json() };
+                } catch (e) {
+                    return { error: e.toString() };
+                }
+            }, apiUrl);
 
-            // Filter out known URLs
-            // Note: This relies on sourceUrl matching. If sourceUrl changed, we might re-scrape but VIN check later handles it.
-            const newCandidates = currentListingData.filter(url => !knownUrls.has(url)).length;
-
-            console.log(`[Puppeteer] 🚙 Visible: ${currentTotal} | 🆕 New Candidates: ${newCandidates} | 🎯 Target: ${targetCount}`);
-
-            // Check if we found enough NEW items
-            // If targetCount is 2, and we found 2 new candidates, we can stop?
-            // Yes, assuming we can successfully scrape them.
-            if (targetCount && newCandidates >= targetCount) {
-                console.log(`[Puppeteer] 🛑 Found enough new vehicles (${newCandidates} >= ${targetCount}). Stopping scroll.`);
+            if (apiResult.error) {
+                console.log(`[Puppeteer] ❌ Error fetching API page ${currentPage}: ${apiResult.error}`);
                 break;
             }
 
-            if (currentTotal === previousCount) {
-                consecutiveNoLoad++;
-                if (consecutiveNoLoad > MAX_NO_LOAD_RETRIES) {
-                    console.log(`[Puppeteer] 🛑 No new vehicles loaded after ${MAX_NO_LOAD_RETRIES} retries. End of list.`);
-                    break;
-                }
-                console.log(`[Puppeteer] ⚠️ No new cars. Retrying scroll (${consecutiveNoLoad}/${MAX_NO_LOAD_RETRIES})...`);
-            } else {
-                consecutiveNoLoad = 0; // Reset
-                previousCount = currentTotal;
+            const vehicles = apiResult.data;
+            if (!vehicles || !Array.isArray(vehicles) || vehicles.length === 0) {
+                console.log(`[Puppeteer] 🛑 No more vehicles returned on page ${currentPage}.`);
+                hasMore = false;
+                break;
             }
 
-            // Scroll to bottom
-            await page.evaluate(() => {
-                window.scrollTo(0, document.body.scrollHeight);
-            });
+            console.log(`[Puppeteer] 📦 API returned ${vehicles.length} items on page ${currentPage}`);
 
-            // Wait 7-10 seconds
-            const waitTime = 7000 + Math.random() * 3000;
-            console.log(`[Puppeteer] ⏳ Waiting ${Math.round(waitTime / 1000)}s for load...`);
-            await new Promise(r => setTimeout(r, waitTime));
-        }
+            for (const item of vehicles) {
+                if (scrapedVehicles.length >= targetCount) break;
 
-        // 2. Extract Detail URLs (After scrolling is done)
-        const detailUrls = await page.evaluate(() => {
-            const urls = [];
-            document.querySelectorAll('.special-vehicle a[href*="/cars/used/"]').forEach(a => {
-                const href = a.getAttribute('href');
-                if (href) urls.push(`https://www.brownboysauto.com${href}`);
-            });
-            // Unique URLs only
-            return [...new Set(urls)];
-        });
+                try {
+                    // Normalize Data
+                    // Structure: item -> { id, sell_price, special_price, comment, Vehicle: { ... }, MidVDSMedia: [...] }
+                    const info = item.Vehicle || {};
 
-        console.log(`[Puppeteer] 📦 Found ${detailUrls.length} vehicle links. Starting deep scrape...`);
+                    const vin = info.vin_number || item.vin || Object.values(item).find(v => typeof v === 'string' && v.length === 17) || `BROWNBOYS-${item.id}`;
 
-        // 3. Loop through Detail URLs
-        for (const url of detailUrls) {
-            if (scrapedVehicles.length >= targetCount) break;
-
-            try {
-                // Check if we already have this VIN from URL (optimization)
-                // URL pattern: .../2020-volkswagen-passat-513643 (Last part is stock/id, not VIN)
-                // So we must visit page to get VIN or check ID mapping if possible. 
-                // We'll visit to be safe and get full data.
-
-                console.log(`[Puppeteer] 🕵️‍♀️ Visiting: ${url}`);
-                await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-
-                // 4. Extract __NEXT_DATA__ JSON
-                const vehicleData = await page.evaluate(() => {
-                    try {
-                        const script = document.getElementById('__NEXT_DATA__');
-                        if (!script) return null;
-                        return JSON.parse(script.innerHTML);
-                    } catch (e) {
-                        return null;
+                    // Check duplicates
+                    if (existingVins.has(vin)) {
+                        totalSkipped++;
+                        continue;
                     }
-                });
 
-                if (!vehicleData || !vehicleData.props || !vehicleData.props.pageProps || !vehicleData.props.pageProps.data) {
-                    console.log(`[Puppeteer] ⚠️ Failed to extract JSON data for ${url}`);
-                    continue;
-                }
+                    // Extract Details from Nested 'Vehicle' Object
+                    const year = Number(info.model_year) || Number(item.year) || 0;
+                    const make = info.make || item.make || 'Unknown';
+                    const model = info.model || item.model || 'Unknown';
+                    const trim = info.trim || item.trim || '';
 
-                const data = vehicleData.props.pageProps.data;
-                const vehicle = data.Vehicle;
-                const dealerData = vehicleData.props.dealerData;
-                const imagePrefix = dealerData.prefixUrl || 'https://image123.azureedge.net';
-
-                // 5. Map Data to our Schema
-                const vin = vehicle.vin_number;
-
-                // Skip if exists
-                if (!vin || existingVins.has(vin)) {
-                    // console.log(`[Puppeteer] ⏭️ Duplicate VIN: ${vin}`);
-                    totalSkipped++;
-                    continue;
-                }
-
-                const title = `${vehicle.model_year} ${vehicle.make} ${vehicle.model} ${vehicle.trim || ''}`.trim();
-
-                // Extract Images from data2 array (High Res)
-                let images = [];
-                const prefix = imagePrefix; // Use the one we resolved
-
-                if (data.data2 && Array.isArray(data.data2)) {
-                    console.log(`[Puppeteer] 📸 Found 'data2' with ${data.data2.length} images`);
-                    images = data.data2.map(img => {
-                        const src = img.media_src;
-                        return src.startsWith('http') ? src : `${prefix}${src}`;
-                    });
-                } else {
-                    console.log(`[Puppeteer] ⚠️ 'data2' missing or invalid. Keys in data: ${Object.keys(data).join(', ')}`);
-                }
-
-                // Fallback to cover image if still empty
-                if (images.length === 0 && data.cover_image) {
-                    console.log('[Puppeteer] 📸 Using cover_image fallback');
-                    const src = data.cover_image;
-                    images.push(src.startsWith('http') ? src : `${prefix}${src}`);
-                }
-
-                // SECONDARY FALLBACK: Scrape HTML if JSON images are scarce (< 2)
-                if (images.length < 2) {
-                    console.log('[Puppeteer] 📉 Few images found in JSON. Attempting HTML gallery scrape...');
-                    const htmlImages = await page.evaluate(() => {
-                        const srcs = [];
-                        // Try standard gallery
-                        document.querySelectorAll('.image-gallery-thumbnail-image').forEach(img => {
-                            if (img.src) srcs.push(img.src);
-                        });
-                        // Try clean gallery slides
-                        document.querySelectorAll('.image-gallery-image').forEach(img => {
-                            if (img.src) srcs.push(img.src);
-                        });
-                        return srcs;
-                    });
-
-                    if (htmlImages.length > 0) {
-                        console.log(`[Puppeteer] 📸 Found ${htmlImages.length} images via HTML`);
-                        // Merge unique
-                        htmlImages.forEach(src => {
-                            // Clean thumb URLs
-                            const fullSrc = src.replace('thumb-', '').replace('/thumb/', '/');
-                            // Check existence
-                            if (!images.includes(fullSrc) && !images.some(existing => existing.includes(fullSrc.split('/').pop()))) {
-                                images.push(fullSrc);
+                    // Construct URL
+                    let sourceUrl;
+                    if (item.slug) {
+                        // usage: https://www.brownboysauto.com/cars/used/2020-volkswagen-passat-513643
+                        const slug = item.slug.startsWith('/') ? item.slug : `/${item.slug}`;
+                        sourceUrl = `https://www.brownboysauto.com${slug}`;
+                    } else {
+                        // Fallback: Try to derive slug from image filename (likely matches backend slug convention)
+                        // Example image: thumb-2020-LandRover-RangeRover-006058564395250432.jpg
+                        // We want: 2020-LandRover-RangeRover
+                        let derivedSlug = null;
+                        if (item.MidVDSMedia && item.MidVDSMedia.length > 0) {
+                            const sampleImg = item.MidVDSMedia[0].media_src || item.MidVDSMedia[0].src || '';
+                            const match = sampleImg.match(/(?:thumb-)?(\d{4}-.+?)-\d+\.(?:jpg|png|jpeg)/i);
+                            if (match && match[1]) {
+                                derivedSlug = match[1];
                             }
+                        }
+
+                        if (derivedSlug) {
+                            sourceUrl = `https://www.brownboysauto.com/cars/used/${derivedSlug}-${item.id}`;
+                        } else {
+                            // Standard Fallback
+                            const makeSlug = make.replace(/\s+/g, '-');
+                            const modelSlug = model.replace(/\s+/g, '-');
+                            sourceUrl = `https://www.brownboysauto.com/cars/used/${year}-${makeSlug}-${modelSlug}-${item.id}`;
+                        }
+                    }
+
+                    // --- DETAIL PAGE SCRAPING (For Full Images) ---
+                    if (sourceUrl) {
+                        let detailBrowser = null; // Renamed to avoid conflict with outer browser
+                        let detailPage = null; // Renamed to avoid conflict with outer page
+                        try {
+                            detailBrowser = await puppeteer.launch({
+                                headless: 'new',
+                                executablePath: '/usr/bin/chromium',
+                                args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--window-size=1920,1080']
+                            });
+                            detailPage = await detailBrowser.newPage();
+
+                            // Mobile Emulation for BrownBoysAuto
+                            const isBrownBoys = sourceUrl.includes('brownboysauto.com'); // Use sourceUrl here
+                            if (isBrownBoys) {
+                                await detailPage.setUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1');
+                                await detailPage.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
+                            } else {
+                                await detailPage.setViewport({ width: 1920, height: 1080 });
+                            }
+
+                            console.log(`[Puppeteer] 📸 Visits Detail Page for Images: ${sourceUrl}`);
+                            try {
+                                await detailPage.goto(sourceUrl, { waitUntil: 'networkidle2', timeout: 45000 });
+                            } catch (err) {
+                                console.warn(`[Detailed Page] Navigation warning: ${err.message}`);
+                            }
+
+                            // Wait for gallery
+                            try {
+                                await detailPage.waitForSelector('.image-gallery-image, .image-gallery-slide img, .image-gallery-thumbnail-image', { timeout: 15000 });
+                            } catch (e) {
+                                console.log('Timeout waiting for gallery selectors, trying extraction anyway...');
+                            }
+
+                            const images = await detailPage.evaluate(() => {
+                                const imgSrcs = new Set();
+
+                                // 1. Standard Gallery
+                                document.querySelectorAll('.image-gallery-image').forEach(img => {
+                                    if (img.src) imgSrcs.add(img.src);
+                                });
+
+                                // 2. User Reported Selectors (Mobile/Responsive)
+                                // The user's snippet showed images in .image-gallery-slide AND .image-gallery-thumbnail-image
+                                document.querySelectorAll('.image-gallery-slide img').forEach(img => {
+                                    if (img.src) imgSrcs.add(img.src);
+                                });
+                                document.querySelectorAll('.image-gallery-thumbnail-image').forEach(img => {
+                                    if (img.src) imgSrcs.add(img.src);
+                                });
+
+                                // 3. Fallback: Azure Edge (Host specific)
+                                document.querySelectorAll('img[src*="azureedge"]').forEach(img => {
+                                    if (img.src) imgSrcs.add(img.src);
+                                });
+
+                                return Array.from(imgSrcs);
+                            });
+
+                            console.log(`[Detailed Page] Found ${images.length} images for ${sourceUrl}`);
+                            if (images.length > 0) {
+                                item.images = images;
+                            } else if (item.MidVDSMedia) {
+                                // Keep API images if scrape failed
+                                item.images = item.MidVDSMedia.map(m => m.media_src || m.src).filter(Boolean);
+                            }
+
+                        } catch (error) {
+                            console.error(`[Detailed Page] Error scraping ${sourceUrl}:`, error);
+                        } finally {
+                            if (detailBrowser) await detailBrowser.close();
+                        }
+                    }
+
+                    // Extract Preview Images (Fallback)
+                    // Priority 1: MidVDSMedia array
+                    let previewImages = [];
+                    if (item.MidVDSMedia && Array.isArray(item.MidVDSMedia)) {
+                        previewImages = item.MidVDSMedia.map(img => img.media_src || img.src).filter(Boolean);
+                    }
+                    // Priority 2: info.images (if any)
+                    else if (info.images && Array.isArray(info.images)) {
+                        previewImages = info.images.map(img => img.media_src || img.src).filter(Boolean);
+                    }
+
+                    // Priority 3: cover_image
+                    if (previewImages.length === 0 && item.cover_image) {
+                        previewImages.push(item.cover_image);
+                    } else if (previewImages.length === 0 && item.thumbnail_cover_image) {
+                        previewImages.push(item.thumbnail_cover_image);
+                    }
+
+                    // Fix Preview URLs
+                    previewImages = previewImages.map(src => {
+                        if (!src) return '';
+                        let cleanSrc = src;
+                        if (!cleanSrc.startsWith('http')) {
+                            const prefix = 'https://image123.azureedge.net';
+                            cleanSrc = `${prefix}${cleanSrc.startsWith('/') ? '' : '/'}${cleanSrc}`;
+                        }
+                        return cleanSrc;
+                    });
+
+                    // MERGE IMAGES: Prefer Detail Page images, fall back to Preview
+                    let images = detailImages.length > previewImages.length ? detailImages : previewImages;
+                    // Ensure we have at least something
+                    if (images.length === 0 && previewImages.length > 0) images = previewImages;
+
+
+                    // Extract Features
+                    // Found in 'more_option' array: ["$0$Dual Air Conditioning", ...]
+                    let features = [];
+                    if (item.more_option && Array.isArray(item.more_option)) {
+                        features = item.more_option.map(opt => opt.replace(/^\$[0-9]+\$/, '').trim());
+                    } else if (info.standard && typeof info.standard === 'object') {
+                        Object.values(info.standard).forEach(v => {
+                            if (Array.isArray(v)) features.push(...v);
                         });
                     }
+
+                    // Price prioritization
+                    const price = Number(item.special_price || item.sell_price || item.internet_price || info.price || 0);
+
+                    const scrapedVehicle = {
+                        vehicleId: String(item.id),
+                        vin: vin,
+                        year: year,
+                        make: make,
+                        model: model,
+                        trim: trim,
+                        title: `${year} ${make} ${model} ${trim}`.trim(),
+                        price: price,
+                        mileage: Number(info.odometer || item.odometer || 0), // Odometer seems to be on top level item too
+                        description: item.comment ? item.comment.replace(/<[^>]*>/g, '').trim() : (info.comment || ''),
+                        images: images,
+                        sourceUrl: sourceUrl,
+                        features: features,
+
+                        // Detailed Specs
+                        transmission: info.transmission || (info.Transmission ? info.Transmission.name : '') || 'Automatic',
+                        engine: info.engine_type || info.engine_cylinders || info.engine || '',
+                        engineSize: info.engine_size,
+                        fuelType: info.fuel_type,
+                        drivetrain: info.drive_type || '', // sometimes object {label, value}, handle if needed but schema expects string
+                        bodyStyle: info.body_style || (info.BodyStyle ? info.BodyStyle.name : '') || '',
+                        doors: info.doors,
+                        passengers: info.passenger,
+                        stockNumber: item.stock_NO || info.stock_NO || '',
+                        exteriorColor: info.exterior_color ? info.exterior_color.name : '',
+                        interiorColor: info.interior_color ? info.interior_color.name : ''
+                    };
+
+                    // Specific fix for drivetrain object if it comes as {label: 'AWD', value: 1}
+                    if (typeof scrapedVehicle.drivetrain === 'object' && scrapedVehicle.drivetrain.label) {
+                        scrapedVehicle.drivetrain = scrapedVehicle.drivetrain.label;
+                    }
+
+                    scrapedVehicles.push(scrapedVehicle);
+                    console.log(`[Puppeteer] ✅ Scraped via API + Detail: ${scrapedVehicle.title} (${images.length} imgs)`);
+
+                } catch (err) {
+                    console.log(`[Puppeteer] ⚠️ Error parsing API item: ${err.message}`);
                 }
-
-                console.log(`[Puppeteer] 🖼️ Final Image Count: ${images.length}`);
-
-                // Extract Features
-                let features = [];
-                if (vehicle.standard) {
-                    // vehicle.standard is an object where keys are categories (SAFETY, EXTERIOR, etc.) and values are arrays of strings
-                    Object.values(vehicle.standard).forEach(list => {
-                        if (Array.isArray(list)) features.push(...list);
-                    });
-                }
-
-                const scrapedVehicle = {
-                    vehicleId: data.id ? String(data.id) : '',
-                    vin: vin,
-                    year: Number(vehicle.model_year),
-                    make: vehicle.make,
-                    model: vehicle.model,
-                    trim: vehicle.trim,
-                    title: title,
-                    price: Number(data.special_price || data.sell_price || 0),
-                    mileage: Number(data.odometer || 0),
-                    description: data.comment ? data.comment.replace(/<[^>]*>/g, '').trim() : '', // Strip HTML
-                    images: images,
-                    sourceUrl: url,
-                    features: features,
-
-                    // Detailed Specs
-                    transmission: vehicle.transmission,
-                    engine: vehicle.engine_type || vehicle.engine, // "4 Cylinder "
-                    engineSize: vehicle.engine_size, // "2.0 L"
-                    fuelType: vehicle.fuel_type,
-                    drivetrain: vehicle.drive_type, // "FWD"
-                    bodyStyle: vehicle.body_style, // "Sedan"
-                    doors: vehicle.doors,
-                    passengers: vehicle.passenger,
-                    stockNumber: data.stock_NO,
-                    cityFuel: vehicle.city_fuel,
-                    hwyFuel: vehicle.hwy_fuel,
-                    exteriorColor: vehicle.exterior_color ? vehicle.exterior_color.name : (vehicle.frk_exterior_color === 163 ? 'Gray' : 'Unknown'), // mapping backup if name missing
-                    interiorColor: vehicle.interior_color ? vehicle.interior_color.name : (vehicle.frk_interior_color === 161 ? 'Black' : 'Unknown')
-                };
-
-                scrapedVehicles.push(scrapedVehicle);
-                console.log(`[Puppeteer] ✅ Extracted: ${title} (VIN: ${vin})`);
-
-                // Polite delay
-                await new Promise(r => setTimeout(r, 2000 + Math.random() * 2000));
-
-            } catch (err) {
-                console.log(`[Puppeteer] ❌ Error scraping detail ${url}: ${err.message}`);
             }
+
+            currentPage++;
+            // Random delay between API calls to be polite
+            await new Promise(r => setTimeout(r, 1000 + Math.random() * 2000));
         }
 
         console.log(`[Puppeteer] 🏁 Complete! Scraped ${scrapedVehicles.length} vehicles`);
@@ -645,7 +678,7 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
             vehicles: scrapedVehicles,
             totalScraped: scrapedVehicles.length,
             totalSkipped,
-            pagesProcessed: 1
+            pagesProcessed: currentPage - 1
         };
 
     } catch (error) {
