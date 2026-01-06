@@ -1967,7 +1967,7 @@ async function executePostToFacebook(vehicleData = null) {
       images: finalImages, // Use merged images
       transmission: cleanValue(dataToPost.transmission),
       bodyStyle: cleanValue(dataToPost.bodyStyle),
-      condition: cleanValue(dataToPost.condition),
+      condition: cleanValue(dataToPost.condition) || 'Good',
       fuelType: cleanValue(dataToPost.fuelType),
       description: generatedDescEl ? generatedDescEl.value : (dataToPost.description || dataToPost.aiContent?.description || ''),
       config: {
