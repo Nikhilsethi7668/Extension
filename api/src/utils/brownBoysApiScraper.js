@@ -371,6 +371,10 @@ async function scrapeWithScraperAPI(listingUrl, targetCount, existingVins) {
 /**
  * Scrape using direct Puppeteer (may be blocked by Cloudflare)
  */
+/**
+ * Scrape using direct Puppeteer (migrated to US server)
+ * Now navigates to detail pages and extracts full data from __NEXT_DATA__ JSON
+ */
 async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filters) {
     const scrapedVehicles = [];
     let totalSkipped = 0;
@@ -379,6 +383,7 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
     try {
         console.log('[Puppeteer] 🌐 Launching stealth browser...');
 
+        // Launch browser
         browser = await puppeteer.launch({
             headless: 'new',
             executablePath: '/usr/bin/chromium',
@@ -399,98 +404,139 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
         await page.setViewport({ width: 1920, height: 1080 });
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
-        console.log(`[Puppeteer] 🔗 Navigating to: ${listingUrl}`);
+        // 1. Navigate to Listing Page
+        console.log(`[Puppeteer] 🔗 Navigating to Listing: ${listingUrl}`);
+        await page.goto(listingUrl, { waitUntil: 'networkidle2', timeout: 60000 });
 
-        await page.goto(listingUrl, {
-            waitUntil: 'networkidle2',
-            timeout: 60000
-        });
-
-        console.log('[Puppeteer] ✅ Page loaded');
-
-        // Wait for page to render
-        await new Promise(resolve => setTimeout(resolve, 5000));
-
-        // Check page title for Cloudflare block
-        const pageTitle = await page.title();
-        console.log(`[Puppeteer] 📄 Page title: ${pageTitle}`);
-
-        if (pageTitle.includes('Cloudflare') || pageTitle.includes('Attention')) {
-            console.log('[Puppeteer] ❌ Cloudflare is blocking this IP');
-            console.log('[Puppeteer] 💡 To bypass, add SCRAPER_API_KEY to your .env file');
-            console.log('[Puppeteer] 💡 Get a free key at: https://www.scraperapi.com/');
-
-            return {
-                vehicles: [],
-                totalScraped: 0,
-                totalSkipped: 0,
-                pagesProcessed: 0,
-                error: 'Cloudflare is blocking server IP. Add SCRAPER_API_KEY to .env to bypass.'
-            };
+        // Wait for vehicle cards to ensure list is loaded
+        try {
+            await page.waitForSelector('.special-vehicle', { timeout: 30000 });
+        } catch (e) {
+            console.log('[Puppeteer] ⚠️ No vehicle cards found on listing page');
+            return { vehicles: [], totalScraped: 0, totalSkipped: 0, pagesProcessed: 0, error: 'No vehicles found' };
         }
 
-        // Wait for vehicle cards
-        await page.waitForSelector('.special-vehicle', { timeout: 30000 }).catch(() => {
-            console.log('[Puppeteer] ⚠️ Vehicle selector not found');
-        });
-
-        // Extract vehicles
-        const vehiclesFromPage = await page.evaluate(() => {
-            const vehicles = [];
-            document.querySelectorAll('.special-vehicle').forEach(card => {
-                try {
-                    const detailLink = card.querySelector('a[href*="/cars/used/"]');
-                    if (!detailLink) return;
-
-                    const href = detailLink.getAttribute('href');
-                    const urlMatch = href.match(/\/cars\/used\/(\d{4})-(.+)-(\d+)$/);
-                    if (!urlMatch) return;
-
-                    const year = parseInt(urlMatch[1]);
-                    const vehicleId = urlMatch[3];
-                    const makeModelPart = urlMatch[2];
-                    const parts = makeModelPart.split('-');
-                    const make = parts[0] ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1) : '';
-                    const model = parts.slice(1).map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
-
-                    const img = card.querySelector('img');
-                    const imageUrl = img ? img.src : '';
-
-                    const priceEl = card.querySelector('.main-bg');
-                    const priceText = priceEl ? priceEl.textContent.replace(/[^0-9.]/g, '') : '0';
-                    const price = parseFloat(priceText) || 0;
-
-                    const titleEl = card.querySelector('.font-weight-bold');
-                    const title = titleEl ? titleEl.textContent.trim() : `${year} ${make} ${model}`;
-
-                    vehicles.push({
-                        vehicleId,
-                        year,
-                        make,
-                        model,
-                        title,
-                        price,
-                        sourceUrl: `https://www.brownboysauto.com${href}`,
-                        images: imageUrl ? [imageUrl.replace('thumb-', '')] : []
-                    });
-                } catch (e) { }
+        // 2. Extract Detail URLs
+        const detailUrls = await page.evaluate(() => {
+            const urls = [];
+            document.querySelectorAll('.special-vehicle a[href*="/cars/used/"]').forEach(a => {
+                const href = a.getAttribute('href');
+                if (href) urls.push(`https://www.brownboysauto.com${href}`);
             });
-            return vehicles;
+            // Unique URLs only
+            return [...new Set(urls)];
         });
 
-        console.log(`[Puppeteer] 📦 Extracted ${vehiclesFromPage.length} vehicles`);
+        console.log(`[Puppeteer] 📦 Found ${detailUrls.length} vehicle links. Starting deep scrape...`);
 
-        for (const vehicle of vehiclesFromPage) {
+        // 3. Loop through Detail URLs
+        for (const url of detailUrls) {
             if (scrapedVehicles.length >= targetCount) break;
 
-            vehicle.vin = `BROWNBOYS-${vehicle.vehicleId}`;
-            if (existingVins.has(vehicle.vin)) {
-                totalSkipped++;
-                continue;
-            }
+            try {
+                // Check if we already have this VIN from URL (optimization)
+                // URL pattern: .../2020-volkswagen-passat-513643 (Last part is stock/id, not VIN)
+                // So we must visit page to get VIN or check ID mapping if possible. 
+                // We'll visit to be safe and get full data.
 
-            scrapedVehicles.push(vehicle);
-            console.log(`[Puppeteer] ✅ Scraped: ${vehicle.title}`);
+                console.log(`[Puppeteer] 🕵️‍♀️ Visiting: ${url}`);
+                await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+                // 4. Extract __NEXT_DATA__ JSON
+                const vehicleData = await page.evaluate(() => {
+                    try {
+                        const script = document.getElementById('__NEXT_DATA__');
+                        if (!script) return null;
+                        return JSON.parse(script.innerHTML);
+                    } catch (e) {
+                        return null;
+                    }
+                });
+
+                if (!vehicleData || !vehicleData.props || !vehicleData.props.pageProps || !vehicleData.props.pageProps.data) {
+                    console.log(`[Puppeteer] ⚠️ Failed to extract JSON data for ${url}`);
+                    continue;
+                }
+
+                const data = vehicleData.props.pageProps.data;
+                const vehicle = data.Vehicle;
+                const dealerData = vehicleData.props.dealerData;
+                const imagePrefix = dealerData.prefixUrl || 'https://image123.azureedge.net';
+
+                // 5. Map Data to our Schema
+                const vin = vehicle.vin_number;
+
+                // Skip if exists
+                if (!vin || existingVins.has(vin)) {
+                    // console.log(`[Puppeteer] ⏭️ Duplicate VIN: ${vin}`);
+                    totalSkipped++;
+                    continue;
+                }
+
+                const title = `${vehicle.model_year} ${vehicle.make} ${vehicle.model} ${vehicle.trim || ''}`.trim();
+
+                // Extract Images from data2 array (High Res)
+                let images = [];
+                if (data.data2 && Array.isArray(data.data2)) {
+                    images = data.data2.map(img => {
+                        const src = img.media_src; // e.g. /1452782bcltd/img.jpg
+                        return src.startsWith('http') ? src : `${imagePrefix}${src}`;
+                    });
+                } else if (data.cover_image) {
+                    // Fallback to cover image
+                    const src = data.cover_image;
+                    images.push(src.startsWith('http') ? src : `${imagePrefix}${src}`);
+                }
+
+                // Extract Features
+                let features = [];
+                if (vehicle.standard) {
+                    // vehicle.standard is an object where keys are categories (SAFETY, EXTERIOR, etc.) and values are arrays of strings
+                    Object.values(vehicle.standard).forEach(list => {
+                        if (Array.isArray(list)) features.push(...list);
+                    });
+                }
+
+                const scrapedVehicle = {
+                    vehicleId: data.id ? String(data.id) : '',
+                    vin: vin,
+                    year: Number(vehicle.model_year),
+                    make: vehicle.make,
+                    model: vehicle.model,
+                    trim: vehicle.trim,
+                    title: title,
+                    price: Number(data.special_price || data.sell_price || 0),
+                    mileage: Number(data.odometer || 0),
+                    description: data.comment ? data.comment.replace(/<[^>]*>/g, '').trim() : '', // Strip HTML
+                    images: images,
+                    sourceUrl: url,
+                    features: features,
+
+                    // Detailed Specs
+                    transmission: vehicle.transmission,
+                    engine: vehicle.engine_type || vehicle.engine, // "4 Cylinder "
+                    engineSize: vehicle.engine_size, // "2.0 L"
+                    fuelType: vehicle.fuel_type,
+                    drivetrain: vehicle.drive_type, // "FWD"
+                    bodyStyle: vehicle.body_style, // "Sedan"
+                    doors: vehicle.doors,
+                    passengers: vehicle.passenger,
+                    stockNumber: data.stock_NO,
+                    cityFuel: vehicle.city_fuel,
+                    hwyFuel: vehicle.hwy_fuel,
+                    exteriorColor: vehicle.exterior_color ? vehicle.exterior_color.name : (vehicle.frk_exterior_color === 163 ? 'Gray' : 'Unknown'), // mapping backup if name missing
+                    interiorColor: vehicle.interior_color ? vehicle.interior_color.name : (vehicle.frk_interior_color === 161 ? 'Black' : 'Unknown')
+                };
+
+                scrapedVehicles.push(scrapedVehicle);
+                console.log(`[Puppeteer] ✅ Extracted: ${title} (VIN: ${vin})`);
+
+                // Polite delay
+                await new Promise(r => setTimeout(r, 2000 + Math.random() * 2000));
+
+            } catch (err) {
+                console.log(`[Puppeteer] ❌ Error scraping detail ${url}: ${err.message}`);
+            }
         }
 
         console.log(`[Puppeteer] 🏁 Complete! Scraped ${scrapedVehicles.length} vehicles`);
@@ -501,13 +547,15 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
             totalSkipped,
             pagesProcessed: 1
         };
+
     } catch (error) {
         console.error('[Puppeteer] ❌ Error:', error.message);
         return {
             vehicles: scrapedVehicles,
             totalScraped: scrapedVehicles.length,
             totalSkipped,
-            pagesProcessed: 0
+            pagesProcessed: 0,
+            error: error.message
         };
     } finally {
         if (browser) {
