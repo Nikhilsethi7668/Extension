@@ -23,6 +23,7 @@ export const scrapeVehicle = async (url, options = {}) => {
             const result = await scrapeBrownBoysViaAPI({
                 targetCount: options.limit || 50,
                 existingVins: options.existingVins || new Set(),
+                existingUrls: options.existingUrls || new Set(),
                 filters
             });
 
@@ -80,6 +81,7 @@ export const scrapeVehicle = async (url, options = {}) => {
                     const result = await scrapeBrownBoysViaAPI({
                         targetCount: options.limit || 50,
                         existingVins: options.existingVins || new Set(),
+                        existingUrls: options.existingUrls || new Set(),
                         filters
                     });
 

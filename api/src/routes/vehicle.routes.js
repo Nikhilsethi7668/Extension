@@ -839,21 +839,23 @@ router.post('/scrape-bulk', protect, async (req, res) => {
         // If we are scraping a SEARCH page, we might get many vehicles. We need to tell the scraper how many we still need.
         const remainingLimit = limit ? (limit - totalScrapedCount) : null;
 
-        // Fetch existing VINs for this organization (for skip logic)
+        // Fetch existing VINs and URLs for this organization (for skip logic)
         const existingVehicles = await Vehicle.find(
-            { organization: req.user.organization._id, vin: { $exists: true, $ne: '' } },
-            { vin: 1, _id: 0 }
+            { organization: req.user.organization._id },
+            { vin: 1, sourceUrl: 1, _id: 0 }
         ).lean();
-        const existingVins = new Set(existingVehicles.map(v => v.vin));
+        const existingVins = new Set(existingVehicles.map(v => v.vin).filter(v => v));
+        const existingUrls = new Set(existingVehicles.map(v => v.sourceUrl).filter(u => u));
 
         processed.add(trimmedUrl);
 
         try {
             console.log('[Route] Calling scrapeVehicle for:', trimmedUrl);
-            console.log(`[Route] Existing VINs in DB: ${existingVins.size}`);
+            console.log(`[Route] Existing DB Stats - VINs: ${existingVins.size}, URLs: ${existingUrls.size}`);
             const result = await scrapeVehicle(trimmedUrl, {
                 limit: remainingLimit,
-                existingVins
+                existingVins,
+                existingUrls
             });
 
             // Handle Bulk Vehicles (Search Page with Full Data)

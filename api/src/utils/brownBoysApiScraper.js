@@ -375,10 +375,13 @@ async function scrapeWithScraperAPI(listingUrl, targetCount, existingVins) {
  * Scrape using direct Puppeteer (migrated to US server)
  * Now navigates to detail pages and extracts full data from __NEXT_DATA__ JSON
  */
-async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filters) {
+async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filters, existingUrls) {
     const scrapedVehicles = [];
     let totalSkipped = 0;
     let browser = null;
+
+    // Resolve Existing URLs Set (handle missing arg)
+    const knownUrls = existingUrls || new Set();
 
     try {
         console.log('[Puppeteer] 🌐 Launching stealth browser...');
@@ -419,23 +422,38 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
         // INFINITE SCROLL LOGIC
         let previousCount = 0;
         let consecutiveNoLoad = 0;
-        const MAX_NO_LOAD_RETRIES = 1; // Stop if no new cars after 1 try (per user: "stop else")
+        const MAX_NO_LOAD_RETRIES = 1; // Stop if no new cars after 1 try
 
         console.log('[Puppeteer] 🔄 Starting Infinite Scroll...');
 
         while (true) {
-            // Count current vehicles
-            const currentCount = await page.evaluate(() => document.querySelectorAll('.special-vehicle').length);
+            // Count current vehicles and get their links to check duplicates
+            const currentListingData = await page.evaluate(() => {
+                const links = [];
+                document.querySelectorAll('.special-vehicle a[href*="/cars/used/"]').forEach(a => {
+                    const href = a.getAttribute('href');
+                    if (href) links.push(`https://www.brownboysauto.com${href}`);
+                });
+                return [...new Set(links)]; // Unique on page
+            });
 
-            // Check if we reached user limit (if provided)
-            if (targetCount && currentCount >= targetCount) {
-                console.log(`[Puppeteer] 🛑 Reached target count (${currentCount} >= ${targetCount}). Stopping scroll.`);
+            const currentTotal = currentListingData.length;
+
+            // Filter out known URLs
+            // Note: This relies on sourceUrl matching. If sourceUrl changed, we might re-scrape but VIN check later handles it.
+            const newCandidates = currentListingData.filter(url => !knownUrls.has(url)).length;
+
+            console.log(`[Puppeteer] 🚙 Visible: ${currentTotal} | 🆕 New Candidates: ${newCandidates} | 🎯 Target: ${targetCount}`);
+
+            // Check if we found enough NEW items
+            // If targetCount is 2, and we found 2 new candidates, we can stop?
+            // Yes, assuming we can successfully scrape them.
+            if (targetCount && newCandidates >= targetCount) {
+                console.log(`[Puppeteer] 🛑 Found enough new vehicles (${newCandidates} >= ${targetCount}). Stopping scroll.`);
                 break;
             }
 
-            console.log(`[Puppeteer] 🚙 Current vehicle count: ${currentCount}`);
-
-            if (currentCount === previousCount) {
+            if (currentTotal === previousCount) {
                 consecutiveNoLoad++;
                 if (consecutiveNoLoad > MAX_NO_LOAD_RETRIES) {
                     console.log(`[Puppeteer] 🛑 No new vehicles loaded after ${MAX_NO_LOAD_RETRIES} retries. End of list.`);
@@ -443,8 +461,8 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
                 }
                 console.log(`[Puppeteer] ⚠️ No new cars. Retrying scroll (${consecutiveNoLoad}/${MAX_NO_LOAD_RETRIES})...`);
             } else {
-                consecutiveNoLoad = 0; // Reset if we found new cars
-                previousCount = currentCount;
+                consecutiveNoLoad = 0; // Reset
+                previousCount = currentTotal;
             }
 
             // Scroll to bottom
@@ -452,7 +470,7 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
                 window.scrollTo(0, document.body.scrollHeight);
             });
 
-            // Wait 7-10 seconds (User requested 7-10s)
+            // Wait 7-10 seconds
             const waitTime = 7000 + Math.random() * 3000;
             console.log(`[Puppeteer] ⏳ Waiting ${Math.round(waitTime / 1000)}s for load...`);
             await new Promise(r => setTimeout(r, waitTime));
