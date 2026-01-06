@@ -6,6 +6,10 @@ COPY package*.json ./
 
 # Install Chromium and dependencies for Puppeteer
 RUN apt-get update && apt-get install -y \
+    python3 \
+    make \
+    g++ \
+    build-essential \
     chromium \
     fonts-liberation \
     libasound2 \
