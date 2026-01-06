@@ -439,7 +439,7 @@ router.get('/:id', protect, async (req, res, next) => {
             model: vehicle.model || ' ',
             mileage: vehicle.mileage ? String(vehicle.mileage) : '0',
             price: vehicle.price ? String(vehicle.price) : '0',
-            dealerAddress: vehicle.location || ' ',
+            dealerAddress: vehicle.location || 'british columbia',
             title: vehicle.aiContent?.title || `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || 'Vehicle Listing',
             description: vehicle.description || vehicle.aiContent?.description ||
                 `Excellent condition ${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}. Well maintained. All service records available. No accidents. Perfect for daily commute or family use. Contact for more details!`,
@@ -1057,6 +1057,74 @@ router.delete('/:id', protect, async (req, res) => {
             }
         }
 
+        // --- File Deletion Logic ---
+        const filesToDelete = [];
+
+        // Helper to collect local file paths
+        const collectFiles = (urlArray) => {
+            if (!urlArray || !Array.isArray(urlArray)) return;
+            urlArray.forEach(url => {
+                if (typeof url === 'string') {
+                    // Check if matches local upload pattern
+                    // Pattern 1: Starts with /uploads (relative)
+                    // Pattern 2: Full URL containing /uploads (absolute)
+                    // We assume standard setup where /uploads maps to public/uploads
+                    
+                    let relativePath = null;
+                    if (url.startsWith('/uploads')) {
+                        relativePath = url;
+                    } else if (url.includes('/uploads/')) {
+                        // Extract part after /uploads including /uploads
+                        const parts = url.split('/uploads/');
+                        if (parts.length > 1) {
+                            relativePath = '/uploads/' + parts[1];
+                        }
+                    }
+
+                    if (relativePath) {
+                        // Resolve to absolute filesystem path
+                        // process.cwd() is usually root of api
+                        // uploads serves from ../public/uploads relative to src/index.js? 
+                        // Let's rely on standard structure: api/public/uploads
+                        // If process.cwd() is 'api', then 'public/uploads'
+                        
+                        // normalize path
+                        const safePath = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, '');
+                        const fullPath = path.join(process.cwd(), 'public', safePath);
+                        filesToDelete.push(fullPath);
+                    }
+                }
+            });
+        };
+
+        collectFiles(vehicle.images);
+        collectFiles(vehicle.preparedImages);
+        collectFiles(vehicle.aiImages);
+
+        // Deduplicate paths
+        const uniqueFiles = [...new Set(filesToDelete)];
+
+        console.log(`[Delete Vehicle] Found ${uniqueFiles.length} associated files to delete for vehicle ${vehicle._id}`);
+
+        // Delete files asynchronously (fire and forget or await?)
+        // Let's await Promise.allSettled to not fail if one file keys missing
+        await Promise.allSettled(uniqueFiles.map(filePath => {
+            return new Promise((resolve, reject) => {
+                fs.unlink(filePath, (err) => {
+                    if (err) {
+                        // Ignore ENOENT (file not found), log others
+                        if (err.code !== 'ENOENT') {
+                            console.error(`[Delete Vehicle] Apply Deletion Failed for ${filePath}:`, err.message);
+                        }
+                        resolve(); // Resolve anyway
+                    } else {
+                        console.log(`[Delete Vehicle] Deleted: ${filePath}`);
+                        resolve();
+                    }
+                });
+            });
+        }));
+
         await vehicle.deleteOne();
 
         // Audit Log: Delete Vehicle
@@ -1066,7 +1134,11 @@ router.delete('/:id', protect, async (req, res) => {
             entityId: vehicle._id, // Note: ID still valid for log even if doc deleted
             user: req.user._id,
             organization: req.user.organization._id,
-            details: { title: `${vehicle.year} ${vehicle.make} ${vehicle.model}`, vin: vehicle.vin },
+            details: { 
+                title: `${vehicle.year} ${vehicle.make} ${vehicle.model}`, 
+                vin: vehicle.vin,
+                deletedFilesCount: uniqueFiles.length
+            },
             ipAddress: req.ip,
             userAgent: req.get('User-Agent'),
         });

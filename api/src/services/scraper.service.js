@@ -6,16 +6,35 @@ export const scrapeVehicle = async (url, options = {}) => {
     console.log('[Scraper] Start scraping:', url);
     // --- EARLY HANDLING FOR BROWN BOYS LISTING PAGES ---
     // Go directly to our custom scraper function which handles Puppeteer/Proxies
-    if (url.includes('brownboysauto.com') && url.includes('/cars?')) {
+    if (url.includes('brownboysauto.com') && (url.includes('/cars?') || url.endsWith('/cars'))) {
         console.log('[Scraper] Brown Boys listing URL detected - using direct API scraping (skip HTML fetch)');
 
         // Parse filters from URL
         const urlObj = new URL(url);
+        
+        // Helper to parse integer, return null if NaN or empty
+        const parseIntOrEmpty = (value) => {
+            if (!value || value === 'NaN' || value === 'undefined') return null;
+            const parsed = parseInt(value);
+            return isNaN(parsed) ? null : parsed;
+        };
+        
         const filters = {
             make: urlObj.searchParams.get('make') || '',
             model: urlObj.searchParams.get('model') || '',
-            year_start: parseInt(urlObj.searchParams.get('Minyear')) || 2017,
-            year_end: parseInt(urlObj.searchParams.get('Maxyear')) || 2026
+            year_start: parseIntOrEmpty(urlObj.searchParams.get('Minyear')),
+            year_end: parseIntOrEmpty(urlObj.searchParams.get('Maxyear')),
+            price_low: urlObj.searchParams.get('MinPrice') || '',
+            price_high: urlObj.searchParams.get('MaxPrice') || '',
+            odometer_low: parseIntOrEmpty(urlObj.searchParams.get('Minodometer')),
+            odometer_high: parseIntOrEmpty(urlObj.searchParams.get('Maxodometer')),
+            engine_cylinders: urlObj.searchParams.get('EngineCylinder') || '',
+            body_style: urlObj.searchParams.get('Bodystyle') || '',
+            fuel_type: urlObj.searchParams.get('Fueltype') || '',
+            transmission: urlObj.searchParams.get('Transmission') || '',
+            exterior_color: urlObj.searchParams.get('Exteriorcolor') || '',
+            interior_color: urlObj.searchParams.get('Interior_color') || '',
+            doors: urlObj.searchParams.get('Doors') || ''
         };
 
         try {
@@ -59,7 +78,7 @@ export const scrapeVehicle = async (url, options = {}) => {
             console.log('[Scraper] Brown Boys Auto URL detected:', url);
 
             // Detect if this is a listing or detail page
-            const isListingPage = url.includes('/cars?');
+            const isListingPage = url.includes('/cars?') || url.endsWith('/cars');
             const isDetailPage = url.match(/\/cars\/used\/[\w-]+-\d+$/);
 
             console.log(`[Scraper] Page type - Listing: ${!!isListingPage}, Detail: ${!!isDetailPage}`);
@@ -70,11 +89,30 @@ export const scrapeVehicle = async (url, options = {}) => {
 
                 // Parse filters from URL
                 const urlObj = new URL(url);
+                
+                // Helper to parse integer, return null if NaN or empty
+                const parseIntOrEmpty = (value) => {
+                    if (!value || value === 'NaN' || value === 'undefined') return null;
+                    const parsed = parseInt(value);
+                    return isNaN(parsed) ? null : parsed;
+                };
+                
                 const filters = {
                     make: urlObj.searchParams.get('make') || '',
                     model: urlObj.searchParams.get('model') || '',
-                    year_start: parseInt(urlObj.searchParams.get('Minyear')) || 2017,
-                    year_end: parseInt(urlObj.searchParams.get('Maxyear')) || 2026
+                    year_start: parseIntOrEmpty(urlObj.searchParams.get('Minyear')),
+                    year_end: parseIntOrEmpty(urlObj.searchParams.get('Maxyear')),
+                    price_low: urlObj.searchParams.get('MinPrice') || '',
+                    price_high: urlObj.searchParams.get('MaxPrice') || '',
+                    odometer_low: parseIntOrEmpty(urlObj.searchParams.get('Minodometer')),
+                    odometer_high: parseIntOrEmpty(urlObj.searchParams.get('Maxodometer')),
+                    engine_cylinders: urlObj.searchParams.get('EngineCylinder') || '',
+                    body_style: urlObj.searchParams.get('Bodystyle') || '',
+                    fuel_type: urlObj.searchParams.get('Fueltype') || '',
+                    transmission: urlObj.searchParams.get('Transmission') || '',
+                    exterior_color: urlObj.searchParams.get('Exteriorcolor') || '',
+                    interior_color: urlObj.searchParams.get('Interior_color') || '',
+                    doors: urlObj.searchParams.get('Doors') || ''
                 };
 
                 try {

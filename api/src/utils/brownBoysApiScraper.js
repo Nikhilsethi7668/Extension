@@ -418,23 +418,80 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
         while (hasMore && scrapedVehicles.length < targetCount) {
             console.log(`[Puppeteer] 📄 Fetching Page ${currentPage}...`);
 
-            // Construct API URL
-            // https://api.hillzusers.com/api/dealership/advance/search/vehicles/brownboysauto.com?page=1&limit=10&keywords=
-            const apiUrl = `https://api.hillzusers.com/api/dealership/advance/search/vehicles/brownboysauto.com?page=${currentPage}&limit=${BATCH_SIZE}&keywords=`;
+            // Construct API URL (base URL with pagination only)
+            // https://api.hillzusers.com/api/dealership/advance/search/vehicles/brownboysauto.com?page=1&limit=10
+            const apiUrl = `https://api.hillzusers.com/api/dealership/advance/search/vehicles/brownboysauto.com?page=${currentPage}&limit=${BATCH_SIZE}`;
+            
+            // Build request body matching the exact API format
+            // Only use defaults when filter value is null/undefined
+            const requestBody = {
+                fuel_type: filters.fuel_type || "",
+                body_style: filters.body_style || "",
+                engine_cylinders: filters.engine_cylinders || "",
+                year_end: filters.year_end !== null ? filters.year_end : 2027,
+                price_low: filters.price_low ? filters.price_low : 0,
+                price_high: filters.price_high || "",
+                odometer_type: 2,
+                make: filters.make || "",
+                model: filters.model || "",
+                transmission: filters.transmission || "",
+                drive_train: "",
+                doors: filters.doors || "",
+                interior_color: filters.interior_color || "",
+                Exterior_color: filters.exterior_color || "",
+                sortKind: {
+                    kind: "",
+                    type: null,
+                    order: 0
+                },
+                kind: "",
+                type: "null",
+                order: 0,
+                sold: "",
+                is_coming_soon: "",
+                is_it_special: null,
+                year_start: filters.year_start !== null ? filters.year_start : 0,
+                odometer_low: filters.odometer_low !== null ? filters.odometer_low : 0,
+                odometer_high: filters.odometer_high !== null ? filters.odometer_high : 162000,
+                keywords: ""
+            };
+            
+            console.log(`[Puppeteer] 🔍 Request Body:`, JSON.stringify(requestBody, null, 2));
 
             // Fetch data inside page context (bypasses CORS/Cloudflare)
-            const apiResult = await page.evaluate(async (url) => {
+            const apiResult = await page.evaluate(async (url, body) => {
                 try {
                     const res = await fetch(url, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' }
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
                     });
-                    if (!res.ok) return { error: `Status ${res.status}` };
-                    return { data: await res.json() };
+                    
+                    const responseText = await res.text();
+                    let data;
+                    try {
+                        data = JSON.parse(responseText);
+                    } catch (e) {
+                        return { error: `Invalid JSON response: ${responseText.substring(0, 200)}` };
+                    }
+                    
+                    if (!res.ok) {
+                        return { error: `Status ${res.status}`, response: data };
+                    }
+                    
+                    return { data, status: res.status };
                 } catch (e) {
                     return { error: e.toString() };
                 }
-            }, apiUrl);
+            }, apiUrl, requestBody);
+
+            console.log(`[Puppeteer] 📡 API Response Status:`, apiResult.status || 'error');
+            if (apiResult.error) {
+                console.log(`[Puppeteer] ❌ API Error:`, apiResult.error);
+                if (apiResult.response) {
+                    console.log(`[Puppeteer] 📄 Response Body:`, JSON.stringify(apiResult.response, null, 2));
+                }
+            }
 
             if (apiResult.error) {
                 console.log(`[Puppeteer] ❌ Error fetching API page ${currentPage}: ${apiResult.error}`);
@@ -606,6 +663,7 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
                     });
 
                     // MERGE IMAGES: Prefer Detail Page images, fall back to Preview
+                    const detailImages = item.images || [];
                     let images = detailImages.length > previewImages.length ? detailImages : previewImages;
                     // Ensure we have at least something
                     if (images.length === 0 && previewImages.length > 0) images = previewImages;
