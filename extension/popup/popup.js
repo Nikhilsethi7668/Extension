@@ -120,7 +120,7 @@ async function login() {
   const loginBtn = document.getElementById('loginBtn');
 
   if (!apiToken) {
-    showNotification('Please enter your API token', 'error');
+    showNotification('Please enter your API Key', 'error');
     return;
   }
 
@@ -248,7 +248,7 @@ async function login() {
       console.error('Login Failed Response:', response.status, data);
       let errorMsg = data.message || 'Login failed';
       if (response.status === 404) errorMsg = 'Login endpoint not found (404)';
-      if (response.status === 401) errorMsg = 'Invalid API Key (401)';
+      if (response.status === 401) errorMsg = 'Invalid API Key. Please verify in Dashboard.';
       if (response.status === 403) errorMsg = 'Account Inactive (403)';
 
       showNotification(errorMsg, 'error');
