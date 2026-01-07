@@ -1,12 +1,12 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { scrapeBrownBoysViaAPI } from '../utils/brownBoysApiScraper.js';
+import { scrapeBrownBoysViaAPI, scrapeSingleVehicle } from '../utils/brownBoysApiScraper.js';
 
 export const scrapeVehicle = async (url, options = {}) => {
     console.log('[Scraper] Start scraping:', url);
     // --- EARLY HANDLING FOR BROWN BOYS LISTING PAGES ---
     // Go directly to our custom scraper function which handles Puppeteer/Proxies
-    if (url.includes('brownboysauto.com') && (url.includes('/cars?') || url.endsWith('/cars'))) {
+    if (url.includes('brownboysauto.com') && (url.includes('/cars?') || url.match(/\/cars\/?$/))) {
         console.log('[Scraper] Brown Boys listing URL detected - using direct API scraping (skip HTML fetch)');
 
         // Parse filters from URL
@@ -78,7 +78,7 @@ export const scrapeVehicle = async (url, options = {}) => {
             console.log('[Scraper] Brown Boys Auto URL detected:', url);
 
             // Detect if this is a listing or detail page
-            const isListingPage = url.includes('/cars?') || url.endsWith('/cars');
+            const isListingPage = url.includes('/cars?') || url.match(/\/cars\/?$/);
             const isDetailPage = url.match(/\/cars\/used\/[\w-]+-\d+$/);
 
             console.log(`[Scraper] Page type - Listing: ${!!isListingPage}, Detail: ${!!isDetailPage}`);
@@ -658,6 +658,17 @@ export const scrapeVehicle = async (url, options = {}) => {
         return vehicle;
 
     } catch (error) {
+        // Fallback for Brown Boys Auto Single Page (404/403)
+        if (url.includes('brownboysauto.com') && !url.includes('/cars?')) {
+            console.log(`[Scraper] ⚠️ Standard scrape failed (${error.message}). Attempting Puppeteer fallback...`);
+            try {
+                return await scrapeSingleVehicle(url);
+            } catch (puppeteerError) {
+                console.error(`[Scraper] ❌ Puppeteer fallback also failed: ${puppeteerError.message}`);
+                throw new Error(`Scraping failed after fallback: ${error.message} (Puppeteer: ${puppeteerError.message})`);
+            }
+        }
+
         throw new Error(`Scraping failed: ${error.message}`);
     }
 };
