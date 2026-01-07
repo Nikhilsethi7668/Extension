@@ -1,6 +1,6 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { scrapeBrownBoysViaAPI, scrapeSingleVehicle } from '../utils/brownBoysApiScraper.js';
+import { scrapeBrownBoysViaAPI } from '../utils/brownBoysApiScraper.js';
 
 export const scrapeVehicle = async (url, options = {}) => {
     console.log('[Scraper] Start scraping:', url);
@@ -658,17 +658,6 @@ export const scrapeVehicle = async (url, options = {}) => {
         return vehicle;
 
     } catch (error) {
-        // Fallback for Brown Boys Auto Single Page (404/403)
-        if (url.includes('brownboysauto.com') && !url.includes('/cars?')) {
-            console.log(`[Scraper] ⚠️ Standard scrape failed (${error.message}). Attempting Puppeteer fallback...`);
-            try {
-                return await scrapeSingleVehicle(url);
-            } catch (puppeteerError) {
-                console.error(`[Scraper] ❌ Puppeteer fallback also failed: ${puppeteerError.message}`);
-                throw new Error(`Scraping failed after fallback: ${error.message} (Puppeteer: ${puppeteerError.message})`);
-            }
-        }
-
         throw new Error(`Scraping failed: ${error.message}`);
     }
 };
