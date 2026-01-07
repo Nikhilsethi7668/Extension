@@ -582,6 +582,25 @@ function attachEventListeners() {
 
   // Prompt UI Listeners
   setupPromptListeners();
+
+  // Large Image View Close Listeners
+  const closeLargeViewBtn = document.getElementById('closeLargeViewBtn');
+  const imageLargeView = document.getElementById('imageLargeView');
+
+  if (closeLargeViewBtn) {
+    closeLargeViewBtn.addEventListener('click', () => {
+      if (imageLargeView) imageLargeView.style.display = 'none';
+    });
+  }
+
+  if (imageLargeView) {
+    imageLargeView.addEventListener('click', (e) => {
+      // Close if clicked on background (overlay) but not the image itself
+      if (e.target === imageLargeView) {
+        imageLargeView.style.display = 'none';
+      }
+    });
+  }
 }
 
 // Test Fill Facebook Marketplace Form

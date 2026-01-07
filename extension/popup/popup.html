@@ -223,6 +223,16 @@
     </div>
   </div>
 
+  <div id="imageLargeView" class="modal-overlay"
+    style="display: none; align-items: center; justify-content: center; z-index: 1000;">
+    <div class="large-image-container" style="position: relative; max-width: 90%; max-height: 90%;">
+      <span id="closeLargeViewBtn"
+        style="position: absolute; top: -30px; right: -10px; color: white; font-size: 24px; cursor: pointer;">&times;</span>
+      <img id="largeImage" src="" alt="Full View"
+        style="max-width: 100%; max-height: 80vh; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+    </div>
+  </div>
+
   <script src="loader-functions.js"></script>
   <script src="popup.js"></script>
 </body>
