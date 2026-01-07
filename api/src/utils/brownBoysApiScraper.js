@@ -408,6 +408,107 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
         console.log(`[Puppeteer] 🔗 Navigating to Context: https://www.brownboysauto.com/cars`);
         await page.goto('https://www.brownboysauto.com/cars', { waitUntil: 'networkidle2', timeout: 60000 });
 
+        // 2. Fetch cars.json to get valid vehicle IDs with slugs
+        console.log('[Puppeteer] 📥 Fetching cars.json for slug validation...');
+        const buildId = await page.evaluate(() => window.__NEXT_DATA__?.buildId);
+        
+        let vehicleSlugMap = new Map(); // Map of id -> slug
+        if (buildId) {
+            const dataUrl = `https://www.brownboysauto.com/_next/data/${buildId}/cars.json`;
+            console.log(`[Puppeteer] 🔑 Build ID: ${buildId}`);
+            
+            const carsData = await page.evaluate(async (url) => {
+                try {
+                    const res = await fetch(url);
+                    if (!res.ok) return null;
+                    return await res.json();
+                } catch (e) {
+                    return null;
+                }
+            }, dataUrl);
+
+            // Debug: Log structure to find fullIds
+            if (carsData) {
+                console.log('[Puppeteer] 📊 cars.json keys:', Object.keys(carsData));
+                if (carsData.pageProps) {
+                    console.log('[Puppeteer] 📊 pageProps keys:', Object.keys(carsData.pageProps));
+                    if (carsData.pageProps.preFetchedData) {
+                        const prefData = carsData.pageProps.preFetchedData;
+                        console.log('[Puppeteer] 📊 preFetchedData keys:', Object.keys(prefData));
+                        
+                        // FULL DATA DUMP (first 3000 chars) to visually inspect
+                        console.log('[Puppeteer] 📊 FULL preFetchedData structure (first 3000 chars):');
+                        console.log(JSON.stringify(prefData, null, 2).substring(0, 3000));
+                        
+                        // Check if fullIds is directly in preFetchedData
+                        if (prefData.fullIds) {
+                            console.log('[Puppeteer] 📍 fullIds found directly in preFetchedData!');
+                            console.log('[Puppeteer] 📊 fullIds length:', prefData.fullIds.length);
+                        }
+                        
+                        // Check vehiclesData
+                        console.log('[Puppeteer] 📊 vehiclesData type:', typeof prefData.vehiclesData);
+                        if (prefData.vehiclesData) {
+                            if (Array.isArray(prefData.vehiclesData)) {
+                                console.log('[Puppeteer] 📊 vehiclesData is array, length:', prefData.vehiclesData.length);
+                                if (prefData.vehiclesData.length > 0) {
+                                    console.log('[Puppeteer] 📊 vehiclesData[0] sample:', JSON.stringify(prefData.vehiclesData[0]).substring(0, 200));
+                                }
+                            } else {
+                                console.log('[Puppeteer] 📊 vehiclesData keys:', Object.keys(prefData.vehiclesData));
+                                // Check if fullIds is inside vehiclesData object
+                                if (prefData.vehiclesData.fullIds) {
+                                    console.log('[Puppeteer] 📍 fullIds found in vehiclesData!');
+                                }
+                            }
+                        }
+                        
+                        // Check dealerData
+                        if (prefData.dealerData) {
+                            console.log('[Puppeteer] 📊 dealerData type:', typeof prefData.dealerData);
+                            if (typeof prefData.dealerData === 'object' && !Array.isArray(prefData.dealerData)) {
+                                console.log('[Puppeteer] 📊 dealerData keys:', Object.keys(prefData.dealerData));
+                                if (prefData.dealerData.fullIds) {
+                                    console.log('[Puppeteer] 📍 fullIds found in dealerData!');
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Try ALL possible paths for fullIds
+            let fullIds = null;
+            const prefData = carsData?.pageProps?.preFetchedData;
+            
+            // Correct path: vehiclesData[0].fullIds
+            if (Array.isArray(prefData?.vehiclesData) && prefData.vehiclesData.length > 0 && prefData.vehiclesData[0].fullIds) {
+                fullIds = prefData.vehiclesData[0].fullIds;
+                console.log('[Puppeteer] 📍 Using fullIds from vehiclesData[0].fullIds');
+            } else if (prefData?.fullIds) {
+                fullIds = prefData.fullIds;
+                console.log('[Puppeteer] 📍 Using fullIds from preFetchedData');
+            } else if (prefData?.vehiclesData?.fullIds) {
+                fullIds = prefData.vehiclesData.fullIds;
+                console.log('[Puppeteer] 📍 Using fullIds from vehiclesData');
+            } else if (prefData?.dealerData?.fullIds) {
+                fullIds = prefData.dealerData.fullIds;
+                console.log('[Puppeteer] 📍 Using fullIds from dealerData');
+            }
+
+            if (fullIds && Array.isArray(fullIds)) {
+                fullIds.forEach(item => {
+                    if (item.id && item.slug) {
+                        vehicleSlugMap.set(item.id, item.slug);
+                    }
+                });
+                console.log(`[Puppeteer] ✅ Found ${vehicleSlugMap.size} vehicles with valid slugs`);
+            } else {
+                console.log('[Puppeteer] ⚠️ Could not extract fullIds from cars.json, proceeding without slug filter');
+            }
+        } else {
+            console.log('[Puppeteer] ⚠️ Could not extract Build ID, proceeding without slug filter');
+        }
+
         // API Pagination Loop
         let currentPage = 1;
         let hasMore = true;
@@ -419,8 +520,7 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
             console.log(`[Puppeteer] 📄 Fetching Page ${currentPage}...`);
 
             // Construct API URL (base URL with pagination only)
-            // https://api.hillzusers.com/api/dealership/advance/search/vehicles/brownboysauto.com?page=1&limit=10
-            const apiUrl = `https://api.hillzusers.com/api/dealership/advance/search/vehicles/brownboysauto.com?page=${currentPage}&limit=${BATCH_SIZE}`;
+            const apiUrl = `https://api.hillzusers.com/api/dealership/advance/search/vehicles/www.brownboysauto.com?page=${currentPage}&limit=${BATCH_SIZE}`;
             
             // Build request body matching the exact API format
             // Only use defaults when filter value is null/undefined
@@ -471,6 +571,7 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
                     let data;
                     try {
                         data = JSON.parse(responseText);
+                        
                     } catch (e) {
                         return { error: `Invalid JSON response: ${responseText.substring(0, 200)}` };
                     }
@@ -523,39 +624,35 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
                         continue;
                     }
 
+                    // Check if vehicle has valid slug (from cars.json)
+                    if (vehicleSlugMap.size > 0 && !vehicleSlugMap.has(item.id)) {
+                        console.log(`[Puppeteer] ⏭️ Skipping vehicle ${item.id} - no valid slug found in cars.json`);
+                        totalSkipped++;
+                        continue;
+                    }
+
                     // Extract Details from Nested 'Vehicle' Object
                     const year = Number(info.model_year) || Number(item.year) || 0;
                     const make = info.make || item.make || 'Unknown';
                     const model = info.model || item.model || 'Unknown';
                     const trim = info.trim || item.trim || '';
 
-                    // Construct URL
+                    // Construct URL - prioritize slug from cars.json
                     let sourceUrl;
-                    if (item.slug) {
-                        // usage: https://www.brownboysauto.com/cars/used/2020-volkswagen-passat-513643
+                    if (vehicleSlugMap.has(item.id)) {
+                        // BEST: Use exact slug from cars.json
+                        const slug = vehicleSlugMap.get(item.id);
+                        sourceUrl = `https://www.brownboysauto.com${slug}`;
+                        console.log(`[Puppeteer] ✅ Using cars.json slug for vehicle ${item.id}`);
+                    } else if (item.slug) {
+                        // Fallback 1: Use slug from API
                         const slug = item.slug.startsWith('/') ? item.slug : `/${item.slug}`;
                         sourceUrl = `https://www.brownboysauto.com${slug}`;
                     } else {
-                        // Fallback: Try to derive slug from image filename (likely matches backend slug convention)
-                        // Example image: thumb-2020-LandRover-RangeRover-006058564395250432.jpg
-                        // We want: 2020-LandRover-RangeRover
-                        let derivedSlug = null;
-                        if (item.MidVDSMedia && item.MidVDSMedia.length > 0) {
-                            const sampleImg = item.MidVDSMedia[0].media_src || item.MidVDSMedia[0].src || '';
-                            const match = sampleImg.match(/(?:thumb-)?(\d{4}-.+?)-\d+\.(?:jpg|png|jpeg)/i);
-                            if (match && match[1]) {
-                                derivedSlug = match[1];
-                            }
-                        }
-
-                        if (derivedSlug) {
-                            sourceUrl = `https://www.brownboysauto.com/cars/used/${derivedSlug}-${item.id}`;
-                        } else {
-                            // Standard Fallback
-                            const makeSlug = make.replace(/\s+/g, '-');
-                            const modelSlug = model.replace(/\s+/g, '-');
-                            sourceUrl = `https://www.brownboysauto.com/cars/used/${year}-${makeSlug}-${modelSlug}-${item.id}`;
-                        }
+                        // Fallback 2: Construct URL from Make/Model
+                        const makeSlug = make.replace(/\s+/g, '-');
+                        const modelSlug = model.replace(/\s+/g, '-');
+                        sourceUrl = `https://www.brownboysauto.com/cars/used/${year}-${makeSlug}-${modelSlug}-${item.id}`;
                     }
 
                     // --- DETAIL PAGE SCRAPING (For Full Images) ---
