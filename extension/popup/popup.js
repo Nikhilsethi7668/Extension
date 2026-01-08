@@ -1,6 +1,6 @@
 // popup.js - Main popup controller
 const API_CONFIG = {
-  baseUrl: 'http://localhost:5573/api',
+  baseUrl: 'http://94.250.203.249:5573/api',
   endpoints: {
     agentLogin: '/auth/dashboard-api-login',
     validateKey: '/auth/validate-key',
