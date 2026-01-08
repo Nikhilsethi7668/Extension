@@ -4,6 +4,8 @@ import User from '../models/User.js'; // To cascade deactivate if needed, or jus
 import { v4 as uuidv4 } from 'uuid';
 import { protect, superAdmin } from '../middleware/auth.js';
 
+import { sendOrgWelcomeEmail, sendOrgUpdateEmail, sendOrgStatusEmail } from '../services/email.service.js';
+
 const router = express.Router();
 
 // Helper function to calculate expiration date
@@ -102,6 +104,8 @@ router.post('/', protect, superAdmin, async (req, res) => {
             }
         });
 
+
+
         // Create Org Admin if credentials provided
         if (req.body.adminEmail && req.body.adminPassword) {
             await User.create({
@@ -112,6 +116,9 @@ router.post('/', protect, superAdmin, async (req, res) => {
                 organization: org._id,
                 needsPasswordChange: true
             });
+
+            // Send Welcome Email
+            sendOrgWelcomeEmail(req.body.adminEmail, req.body.adminPassword, name, `${name} Admin`);
         }
 
         res.status(201).json(org);
@@ -134,7 +141,24 @@ router.put('/:id/status', protect, superAdmin, async (req, res) => {
             throw new Error('Organization not found');
         }
 
-        if (status) org.status = status;
+        if (status) {
+            org.status = status;
+            
+            // Get Org Admin to send email
+            const adminUser = await User.findOne({ 
+                organization: org._id, 
+                role: 'org_admin' 
+            });
+
+            if (adminUser) {
+                sendOrgStatusEmail(
+                    adminUser.email, 
+                    org.name, 
+                    adminUser.name, 
+                    status
+                );
+            }
+        }
         if (apiKeyStatus) org.apiKeyStatus = apiKeyStatus;
 
         await org.save();
@@ -165,6 +189,26 @@ router.put('/:id/limit', protect, superAdmin, async (req, res) => {
             org.expiresAt = calculateExpiresAt(subscriptionDuration);
         }
         await org.save();
+
+        // Get Org Admin to send email
+        const adminUser = await User.findOne({ 
+            organization: org._id, 
+            role: 'org_admin' 
+        });
+
+        if (adminUser) {
+
+            sendOrgUpdateEmail(
+                adminUser.email, 
+                org.name, 
+                adminUser.name, 
+                {
+                    maxAgents: org.maxAgents,
+                    subscriptionDuration: org.subscriptionDuration,
+                    expiresAt: org.expiresAt
+                }
+            );
+        }
 
         res.json(org);
     } catch (error) {

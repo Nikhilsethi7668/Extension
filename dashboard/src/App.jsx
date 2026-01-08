@@ -14,6 +14,8 @@ import Logs from './pages/Logs';
 import Settings from './pages/Settings';
 import Setup from './pages/Setup';
 import UpdatePassword from './pages/UpdatePassword';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 
 // --- Theme Configuration Function ---
 const getTheme = (mode) => createTheme({
@@ -182,6 +184,8 @@ const ThemedApp = () => {
         <Router>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/update-password" element={<UpdatePassword />} />
             <Route path="/setup" element={<Setup />} />
             <Route

@@ -147,22 +147,22 @@ const autoPrepareStealth = async (vehicle, customGps = null) => {
 // @access  Protected
 router.get('/', protect, async (req, res) => {
     const { status, minPrice, maxPrice, search, repostEligible, days, page = 1, limit = 50 } = req.query;
-    const query = { organization: req.user.organization._id };
+    const orgId = req.user.organization._id || req.user.organization;
+    const query = { organization: orgId };
 
     const pageNum = Number(page) || 1;
     const limitNum = Number(limit) || 50;
     const skip = (pageNum - 1) * limitNum;
 
-    // Agents only see vehicles assigned to them
-    // Agents only see vehicles assigned to them (or in 'assignedUsers' list)
+    // Role-based Access Control
     if (req.user.role === 'agent') {
+        // Agents only see vehicles assigned to them
         query.assignedUsers = { $in: [req.user._id] };
-    } else {
-        // Org Admins / Super Admins see ALL vehicles in the org
-        // Filter by specific agent if requested
+    } else if (req.user.role === 'org_admin' || req.user.role === 'super_admin') {
+        // Admins see ALL vehicles in the org
+        // Optional: Filter by specific agent if requested via query param
         if (req.query.assignedUser) {
             if (req.query.assignedUser === 'unassigned') {
-                // Check if array is empty or non-existent
                 query.$or = [{ assignedUsers: { $size: 0 } }, { assignedUsers: { $exists: false } }];
             } else {
                 query.assignedUsers = { $in: [req.query.assignedUser] };

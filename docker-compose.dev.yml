@@ -26,6 +26,15 @@ services:
       - mongo
     networks:
       - extension-network
+    develop:
+      watch:
+        - action: sync
+          path: ./api
+          target: /app
+          ignore:
+            - node_modules/
+        - action: rebuild
+          path: ./api/package.json
 
   dashboard:
     build: ./dashboard
@@ -42,6 +51,15 @@ services:
       - api
     networks:
       - extension-network
+    develop:
+      watch:
+        - action: sync
+          path: ./dashboard
+          target: /app
+          ignore:
+            - node_modules/
+        - action: rebuild
+          path: ./dashboard/package.json
 
   mongo:
     image: mongo:latest

@@ -14,7 +14,7 @@ import {
 } from '@mui/material';
 import { Email, Lock, Login as LoginIcon, Key } from '@mui/icons-material';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 const Login = () => {
     const [loginMethod, setLoginMethod] = useState(0); // 0: Email/Pass, 1: API Key
@@ -198,6 +198,18 @@ const Login = () => {
                                     }}
                                     sx={{ mt: 2 }}
                                 />
+                                <Box sx={{ textAlign: 'right', mt: 1 }}>
+                                    <Link 
+                                        to="/forgot-password" 
+                                        style={{ 
+                                            color: '#0f62fe', 
+                                            textDecoration: 'none', 
+                                            fontSize: '0.875rem'
+                                        }}
+                                    >
+                                        Forgot Password?
+                                    </Link>
+                                </Box>
                             </>
                         ) : (
                             <TextField

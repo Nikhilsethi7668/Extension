@@ -5,8 +5,16 @@ import User from '../models/User.js';
 import Organization from '../models/Organization.js';
 import AuditLog from '../models/AuditLog.js';
 import { protect, superAdmin } from '../middleware/auth.js';
+import crypto from 'crypto';
+import { sendPasswordResetEmail } from '../services/email.service.js';
+import { initAdmin } from '../scripts/init_admin.js';
 
 const router = express.Router();
+
+// @desc    Initialize Super Admin (Dev/Setup only)
+// @route   POST /api/auth/init-admin
+// @access  Public
+router.post('/init-admin', initAdmin);
 
 // Generate Token
 // Generate Token
@@ -299,6 +307,97 @@ router.put('/update-password', protect, async (req, res) => {
         }
     } catch (error) {
         res.status(400).json({ message: error.message });
+    }
+});
+
+// @desc    Request password reset
+// @route   POST /api/auth/forgot-password
+// @access  Public
+router.post('/forgot-password', async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            res.status(400);
+            throw new Error('Email is required');
+        }
+
+        const user = await User.findOne({ email });
+
+        // Always return success message even if user not found (security best practice)
+        if (!user) {
+            return res.json({ 
+                message: 'If an account with that email exists, a password reset link has been sent.' 
+            });
+        }
+
+        // Generate reset token
+        const resetToken = crypto.randomBytes(32).toString('hex');
+        
+        // Set token and expiration (1 hour)
+        user.resetPasswordToken = resetToken;
+        user.resetPasswordExpires = new Date(Date.now() + 3600000); // 1 hour
+        await user.save();
+
+        // Send email
+        await sendPasswordResetEmail(user.email, resetToken, user.name);
+
+        res.json({ 
+            message: 'If an account with that email exists, a password reset link has been sent.' 
+        });
+    } catch (error) {
+        console.error('Forgot password error:', error);
+        res.status(500).json({ message: 'Failed to process password reset request' });
+    }
+});
+
+// @desc    Reset password with token
+// @route   POST /api/auth/reset-password
+// @access  Public
+router.post('/reset-password', async (req, res) => {
+    try {
+        const { token, newPassword } = req.body;
+
+        if (!token || !newPassword) {
+            res.status(400);
+            throw new Error('Token and new password are required');
+        }
+
+        // Find user with valid token that hasn't expired
+        const user = await User.findOne({
+            resetPasswordToken: token,
+            resetPasswordExpires: { $gt: Date.now() }
+        });
+
+        if (!user) {
+            res.status(400);
+            throw new Error('Invalid or expired reset token');
+        }
+
+        // Update password (will be hashed by pre-save hook)
+        user.password = newPassword;
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpires = undefined;
+        
+        // Regenerate API key for added security (if user has one)
+        let newApiKey = null;
+        if (user.apiKey) {
+            newApiKey = uuidv4();
+            user.apiKey = newApiKey;
+        }
+        
+        await user.save();
+
+        // Return new API key if it was regenerated
+        const response = { message: 'Password has been reset successfully' };
+        if (newApiKey) {
+            response.newApiKey = newApiKey;
+            response.note = 'Your API key has been regenerated for security. Please update it in your applications.';
+        }
+
+        res.json(response);
+    } catch (error) {
+        res.status(error.statusCode || 500).json({ message: error.message });
     }
 });
 

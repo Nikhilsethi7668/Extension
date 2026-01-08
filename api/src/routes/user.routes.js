@@ -3,6 +3,7 @@ import User from '../models/User.js';
 import Organization from '../models/Organization.js';
 import { protect, admin } from '../middleware/auth.js';
 import { v4 as uuidv4 } from 'uuid';
+import { sendAgentWelcomeEmail } from '../services/email.service.js';
 
 const router = express.Router();
 
@@ -90,7 +91,14 @@ router.post('/', protect, admin, async (req, res) => {
             status: 'active'
         });
 
+
+
         const createdUser = await User.findById(user._id).select('-password').populate('organization', 'name');
+
+        // Send Welcome Email to Agent
+        // Note: password might be undefined if not provided (optional), but we only send if we have it or just send link + api key
+        // The email service handles optional password
+        sendAgentWelcomeEmail(email, password, createdUser.organization.name, name, apiKey);
 
         res.status(201).json(createdUser);
     } catch (error) {

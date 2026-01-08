@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
 import User from '../models/User.js';
 import Organization from '../models/Organization.js';
 import connectDB from '../config/db.js';
@@ -10,11 +11,13 @@ dotenv.config();
 // But to be safe, we can pass it or rely on loading it.
 // We will rely on dotenv loading from ../../.env or similar if we run from src/scripts
 
-const initAdmin = async () => {
+const initAdmin = async (req = null, res = null) => {
     try {
-        await connectDB();
-
-        console.log('Connected to DB. Checking for Organization...');
+        // Only connect if not already connected (Mongoose state 1 is connected)
+        if (mongoose.connection.readyState !== 1) {
+            await connectDB();
+            console.log('Connected to DB. Checking for Organization...');
+        }
 
         let org = await Organization.findOne({ slug: 'default-org' });
         if (!org) {
@@ -69,6 +72,14 @@ const initAdmin = async () => {
             console.log('User created successfully.');
         }
 
+        const credentials = {
+            email,
+            password,
+            name,
+            organization: orgName,
+            status: user ? 'Updated' : 'Created'
+        };
+
         console.log('\n=== Super Admin Credentials ===');
         console.log(`Email: ${email}`);
         console.log(`Password: ${password}`);
@@ -76,12 +87,29 @@ const initAdmin = async () => {
         console.log(`Organization: ${orgName}`);
         console.log('==============================\n');
 
+        if (res) {
+            return res.json({
+                message: 'Super Admin Initialized',
+            });
+        }
+        
         console.log('Done.');
-        process.exit(0);
+        // Only exit if run as a script and not via API
+        if (!req) {
+            process.exit(0);
+        }
     } catch (error) {
         console.error('Error:', error);
+        if (res) {
+            return res.status(500).json({ message: error.message });
+        }
         process.exit(1);
     }
 };
 
-initAdmin();
+// Check if file is being run directly
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+    initAdmin();
+}
+
+export { initAdmin };

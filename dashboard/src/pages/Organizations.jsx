@@ -83,17 +83,38 @@ const Organizations = () => {
         }
     };
 
+    const [isCreating, setIsCreating] = useState(false);
+
     const handleCreateOrg = async (e) => {
         e.preventDefault();
+        if (isCreating) return;
+        
         try {
+            setIsCreating(true);
+            setError(''); // Clear previous errors
             await apiClient.post('/organizations', formData);
             setSuccess('Organization created successfully');
             setOpenDialog(false);
             fetchOrganizations();
+            // Reset form
+            setFormData({
+                name: '',
+                maxAgents: 10,
+                aiProvider: 'gemini',
+                geminiApiKey: '',
+                openaiApiKey: '',
+                subscriptionDuration: 'lifetime',
+                adminEmail: '',
+                adminPassword: ''
+            });
         } catch (err) {
             setError(err.response?.data?.message || 'Failed to create organization');
+        } finally {
+            setIsCreating(false);
         }
     };
+
+
 
     const handleUpdateLimit = async () => {
         try {
@@ -326,8 +347,10 @@ const Organizations = () => {
                         </Box>
                     </DialogContent>
                     <DialogActions>
-                        <Button onClick={() => setOpenDialog(false)}>Cancel</Button>
-                        <Button type="submit" variant="contained">Create</Button>
+                        <Button onClick={() => setOpenDialog(false)} disabled={isCreating}>Cancel</Button>
+                        <Button type="submit" variant="contained" disabled={isCreating}>
+                            {isCreating ? <CircularProgress size={24} color="inherit" /> : 'Create'}
+                        </Button>
                     </DialogActions>
                 </form>
             </Dialog>

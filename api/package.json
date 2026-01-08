@@ -27,6 +27,7 @@
         "puppeteer": "^23.11.1",
         "puppeteer-extra": "^3.3.6",
         "puppeteer-extra-plugin-stealth": "^2.11.2",
+        "resend": "^6.7.0",
         "sharp": "^0.34.5",
         "socket.io": "^4.8.3",
         "uuid": "^11.0.3"
