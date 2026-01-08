@@ -2,10 +2,24 @@ services:
   api:
     build: ./api
     ports:
-      - "5573:5573"
+      - "${PORT}:${PORT}"
     environment:
-      - NODE_ENV=production
-      - PORT=5573
+      - NODE_ENV=${NODE_ENV}
+      - PORT=${PORT}
+      - MONGO_USERNAME=${MONGO_USERNAME}
+      - MONGO_PASSWORD=${MONGO_PASSWORD}
+      - MONGO_HOST=${MONGO_HOST}
+      - MONGO_PORT=${MONGO_PORT}
+      - MONGO_DATABASE=${MONGO_DATABASE}
+      - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE}
+      - MONGO_URI=${MONGO_URI}
+      - JWT_SECRET=${JWT_SECRET}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - FAL_KEY=${FAL_KEY}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - FROM_EMAIL=${FROM_EMAIL}
+      - FRONTEND_URL=${FRONTEND_URL}
     volumes:
       - ./api:/app
       - /app/node_modules
@@ -15,7 +29,7 @@ services:
     networks:
       - extension-network
     env_file:
-      - ./api/.env
+      - .env
 
   dashboard:
     build: ./dashboard
@@ -29,7 +43,7 @@ services:
     networks:
       - extension-network
     env_file:
-      - ./dashboard/.env
+      - .env
 
   mongo:
     image: mongo:latest
@@ -37,13 +51,16 @@ services:
       - "0.0.0.0:27018:27017" # Accessible from anywhere
       - "0.0.0.0:27017:27017" # Standard port
     environment:
-      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME:-extension}
-      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD:-Password1234}
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
+      - MONGO_INITDB_DATABASE=${MONGO_DATABASE}
     command: mongod --bind_ip_all
     volumes:
       - mongo-data:/data/db
     networks:
       - extension-network
+    env_file:
+      - .env
 
 networks:
   extension-network:
