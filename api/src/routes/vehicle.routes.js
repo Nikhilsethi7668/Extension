@@ -9,7 +9,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { scrapeVehicle } from '../services/scraper.service.js';
 import promptUsed from '../models/promptUsed.js';
 import ImagePrompts from '../models/ImagePrompts.js';
-import { io } from '../index.js';
+
 
 const router = express.Router();
 import fs from 'fs';
@@ -816,19 +816,57 @@ router.post('/scrape-bulk', protect, async (req, res) => {
         items: []
     };
 
-    // Get organization ID for socket room
-    const organizationId = req.user.organization._id.toString();
+    // Get organization ID for socket room safely
+    const organizationId = req.user.organization?._id?.toString() || req.user.organization?.toString();
+
+    if (!organizationId) {
+        // Fallback or error if no org
+        console.error('Scrape Bulk: No Organization ID found for user', req.user._id);
+        // Continue but socket won't work perfectly? Or better to default to user ID?
+    }
+
+    // Get IO instance
+    const io = req.app.get('io');
     
+    // Determine Total Count (Effectively)
+    const totalToProcess = limit ? parseInt(limit) : urls.length;
+
     // Emit scraping start event
-    io.to(`org:${organizationId}`).emit('scrape:start', {
-        total: urls.length,
-        timestamp: new Date().toISOString()
-    });
+    if (io && organizationId) {
+        io.to(`org:${organizationId}`).emit('scrape:start', {
+            total: totalToProcess,
+            timestamp: new Date().toISOString()
+        });
+    }
 
     // Process with a queue to support dynamic expansion
     const queue = [...urls];
     const processed = new Set();
-    let totalScrapedCount = 0; // Track total vehicles scraped if limit is applied globally (optional, but per-URL limit is easier here)
+    let totalScrapedCount = 0; 
+    let totalPreparedCount = 0;
+    const preparationBuffer = [];
+
+    const flushPreparationBuffer = async () => {
+        if (preparationBuffer.length === 0) return;
+        const orgGps = req.user.organization?.settings?.gpsLocation || null;
+
+        // Process sequentially to ensure UI updates 1-by-1 instead of all at once
+        for (const vehicle of preparationBuffer) {
+            await autoPrepareStealth(vehicle, orgGps);
+            totalPreparedCount++;
+            if (io && organizationId) {
+                io.to(`org:${organizationId}`).emit('scrape:progress', {
+                    scraped: totalScrapedCount,
+                    prepared: totalPreparedCount,
+                    total: totalToProcess,
+                    currentUrl: vehicle.sourceUrl,
+                    success: results.success,
+                    failed: results.failed
+                });
+            }
+        }
+        preparationBuffer.length = 0;
+    };
 
     while (queue.length > 0) {
         // Global limit check (if user intends limit to be "total vehicles imported")
@@ -859,14 +897,17 @@ router.post('/scrape-bulk', protect, async (req, res) => {
 
         processed.add(trimmedUrl);
 
-        // Emit progress for current URL
-        io.to(`org:${organizationId}`).emit('scrape:progress', {
-            current: processed.size,
-            total: results.total + queue.length,
-            currentUrl: trimmedUrl,
-            success: results.success,
-            failed: results.failed
-        });
+        // Emit progress for current URL (Initial)
+        if (io && organizationId) {
+            io.to(`org:${organizationId}`).emit('scrape:progress', {
+                scraped: totalScrapedCount,
+                prepared: totalPreparedCount,
+                total: totalToProcess,
+                currentUrl: trimmedUrl,
+                success: results.success,
+                failed: results.failed
+            });
+        }
 
         try {
             console.log('[Route] Calling scrapeVehicle for:', trimmedUrl);
@@ -961,12 +1002,32 @@ router.post('/scrape-bulk', protect, async (req, res) => {
                                 assignedUsers: assignedUserId ? [assignedUserId] : (req.user.role === 'agent' ? [req.user._id] : []),
                             });
 
-                            // Auto-Stealth
-                            const orgGps = req.user.organization?.settings?.gpsLocation || null;
-                            await autoPrepareStealth(vehicle, orgGps);
-
-                            results.success++;
+                            // Emit mid-stream progress (Scraped)
                             totalScrapedCount++;
+                            results.success++;
+
+                            if (io && organizationId) {
+                                io.to(`org:${organizationId}`).emit('scrape:progress', {
+                                    scraped: totalScrapedCount,
+                                    prepared: totalPreparedCount, // Still same
+                                    total: totalToProcess,
+                                    currentUrl: trimmedUrl,
+                                    success: results.success,
+                                    failed: results.failed
+                                });
+                            }
+                            
+                            // Artificial delay to allow UI to render progress smoothly
+                            await new Promise(resolve => setTimeout(resolve, 150));
+
+                            // Add to Buffer
+                            preparationBuffer.push(vehicle);
+
+                            // Flush if buffer full
+                            if (preparationBuffer.length >= 5) {
+                                await flushPreparationBuffer();
+                            }
+
                             results.items.push({
                                 url: vehicleData.sourceUrl,
                                 status: 'success',
@@ -1041,8 +1102,28 @@ router.post('/scrape-bulk', protect, async (req, res) => {
                 assignedUsers: assignedUserId ? [assignedUserId] : (req.user.role === 'agent' ? [req.user._id] : []),
             });
 
-            results.success++;
             totalScrapedCount++;
+            results.success++;
+
+            if (io && organizationId) {
+                io.to(`org:${organizationId}`).emit('scrape:progress', {
+                    scraped: totalScrapedCount,
+                    prepared: totalPreparedCount,
+                    total: totalToProcess,
+                    currentUrl: trimmedUrl,
+                    success: results.success,
+                    failed: results.failed
+                });
+            }
+
+            // Add to Buffer
+            preparationBuffer.push(vehicle);
+
+            // Flush if buffer full
+            if (preparationBuffer.length >= 5) {
+                await flushPreparationBuffer();
+            }
+
             results.items.push({ url: trimmedUrl, status: 'success', vehicleId: vehicle._id, title: `${vehicle.year} ${vehicle.make} ${vehicle.model}` });
             
             // Emit vehicle created event
@@ -1069,13 +1150,18 @@ router.post('/scrape-bulk', protect, async (req, res) => {
         }
     }
     
+    // Flush remaining
+    await flushPreparationBuffer();
+
     // Emit completion event
-    io.to(`org:${organizationId}`).emit('scrape:complete', {
-        total: results.total,
-        success: results.success,
-        failed: results.failed,
-        timestamp: new Date().toISOString()
-    });
+    if (io && organizationId) {
+        io.to(`org:${organizationId}`).emit('scrape:complete', {
+            total: results.total,
+            success: results.success,
+            failed: results.failed,
+            timestamp: new Date().toISOString()
+        });
+    }
 
     res.json(results);
 });

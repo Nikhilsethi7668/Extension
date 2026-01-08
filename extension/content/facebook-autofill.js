@@ -273,27 +273,32 @@
       if (!filledFields.has('category')) {
         const categoryFilled = await fillVehicleCategory();
         if (categoryFilled) filledFields.add('category');
+        await sleep(1000); // Delay between fields
       }
 
       // Use postData instead of pendingPost to prevent null reference
       if (!filledFields.has('year') && postData?.year) {
         const yearFilled = await fillYear();
         if (yearFilled) filledFields.add('year');
+        await sleep(1000); // Delay between fields
       }
 
       if (!filledFields.has('make') && postData?.make) {
         const makeFilled = await fillMake();
         if (makeFilled) filledFields.add('make');
+        await sleep(1000); // Delay between fields
       }
 
       if (!filledFields.has('model') && postData?.model) {
         const modelFilled = await fillModel();
         if (modelFilled) filledFields.add('model');
+        await sleep(1000); // Delay between fields
       }
 
       if (!filledFields.has('mileage') && postData?.mileage) {
         const mileageFilled = await fillMileage();
         if (mileageFilled) filledFields.add('mileage');
+        await sleep(1000); // Delay between fields
       }
 
       if (!filledFields.has('vin') && postData?.vin) {
@@ -1663,7 +1668,8 @@
         dropdown.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
         dropdown.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
         dropdown.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-        await sleep(500);
+        // Increased delay to allow "drawer" to open fully (User Request)
+        await sleep(2000);
         
         if (!isExpanded()) {
             // Method 2: Look for inner trigger button or input
@@ -1711,43 +1717,43 @@
     }
     
     if (!input) {
-        console.warn('No input field found for typing make value');
-        return false;
-    }
-
-    console.log('Found input field, preparing to type...');
-    
-    // Ensure input has focus
-    input.focus();
-    input.click();
-    await sleep(300);
-    
-    // 4. Type the make value to filter options
-    input.focus();
-    await sleep(200);
-    
-    // Clear existing value
-    input.value = '';
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
-    await sleep(200);
-    
-    // Type character by character with proper events
-    console.log(`Typing "${makeValue}" into input...`);
-    for (let i = 0; i < makeValue.length; i++) {
-        input.value += makeValue[i];
+        console.warn('No input field found for typing make value - will try direct selection from list');
+        // We continue instead of returning false, hoping the list is already visible or searchable by scroll
+    } else {
+        console.log('Found input field, preparing to type...');
         
-        // Trigger multiple events for better compatibility
+        // Ensure input has focus
+        input.focus();
+        input.click();
+        await sleep(300);
+        
+        // 4. Type the make value to filter options
+        input.focus();
+        await sleep(200);
+        
+        // Clear existing value
+        input.value = '';
         input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('keyup', { bubbles: true }));
-        input.dispatchEvent(new InputEvent('input', { bubbles: true, data: makeValue[i] }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        await sleep(200);
         
-        await sleep(80); // Slightly slower typing for better detection
+        // Type character by character with proper events
+        console.log(`Typing "${makeValue}" into input...`);
+        for (let i = 0; i < makeValue.length; i++) {
+            input.value += makeValue[i];
+            
+            // Trigger multiple events for better compatibility
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('keyup', { bubbles: true }));
+            input.dispatchEvent(new InputEvent('input', { bubbles: true, data: makeValue[i] }));
+            
+            await sleep(80); // Slightly slower typing for better detection
+        }
+        
+        // Wait for dropdown to filter/load options
+        console.log('Waiting for options to load...');
+        await sleep(1500);
     }
-    
-    // Wait for dropdown to filter/load options
-    console.log('Waiting for options to load...');
-    await sleep(1500);
     
     // 5. Find and select the matching option
     const findOption = async (retries = 3) => {
@@ -1757,28 +1763,45 @@
                 await sleep(500);
             }
             
-            const listboxes = document.querySelectorAll('[role="listbox"]');
+            // Strategy 1: Standard ARIA roles
+            const listboxes = document.querySelectorAll('[role="listbox"], [role="menu"]');
             for (const listbox of listboxes) {
                 if (isVisible(listbox)) {
-                    const options = listbox.querySelectorAll('[role="option"]');
-                    console.log(`Found ${options.length} options in listbox`);
+                    const options = listbox.querySelectorAll('[role="option"], [role="menuitem"], div[role="button"]');
+                    console.log(`Found ${options.length} ARIA options in listbox`);
                     
                     for (const opt of options) {
                         const text = (opt.textContent || '').trim();
-                        // Try exact match first
                         if (text.toLowerCase() === makeValue.toLowerCase()) {
-                            console.log(`Exact match found: "${text}"`);
+                            console.log(`Exact match found (ARIA): "${text}"`);
                             return opt;
                         }
                     }
-                    
-                    // Try partial match if exact match not found
-                    for (const opt of options) {
-                        const text = (opt.textContent || '').trim();
-                        if (text.toLowerCase().includes(makeValue.toLowerCase())) {
-                            console.log(`Partial match found: "${text}"`);
-                            return opt;
-                        }
+                }
+            }
+
+            // Strategy 2: Text Content Search (Fallback)
+            // If we didn't find it via ARIA, look for any visible element with the exact text
+            // We limit scope to elements that look like list items or clickable text
+            console.log('Trying text content search...');
+            const potentialOptions = document.querySelectorAll('div, span, li');
+            for (const el of potentialOptions) {
+                // Optimization: Skip elements with too much text (likely containers)
+                if (el.textContent.length > 50) continue;
+                
+                const text = (el.textContent || '').trim();
+                if (text.toLowerCase() === makeValue.toLowerCase()) {
+                    if (isVisible(el)) {
+                         // Check if it's interactive or inside an interactive element
+                         const isInteractive = el.getAttribute('role') === 'button' || 
+                                             el.onclick || 
+                                             el.closest('[role="button"]') ||
+                                             el.closest('[role="option"]');
+                         
+                         // If we are desperate (attempt > 0), we accept non-interactive looking text too
+                         // provided it's fairly isolated
+                         console.log(`Exact match found (Text): "${text}"`);
+                         return el;
                     }
                 }
             }

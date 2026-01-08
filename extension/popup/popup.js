@@ -2503,10 +2503,6 @@ function createVehicleCard(vehicle) {
         <span>🗑️</span>
         <span>Delete</span>
       </button>
-      <button class="btn btn-danger delete-vehicle-btn" data-vehicle-id="${vehicle._id}">
-        <span>🗑️</span>
-        <span>Delete</span>
-      </button>
     </div>
   `;
 

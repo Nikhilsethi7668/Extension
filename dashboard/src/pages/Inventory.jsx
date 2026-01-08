@@ -45,7 +45,8 @@ const Inventory = () => {
     const [socket, setSocket] = useState(null);
     const [scrapingProgress, setScrapingProgress] = useState({
         active: false,
-        current: 0,
+        scraped: 0,
+        prepared: 0,
         total: 0,
         success: 0,
         failed: 0,
@@ -103,11 +104,12 @@ const Inventory = () => {
                 ...prev,
                 active: true,
                 total: data.total,
-                current: 0,
+                scraped: 0,
+                prepared: 0,
                 success: 0,
                 failed: 0,
                 status: 'scraping',
-                message: `Starting to scrape ${data.total} URL(s)...`
+                message: `Starting to scrape ${data.total} item(s)...`
             }));
             setProgressDialogOpen(true);
         });
@@ -116,7 +118,8 @@ const Inventory = () => {
             console.log('[Socket.IO] Progress update:', data);
             setScrapingProgress(prev => ({
                 ...prev,
-                current: data.current,
+                scraped: data.scraped,
+                prepared: data.prepared,
                 total: data.total,
                 success: data.success,
                 failed: data.failed,
@@ -256,7 +259,8 @@ const Inventory = () => {
         setProgressDialogOpen(true);
         setScrapingProgress({
             active: true,
-            current: 0,
+            scraped: 0,
+            prepared: 0,
             total: 0,
             success: 0,
             failed: 0,
@@ -1158,23 +1162,44 @@ const Inventory = () => {
                 </DialogTitle>
                 <DialogContent>
                     <Box sx={{ mb: 2 }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                            <Typography variant="body2" color="text.secondary">
-                                Progress: {scrapingProgress.current} / {scrapingProgress.total}
-                            </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                                {scrapingProgress.total > 0 
-                                    ? Math.round((scrapingProgress.current / scrapingProgress.total) * 100)
-                                    : 0}%
-                            </Typography>
+                        {/* Scraping Progress */}
+                        <Box sx={{ mb: 2 }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                                <Typography variant="caption" fontWeight={600} color="text.secondary">
+                                    Step 1: Scraping Vehicles
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                    {scrapingProgress.scraped} / {scrapingProgress.total}
+                                </Typography>
+                            </Box>
+                            <LinearProgress 
+                                variant="determinate" 
+                                value={scrapingProgress.total > 0 
+                                    ? (scrapingProgress.scraped / scrapingProgress.total) * 100 
+                                    : 0}
+                                sx={{ height: 6, borderRadius: 3 }}
+                            />
                         </Box>
-                        <LinearProgress 
-                            variant="determinate" 
-                            value={scrapingProgress.total > 0 
-                                ? (scrapingProgress.current / scrapingProgress.total) * 100 
-                                : 0}
-                            sx={{ height: 8, borderRadius: 4 }}
-                        />
+
+                        {/* Preparation Progress */}
+                        <Box sx={{ mb: 1 }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                                <Typography variant="caption" fontWeight={600} color="text.secondary">
+                                    Step 2: Preparing Images (Auto-Stealth)
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                    {scrapingProgress.prepared} / {scrapingProgress.total}
+                                </Typography>
+                            </Box>
+                            <LinearProgress 
+                                variant="determinate" 
+                                color="secondary"
+                                value={scrapingProgress.total > 0 
+                                    ? (scrapingProgress.prepared / scrapingProgress.total) * 100 
+                                    : 0}
+                                sx={{ height: 6, borderRadius: 3 }}
+                            />
+                        </Box>
                     </Box>
 
                     <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>

@@ -115,6 +115,9 @@ io.on('connection', (socket) => {
     });
 });
 
+// Attach IO to app safely
+app.set('io', io);
+
 // Export io for use in routes
 export { io };
 
