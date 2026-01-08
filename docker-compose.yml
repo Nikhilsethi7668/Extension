@@ -36,7 +36,7 @@ services:
     ports:
       - "3682:3682"
     environment:
-      - BACKEND_URL= {BACKEND_URL}
+      - BACKEND_URL=${BACKEND_URL}
     volumes:
       - ./dashboard:/app
       - /app/node_modules
@@ -50,8 +50,7 @@ services:
   mongo:
     image: mongo:latest
     ports:
-      - "0.0.0.0:27018:27017" # Accessible from anywhere
-      - "0.0.0.0:27017:27017" # Standard port
+      - "0.0.0.0:27018:27017" # Mapped to 27018 to avoid conflict with existing MongoDB on 27017
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
