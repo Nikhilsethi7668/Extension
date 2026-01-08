@@ -13,11 +13,18 @@ router.get('/', protect, superAdmin, async (req, res) => {
     try {
         const organizations = await Organization.find({}).sort('-createdAt');
 
-        // Enhance response with agent count for each org (optional, but requested for dashboard)
-        // For efficiency, we might want to do an aggregation or separate call, but iterating is okay for low org count
-        // Let's stick to basic fetch first, frontend can query counts or we can populate virtuals if setup
+        // Enhance response with agent count for each org
+        const orgsWithCounts = await Promise.all(
+            organizations.map(async (org) => {
+                const agentCount = await User.countDocuments({ organization: org._id, role: 'agent' });
+                return {
+                    ...org.toObject(),
+                    agentCount
+                };
+            })
+        );
 
-        res.json(organizations);
+        res.json(orgsWithCounts);
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -49,7 +56,7 @@ router.get('/my-org', protect, async (req, res) => {
 // @route   POST /api/organizations
 // @access  Super Admin
 router.post('/', protect, superAdmin, async (req, res) => {
-    const { name, aiProvider, geminiApiKey, openaiApiKey, maxAgents, gpsLocation } = req.body;
+    const { name, aiProvider, geminiApiKey, openaiApiKey, maxAgents, gpsLocation, subscriptionDuration } = req.body;
 
     try {
         const slug = name.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, ''); // Simple slugify
@@ -65,6 +72,7 @@ router.post('/', protect, superAdmin, async (req, res) => {
             slug,
             maxAgents: maxAgents || 10,
             apiKey: uuidv4(),
+            subscriptionDuration: subscriptionDuration || 'lifetime',
             settings: {
                 aiProvider: aiProvider || 'gemini',
                 geminiApiKey,
@@ -125,7 +133,7 @@ router.put('/:id/status', protect, superAdmin, async (req, res) => {
 // @route   PUT /api/organizations/:id/limit
 // @access  Super Admin
 router.put('/:id/limit', protect, superAdmin, async (req, res) => {
-    const { maxAgents } = req.body;
+    const { maxAgents, subscriptionDuration } = req.body;
 
     try {
         const org = await Organization.findById(req.params.id);
@@ -135,7 +143,8 @@ router.put('/:id/limit', protect, superAdmin, async (req, res) => {
             throw new Error('Organization not found');
         }
 
-        org.maxAgents = maxAgents;
+        if (maxAgents !== undefined) org.maxAgents = maxAgents;
+        if (subscriptionDuration) org.subscriptionDuration = subscriptionDuration;
         await org.save();
 
         res.json(org);

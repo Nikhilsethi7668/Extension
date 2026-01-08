@@ -51,6 +51,12 @@ const organizationSchema = mongoose.Schema(
             enum: ['active', 'inactive'],
             default: 'active',
         },
+        subscriptionDuration: {
+            type: String,
+            enum: ['7-days', '14-days', 'lifetime'],
+            default: 'lifetime',
+            required: true,
+        },
     },
     {
         timestamps: true,

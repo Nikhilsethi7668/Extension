@@ -22,7 +22,11 @@ import {
     CircularProgress,
     Switch,
     FormControlLabel,
-    Grid
+    Grid,
+    Select,
+    MenuItem,
+    FormControl,
+    InputLabel
 } from '@mui/material';
 import {
     MoreVertical,
@@ -50,11 +54,13 @@ const Organizations = () => {
         maxAgents: 10,
         aiProvider: 'gemini',
         geminiApiKey: '',
-        openaiApiKey: ''
+        openaiApiKey: '',
+        subscriptionDuration: 'lifetime'
     });
     const [openEditDialog, setOpenEditDialog] = useState(false);
     const [editData, setEditData] = useState({
-        maxAgents: 10
+        maxAgents: 10,
+        subscriptionDuration: 'lifetime'
     });
     const [apiKeyCopied, setApiKeyCopied] = useState(null);
     const [regeneratedKey, setRegeneratedKey] = useState(null);
@@ -91,7 +97,10 @@ const Organizations = () => {
 
     const handleUpdateLimit = async () => {
         try {
-            await apiClient.put(`/organizations/${selectedOrg._id}/limit`, { maxAgents: editData.maxAgents });
+            await apiClient.put(`/organizations/${selectedOrg._id}/limit`, { 
+                maxAgents: editData.maxAgents,
+                subscriptionDuration: editData.subscriptionDuration 
+            });
             setSuccess('Limit updated successfully');
             setOpenEditDialog(false);
             fetchOrganizations();
@@ -140,10 +149,15 @@ const Organizations = () => {
         }
     };
 
-    const handleCopyKey = (key) => {
-        navigator.clipboard.writeText(key);
-        setApiKeyCopied(key);
-        setTimeout(() => setApiKeyCopied(null), 2000);
+    const handleCopyKey = async (key) => {
+        try {
+            await navigator.clipboard.writeText(key);
+            setApiKeyCopied(key);
+            setTimeout(() => setApiKeyCopied(null), 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+            setError('Failed to copy API key to clipboard');
+        }
     };
 
     if (user?.role !== 'super_admin') {
@@ -177,6 +191,7 @@ const Organizations = () => {
                                 <TableCell>API Key Status</TableCell>
                                 <TableCell>API Key</TableCell>
                                 <TableCell>Agents</TableCell>
+                                <TableCell>Subscription</TableCell>
                                 <TableCell>Actions</TableCell>
                             </TableRow>
                         </TableHead>
@@ -228,9 +243,20 @@ const Organizations = () => {
                                         </Typography>
                                     </TableCell>
                                     <TableCell>
+                                        <Chip 
+                                            label={org.subscriptionDuration || 'lifetime'}
+                                            size="small"
+                                            color={org.subscriptionDuration === 'lifetime' ? 'success' : 'default'}
+                                            variant="outlined"
+                                        />
+                                    </TableCell>
+                                    <TableCell>
                                         <IconButton size="small" onClick={() => {
                                             setSelectedOrg(org);
-                                            setEditData({ maxAgents: org.maxAgents });
+                                        setEditData({ 
+                                            maxAgents: org.maxAgents,
+                                            subscriptionDuration: org.subscriptionDuration || 'lifetime'
+                                        });
                                             setOpenEditDialog(true);
                                         }}>
                                             <Edit size={16} />
@@ -267,6 +293,19 @@ const Organizations = () => {
                                 value={formData.geminiApiKey}
                                 onChange={(e) => setFormData({ ...formData, geminiApiKey: e.target.value })}
                             />
+
+                            <FormControl fullWidth>
+                                <InputLabel>Subscription Duration</InputLabel>
+                                <Select
+                                    value={formData.subscriptionDuration}
+                                    label="Subscription Duration"
+                                    onChange={(e) => setFormData({ ...formData, subscriptionDuration: e.target.value })}
+                                >
+                                    <MenuItem value="7-days">7 Days</MenuItem>
+                                    <MenuItem value="14-days">14 Days</MenuItem>
+                                    <MenuItem value="lifetime">Lifetime</MenuItem>
+                                </Select>
+                            </FormControl>
 
                             <Typography variant="subtitle2" sx={{ mt: 1, color: 'text.secondary' }}>
                                 Organization Admin (Optional)
@@ -305,6 +344,18 @@ const Organizations = () => {
                         value={editData.maxAgents}
                         onChange={(e) => setEditData({ ...editData, maxAgents: e.target.value })}
                     />
+                    <FormControl fullWidth sx={{ mt: 2 }}>
+                        <InputLabel>Subscription Duration</InputLabel>
+                        <Select
+                            value={editData.subscriptionDuration}
+                            label="Subscription Duration"
+                            onChange={(e) => setEditData({ ...editData, subscriptionDuration: e.target.value })}
+                        >
+                            <MenuItem value="7-days">7 Days</MenuItem>
+                            <MenuItem value="14-days">14 Days</MenuItem>
+                            <MenuItem value="lifetime">Lifetime</MenuItem>
+                        </Select>
+                    </FormControl>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setOpenEditDialog(false)}>Cancel</Button>

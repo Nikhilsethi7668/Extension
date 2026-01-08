@@ -150,10 +150,15 @@ const Users = () => {
         }
     };
 
-    const handleCopyApiKey = (apiKey) => {
-        navigator.clipboard.writeText(apiKey);
-        setApiKeyCopied(apiKey);
-        setTimeout(() => setApiKeyCopied(null), 2000);
+    const handleCopyApiKey = async (apiKey) => {
+        try {
+            await navigator.clipboard.writeText(apiKey);
+            setApiKeyCopied(apiKey);
+            setTimeout(() => setApiKeyCopied(null), 2000);
+        } catch (err) {
+            console.error('Failed to copy:', err);
+            setError('Failed to copy API key to clipboard');
+        }
     };
 
     return (
