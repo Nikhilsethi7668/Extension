@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Get base URL from environment variable or use default
-const API_BASE_URL = 'http://94.250.203.249:5573';
+const API_BASE_URL = 'http://66.94.120.78:5573/api';
 
 // Create axios instance with base URL
 const apiClient = axios.create({
