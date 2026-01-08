@@ -3,11 +3,13 @@ import {
     Box, Button, Typography, Paper, Table, TableBody, TableCell,
     TableContainer, TableHead, TableRow, Dialog, DialogTitle,
     DialogContent, TextField, DialogActions, Chip, InputAdornment, TablePagination,
-    IconButton, Tooltip, FormControl, Select, MenuItem, Checkbox, InputLabel, RadioGroup, FormControlLabel, Radio
+    IconButton, Tooltip, FormControl, Select, MenuItem, Checkbox, InputLabel, RadioGroup, FormControlLabel, Radio,
+    LinearProgress, Alert
 } from '@mui/material';
 import { Plus, Search, RefreshCw, X, Eye, ExternalLink, Image as ImageIcon, Trash2, UserPlus, Users, AlertTriangle, DollarSign, RotateCcw, Zap, CheckCircle, Loader } from 'lucide-react';
 import apiClient from '../config/axios';
 import Layout from '../components/Layout';
+import { io as socketIO } from 'socket.io-client';
 
 const Inventory = () => {
     const [vehicles, setVehicles] = useState([]);
@@ -39,6 +41,20 @@ const Inventory = () => {
     const [assignDialogOpen, setAssignDialogOpen] = useState(false);
     const [selectedAgentId, setSelectedAgentId] = useState('');
 
+    // Socket.IO and Progress State
+    const [socket, setSocket] = useState(null);
+    const [scrapingProgress, setScrapingProgress] = useState({
+        active: false,
+        current: 0,
+        total: 0,
+        success: 0,
+        failed: 0,
+        currentUrl: '',
+        message: '',
+        status: 'idle' // 'idle', 'scraping', 'complete', 'error'
+    });
+    const [progressDialogOpen, setProgressDialogOpen] = useState(false);
+
     useEffect(() => {
         const userStr = localStorage.getItem('user');
         if (userStr) {
@@ -59,6 +75,98 @@ const Inventory = () => {
             console.error('Failed to fetch agents:', error);
         }
     };
+
+    // Socket.IO Setup
+    useEffect(() => {
+        const userStr = localStorage.getItem('user');
+        if (!userStr) return;
+
+        const user = JSON.parse(userStr);
+        const organizationId = user.organization?._id || user.organization;
+
+        if (!organizationId) return;
+
+        // Create socket connection
+        const newSocket = socketIO('http://localhost:5573', {
+            withCredentials: true,
+            transports: ['websocket', 'polling']
+        });
+
+        newSocket.on('connect', () => {
+            console.log('[Socket.IO] Connected:', newSocket.id);
+            newSocket.emit('join-organization', organizationId);
+        });
+
+        newSocket.on('scrape:start', (data) => {
+            console.log('[Socket.IO] Scrape started:', data);
+            setScrapingProgress(prev => ({
+                ...prev,
+                active: true,
+                total: data.total,
+                current: 0,
+                success: 0,
+                failed: 0,
+                status: 'scraping',
+                message: `Starting to scrape ${data.total} URL(s)...`
+            }));
+            setProgressDialogOpen(true);
+        });
+
+        newSocket.on('scrape:progress', (data) => {
+            console.log('[Socket.IO] Progress update:', data);
+            setScrapingProgress(prev => ({
+                ...prev,
+                current: data.current,
+                total: data.total,
+                success: data.success,
+                failed: data.failed,
+                currentUrl: data.currentUrl,
+                message: `Processing: ${data.currentUrl.substring(0, 60)}...`
+            }));
+        });
+
+        newSocket.on('scrape:vehicle', (data) => {
+            console.log('[Socket.IO] Vehicle scraped:', data);
+            setScrapingProgress(prev => ({
+                ...prev,
+                success: data.success,
+                failed: data.failed,
+                message: `✓ Successfully added: ${data.vehicle.title}`
+            }));
+        });
+
+        newSocket.on('scrape:error', (data) => {
+            console.log('[Socket.IO] Scrape error:', data);
+            setScrapingProgress(prev => ({
+                ...prev,
+                failed: data.failed,
+                message: `✗ Failed: ${data.url} - ${data.error}`
+            }));
+        });
+
+        newSocket.on('scrape:complete', (data) => {
+            console.log('[Socket.IO] Scrape complete:', data);
+            setScrapingProgress(prev => ({
+                ...prev,
+                active: false,
+                status: 'complete',
+                message: `Completed! ${data.success} succeeded, ${data.failed} failed.`
+            }));
+            // Refresh vehicle list
+            fetchVehicles();
+        });
+
+        newSocket.on('disconnect', () => {
+            console.log('[Socket.IO] Disconnected');
+        });
+
+        setSocket(newSocket);
+
+        // Cleanup on unmount
+        return () => {
+            newSocket.disconnect();
+        };
+    }, []);
 
     // ... (Existing Functions: getFilteredImages, handleDeleteImage) ...
     // Note: Re-implementing them or keeping them if not replaced by range. 
@@ -145,24 +253,46 @@ const Inventory = () => {
     // ... handleScrape ...
     const handleScrape = async () => {
         setLoading(true);
+        setProgressDialogOpen(true);
+        setScrapingProgress({
+            active: true,
+            current: 0,
+            total: 0,
+            success: 0,
+            failed: 0,
+            currentUrl: '',
+            message: 'Initializing scrape...',
+            status: 'scraping'
+        });
+        
         try {
             const urls = scrapeUrl.split('\n').filter(u => u.trim());
             if (urls.length === 0) return;
             const limit = parseInt(maxVehicles) || null;
             const { data } = await apiClient.post('/vehicles/scrape-bulk', { urls, limit });
-            if (data.failed > 0) {
-                const errors = data.items.filter(i => i.status === 'failed').map(i => i.url + ': ' + i.error).join('\n');
-                alert(`Imported ${data.success}, Failed ${data.failed}:\n${errors}`);
-            } else {
-                alert(`Successfully imported ${data.success} vehicles.`);
+            
+            // Final update will come via socket, but handle edge case
+            if (!scrapingProgress.active || scrapingProgress.status !== 'complete') {
+                setScrapingProgress(prev => ({
+                    ...prev,
+                    active: false,
+                    status: 'complete',
+                    message: `Import complete! ${data.success} succeeded, ${data.failed} failed.`
+                }));
             }
+            
             setOpen(false);
             setScrapeUrl('');
             setMaxVehicles('');
             fetchVehicles();
         } catch (err) {
             console.error(err);
-            alert('Scraping process failed');
+            setScrapingProgress(prev => ({
+                ...prev,
+                active: false,
+                status: 'error',
+                message: 'Scraping process failed: ' + (err.response?.data?.message || err.message)
+            }));
         } finally {
             setLoading(false);
         }
@@ -996,6 +1126,106 @@ const Inventory = () => {
                         autoFocus
                     >
                         Confirm
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Progress Dialog */}
+            <Dialog 
+                open={progressDialogOpen} 
+                onClose={() => scrapingProgress.status === 'complete' && setProgressDialogOpen(false)}
+                maxWidth="sm" 
+                fullWidth
+                disableEscapeKeyDown={scrapingProgress.active}
+            >
+                <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {scrapingProgress.active ? (
+                        <>
+                            <Loader size={20} className="animate-spin" />
+                            Scraping in Progress
+                        </>
+                    ) : scrapingProgress.status === 'complete' ? (
+                        <>
+                            <CheckCircle size={20} color="#4caf50" />
+                            Scraping Complete
+                        </>
+                    ) : (
+                        <>
+                            <AlertTriangle size={20} color="#ff9800" />
+                            Scraping Status
+                        </>
+                    )}
+                </DialogTitle>
+                <DialogContent>
+                    <Box sx={{ mb: 2 }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                            <Typography variant="body2" color="text.secondary">
+                                Progress: {scrapingProgress.current} / {scrapingProgress.total}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                {scrapingProgress.total > 0 
+                                    ? Math.round((scrapingProgress.current / scrapingProgress.total) * 100)
+                                    : 0}%
+                            </Typography>
+                        </Box>
+                        <LinearProgress 
+                            variant="determinate" 
+                            value={scrapingProgress.total > 0 
+                                ? (scrapingProgress.current / scrapingProgress.total) * 100 
+                                : 0}
+                            sx={{ height: 8, borderRadius: 4 }}
+                        />
+                    </Box>
+
+                    <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+                        <Chip 
+                            label={`✓ Success: ${scrapingProgress.success}`}
+                            color="success"
+                            size="small"
+                            variant="outlined"
+                        />
+                        <Chip 
+                            label={`✗ Failed: ${scrapingProgress.failed}`}
+                            color="error"
+                            size="small"
+                            variant="outlined"
+                        />
+                    </Box>
+
+                    {scrapingProgress.message && (
+                        <Alert 
+                            severity={
+                                scrapingProgress.status === 'complete' ? 'success' :
+                                scrapingProgress.status === 'error' ? 'error' : 'info'
+                            }
+                            sx={{ wordBreak: 'break-word' }}
+                        >
+                            {scrapingProgress.message}
+                        </Alert>
+                    )}
+
+                    {scrapingProgress.currentUrl && scrapingProgress.active && (
+                        <Box sx={{ mt: 2 }}>
+                            <Typography variant="caption" color="text.secondary" display="block">
+                                Current URL:
+                            </Typography>
+                            <Typography variant="body2" sx={{ 
+                                fontFamily: 'monospace', 
+                                fontSize: '0.75rem',
+                                wordBreak: 'break-all',
+                                mt: 0.5
+                            }}>
+                                {scrapingProgress.currentUrl}
+                            </Typography>
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button 
+                        onClick={() => setProgressDialogOpen(false)}
+                        disabled={scrapingProgress.active}
+                    >
+                        {scrapingProgress.active ? 'Please Wait...' : 'Close'}
                     </Button>
                 </DialogActions>
             </Dialog>

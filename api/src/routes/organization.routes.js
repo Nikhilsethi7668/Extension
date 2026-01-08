@@ -6,6 +6,21 @@ import { protect, superAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
+// Helper function to calculate expiration date
+const calculateExpiresAt = (subscriptionDuration) => {
+    if (subscriptionDuration === 'lifetime') {
+        return null;
+    }
+    
+    const now = new Date();
+    if (subscriptionDuration === '7-days') {
+        return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    } else if (subscriptionDuration === '14-days') {
+        return new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000);
+    }
+    return null; // fallback
+};
+
 // @desc    Get all organizations
 // @route   GET /api/organizations
 // @access  Super Admin
@@ -73,6 +88,7 @@ router.post('/', protect, superAdmin, async (req, res) => {
             maxAgents: maxAgents || 10,
             apiKey: uuidv4(),
             subscriptionDuration: subscriptionDuration || 'lifetime',
+            expiresAt: calculateExpiresAt(subscriptionDuration || 'lifetime'),
             settings: {
                 aiProvider: aiProvider || 'gemini',
                 geminiApiKey,
@@ -144,7 +160,10 @@ router.put('/:id/limit', protect, superAdmin, async (req, res) => {
         }
 
         if (maxAgents !== undefined) org.maxAgents = maxAgents;
-        if (subscriptionDuration) org.subscriptionDuration = subscriptionDuration;
+        if (subscriptionDuration) {
+            org.subscriptionDuration = subscriptionDuration;
+            org.expiresAt = calculateExpiresAt(subscriptionDuration);
+        }
         await org.save();
 
         res.json(org);

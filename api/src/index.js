@@ -80,4 +80,42 @@ app.use((err, req, res, next) => {
 
 const PORT = 5573;
 
-app.listen(PORT, console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`));
+// Create HTTP server and Socket.IO instance
+import { createServer } from 'http';
+import { Server } from 'socket.io';
+
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+    cors: {
+        origin: function (origin, callback) {
+            if (!origin) return callback(null, true);
+            if (origin.startsWith('chrome-extension://')) return callback(null, true);
+            const allowedOrigins = ["http://localhost:5173", "http://localhost:5000", "http://localhost:5573", "http://localhost:3682", "http://66.94.120.78:3682"];
+            if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('localhost')) {
+                return callback(null, true);
+            }
+            callback(null, true);
+        },
+        credentials: true
+    }
+});
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+    console.log(`[Socket.IO] Client connected: ${socket.id}`);
+    
+    // Join organization room for multi-tenant isolation
+    socket.on('join-organization', (organizationId) => {
+        socket.join(`org:${organizationId}`);
+        console.log(`[Socket.IO] Client ${socket.id} joined organization room: org:${organizationId}`);
+    });
+    
+    socket.on('disconnect', () => {
+        console.log(`[Socket.IO] Client disconnected: ${socket.id}`);
+    });
+});
+
+// Export io for use in routes
+export { io };
+
+httpServer.listen(PORT, console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`));

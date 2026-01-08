@@ -57,6 +57,10 @@ const organizationSchema = mongoose.Schema(
             default: 'lifetime',
             required: true,
         },
+        expiresAt: {
+            type: Date,
+            default: null, // null means lifetime/no expiration
+        },
     },
     {
         timestamps: true,

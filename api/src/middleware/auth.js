@@ -52,6 +52,14 @@ export const protect = async (req, res, next) => {
                 return next(new Error('Your organization is inactive'));
             }
 
+            // Check subscription expiration (skip for super_admin)
+            if (user.role !== 'super_admin' && user.organization && user.organization.expiresAt) {
+                if (new Date(user.organization.expiresAt) < new Date()) {
+                    res.status(403);
+                    return next(new Error('Your organization subscription has expired'));
+                }
+            }
+
             req.user = user;
             return next();
         } catch (error) {
@@ -94,6 +102,15 @@ export const protect = async (req, res, next) => {
                 console.log('Protect Middleware: Org API Key inactive');
                 res.status(403);
                 return next(new Error('Organization access is currently disabled. Please contact your administrator.'));
+            }
+
+            // Check subscription expiration (skip for super_admin)
+            if (user.role !== 'super_admin' && user.organization && user.organization.expiresAt) {
+                if (new Date(user.organization.expiresAt) < new Date()) {
+                    console.log('Protect Middleware: Org subscription expired');
+                    res.status(403);
+                    return next(new Error('Your organization subscription has expired'));
+                }
             }
 
             req.user = user;

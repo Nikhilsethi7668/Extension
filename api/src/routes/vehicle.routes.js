@@ -9,6 +9,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { scrapeVehicle } from '../services/scraper.service.js';
 import promptUsed from '../models/promptUsed.js';
 import ImagePrompts from '../models/ImagePrompts.js';
+import { io } from '../index.js';
 
 const router = express.Router();
 import fs from 'fs';
@@ -815,6 +816,15 @@ router.post('/scrape-bulk', protect, async (req, res) => {
         items: []
     };
 
+    // Get organization ID for socket room
+    const organizationId = req.user.organization._id.toString();
+    
+    // Emit scraping start event
+    io.to(`org:${organizationId}`).emit('scrape:start', {
+        total: urls.length,
+        timestamp: new Date().toISOString()
+    });
+
     // Process with a queue to support dynamic expansion
     const queue = [...urls];
     const processed = new Set();
@@ -848,6 +858,15 @@ router.post('/scrape-bulk', protect, async (req, res) => {
         const existingUrls = new Set(existingVehicles.map(v => v.sourceUrl).filter(u => u));
 
         processed.add(trimmedUrl);
+
+        // Emit progress for current URL
+        io.to(`org:${organizationId}`).emit('scrape:progress', {
+            current: processed.size,
+            total: results.total + queue.length,
+            currentUrl: trimmedUrl,
+            success: results.success,
+            failed: results.failed
+        });
 
         try {
             console.log('[Route] Calling scrapeVehicle for:', trimmedUrl);
@@ -954,6 +973,17 @@ router.post('/scrape-bulk', protect, async (req, res) => {
                                 vehicleId: vehicle._id,
                                 title: `${vehicle.year} ${vehicle.make} ${vehicle.model}`
                             });
+                            
+                            // Emit vehicle created event
+                            io.to(`org:${organizationId}`).emit('scrape:vehicle', {
+                                vehicle: {
+                                    id: vehicle._id,
+                                    title: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+                                    url: vehicleData.sourceUrl
+                                },
+                                success: results.success,
+                                failed: results.failed
+                            });
                         } catch (err) {
                             results.failed++;
                             results.items.push({
@@ -1014,12 +1044,38 @@ router.post('/scrape-bulk', protect, async (req, res) => {
             results.success++;
             totalScrapedCount++;
             results.items.push({ url: trimmedUrl, status: 'success', vehicleId: vehicle._id, title: `${vehicle.year} ${vehicle.make} ${vehicle.model}` });
+            
+            // Emit vehicle created event
+            io.to(`org:${organizationId}`).emit('scrape:vehicle', {
+                vehicle: {
+                    id: vehicle._id,
+                    title: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+                    url: trimmedUrl
+                },
+                success: results.success,
+                failed: results.failed
+            });
 
         } catch (error) {
             results.failed++;
             results.items.push({ url: trimmedUrl, status: 'failed', error: error.message });
+            
+            // Emit error event
+            io.to(`org:${organizationId}`).emit('scrape:error', {
+                url: trimmedUrl,
+                error: error.message,
+                failed: results.failed
+            });
         }
     }
+    
+    // Emit completion event
+    io.to(`org:${organizationId}`).emit('scrape:complete', {
+        total: results.total,
+        success: results.success,
+        failed: results.failed,
+        timestamp: new Date().toISOString()
+    });
 
     res.json(results);
 });
