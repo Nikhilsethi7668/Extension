@@ -88,7 +88,7 @@ const Inventory = () => {
         if (!organizationId) return;
 
         // Create socket connection
-        const newSocket = socketIO('http://localhost:5573', {
+        const newSocket = socketIO('http://66.94.120.78:5573', {
             withCredentials: true,
             transports: ['websocket', 'polling']
         });

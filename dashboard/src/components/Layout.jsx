@@ -22,6 +22,7 @@ const Layout = ({ children, title, actions }) => {
     const menuItems = [
         { text: 'Dashboard', icon: <LayoutDashboard size={20} />, path: '/' },
         { text: 'Inventory', icon: <CarFront size={20} />, path: '/inventory' },
+        { text: 'User Posts', icon: <FileText size={20} />, path: '/user-posts' },
         ...(user?.role !== 'agent' ? [{ text: 'Users', icon: <Users size={20} />, path: '/users' }] : []),
         { text: 'Activity Logs', icon: <FileText size={20} />, path: '/logs' },
         { text: 'Settings', icon: <Settings size={20} />, path: '/settings' },

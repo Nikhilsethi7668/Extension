@@ -139,6 +139,88 @@ const autoPrepareStealth = async (vehicle, customGps = null) => {
     return vehicle;
 };
 
+// @desc    Get user posts history (Filtered for User Posts Page)
+// @route   GET /api/vehicles/user-posts
+// @access  Protected
+router.get('/user-posts', protect, async (req, res) => {
+    const { startDate, endDate, search, assignedUser, page = 1, limit = 20 } = req.query;
+    const orgId = req.user.organization._id || req.user.organization;
+    const query = { organization: orgId, status: 'posted' };
+
+    const pageNum = Number(page) || 1;
+    const limitNum = Number(limit) || 20;
+    const skip = (pageNum - 1) * limitNum;
+
+    // 1. User Filtering Logic
+    if (req.user.role === 'org_admin' || req.user.role === 'super_admin') {
+        // Admins can see all, or filter by specific agent
+        if (assignedUser && assignedUser !== 'all') {
+             query.assignedUsers = { $in: [assignedUser] };
+        }
+    } else {
+        // Agents ONLY see their own posts
+        query.assignedUsers = { $in: [req.user._id] };
+    }
+
+    // 2. Date Filtering (on createdAt)
+    if (startDate || endDate) {
+        query.createdAt = {};
+        if (startDate) {
+            query.createdAt.$gte = new Date(startDate);
+        }
+        if (endDate) {
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+            query.createdAt.$lte = end;
+        }
+    }
+
+    // 3. Search Filtering (Car Name/VIN)
+    if (search) {
+        const terms = search.trim().split(/\s+/);
+        if (terms.length > 0) {
+            query.$and = terms.map(term => {
+                const regex = { $regex: term, $options: 'i' };
+                return {
+                    $or: [
+                        { make: regex },
+                        { model: regex },
+                        { vin: regex },
+                        { 'aiContent.title': regex }
+                    ]
+                };
+            });
+        }
+    }
+
+    try {
+        const total = await Vehicle.countDocuments(query);
+        const vehicles = await Vehicle.find(query)
+            .populate('assignedUsers', 'name email')
+            .sort('-createdAt')
+            .skip(skip)
+            .limit(limitNum);
+
+        const baseUrl = getBaseUrl(req);
+        const formattedVehicles = vehicles.map(vehicle => {
+             const v = vehicle.toObject();
+             if (v.images && v.images.length > 0) {
+                 v.images = v.images.map(url => toFullUrl(url, baseUrl));
+             }
+             return v;
+        });
+
+        res.json({
+            vehicles: formattedVehicles,
+            total,
+            page: pageNum,
+            pages: Math.ceil(total / limitNum)
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
 // @desc    Get all vehicles for an organization
 // @route   GET /api/vehicles
 // @access  Protected
