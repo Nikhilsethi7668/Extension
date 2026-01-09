@@ -1,7 +1,7 @@
 // service-worker.js - Background Service Worker
 console.log('Service Worker Loaded');
 
-const BACKEND_URL = 'http://66.94.120.78:5573/api';
+const BACKEND_URL = 'https://api-flash.adaptusgroup.ca/api';
 
 // Enable side panel behavior: open side panel when the extension icon is clicked
 chrome.sidePanel

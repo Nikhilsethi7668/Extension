@@ -1,6 +1,6 @@
 // popup.js - Main popup controller
 const API_CONFIG = {
-  baseUrl: 'http://66.94.120.78:5573/api',
+  baseUrl: 'https://api-flash.adaptusgroup.ca/api',
   endpoints: {
     agentLogin: '/auth/dashboard-api-login',
     validateKey: '/auth/validate-key',
