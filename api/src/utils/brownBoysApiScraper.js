@@ -35,11 +35,42 @@ export async function scrapeBrownBoysViaAPI(options = {}) {
     const listingUrl = `https://www.brownboysauto.com/cars?${urlParams.toString()}`;
     console.log(`[HTML Scraper] 🔗 Target URL: ${listingUrl}`);
 
-    // On US Server, try direct Puppeteer first
-    console.log('[HTML Scraper] 🇺🇸 Running on US Sever - Attempting direct connection...');
+    // Fallback chain
+    try {
+        console.log('[HTML Scraper] 🔹 Strategy 1: Direct Puppeteer (API Injection)');
+        return await scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filters);
+    } catch (error) {
+        console.warn(`[HTML Scraper] ⚠️ Strategy 1 Failed: ${error.message}`);
+    }
 
-    // Fallback to direct Puppeteer
-    return await scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filters);
+    // Strategy 2: ScraperAPI (if key exists)
+    if (SCRAPER_API_KEY) {
+        try {
+            console.log('[HTML Scraper] 🔹 Strategy 2: ScraperAPI');
+            return await scrapeWithScraperAPI(listingUrl, targetCount, existingVins);
+        } catch (error) {
+            console.warn(`[HTML Scraper] ⚠️ Strategy 2 Failed: ${error.message}`);
+        }
+    } else {
+        console.log('[HTML Scraper] ℹ️ Strategy 2 Skipped (No SCRAPER_API_KEY)');
+    }
+
+    // Strategy 3: Google Translate Proxy
+    try {
+        console.log('[HTML Scraper] 🔹 Strategy 3: Google Translate Proxy');
+        return await scrapeWithGoogleTranslate(listingUrl, targetCount, existingVins);
+    } catch (error) {
+        console.warn(`[HTML Scraper] ⚠️ Strategy 3 Failed: ${error.message}`);
+    }
+
+    // Strategy 4: Free Proxies
+    try {
+        console.log('[HTML Scraper] 🔹 Strategy 4: Free Proxies');
+        return await scrapeWithFreeProxy(listingUrl, targetCount, existingVins);
+    } catch (error) {
+        console.warn(`[HTML Scraper] ⚠️ Strategy 4 Failed: ${error.message}`);
+        throw new Error('All scraping strategies failed for Brown Boys Auto');
+    }
 }
 
 /**
@@ -411,12 +442,12 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
         // 2. Fetch cars.json to get valid vehicle IDs with slugs
         console.log('[Puppeteer] 📥 Fetching cars.json for slug validation...');
         const buildId = await page.evaluate(() => window.__NEXT_DATA__?.buildId);
-        
+
         let vehicleSlugMap = new Map(); // Map of id -> slug
         if (buildId) {
             const dataUrl = `https://www.brownboysauto.com/_next/data/${buildId}/cars.json`;
             console.log(`[Puppeteer] 🔑 Build ID: ${buildId}`);
-            
+
             const carsData = await page.evaluate(async (url) => {
                 try {
                     const res = await fetch(url);
@@ -435,17 +466,17 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
                     if (carsData.pageProps.preFetchedData) {
                         const prefData = carsData.pageProps.preFetchedData;
                         console.log('[Puppeteer] 📊 preFetchedData keys:', Object.keys(prefData));
-                        
+
                         // FULL DATA DUMP (first 3000 chars) to visually inspect
                         console.log('[Puppeteer] 📊 FULL preFetchedData structure (first 3000 chars):');
                         console.log(JSON.stringify(prefData, null, 2).substring(0, 3000));
-                        
+
                         // Check if fullIds is directly in preFetchedData
                         if (prefData.fullIds) {
                             console.log('[Puppeteer] 📍 fullIds found directly in preFetchedData!');
                             console.log('[Puppeteer] 📊 fullIds length:', prefData.fullIds.length);
                         }
-                        
+
                         // Check vehiclesData
                         console.log('[Puppeteer] 📊 vehiclesData type:', typeof prefData.vehiclesData);
                         if (prefData.vehiclesData) {
@@ -462,7 +493,7 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
                                 }
                             }
                         }
-                        
+
                         // Check dealerData
                         if (prefData.dealerData) {
                             console.log('[Puppeteer] 📊 dealerData type:', typeof prefData.dealerData);
@@ -479,7 +510,7 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
             // Try ALL possible paths for fullIds
             let fullIds = null;
             const prefData = carsData?.pageProps?.preFetchedData;
-            
+
             // Correct path: vehiclesData[0].fullIds
             if (Array.isArray(prefData?.vehiclesData) && prefData.vehiclesData.length > 0 && prefData.vehiclesData[0].fullIds) {
                 fullIds = prefData.vehiclesData[0].fullIds;
@@ -521,7 +552,7 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
 
             // Construct API URL (base URL with pagination only)
             const apiUrl = `https://api.hillzusers.com/api/dealership/advance/search/vehicles/www.brownboysauto.com?page=${currentPage}&limit=${BATCH_SIZE}`;
-            
+
             // Build request body matching the exact API format
             // Only use defaults when filter value is null/undefined
             const requestBody = {
@@ -555,7 +586,7 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
                 odometer_high: filters.odometer_high !== null ? filters.odometer_high : 162000,
                 keywords: ""
             };
-            
+
             console.log(`[Puppeteer] 🔍 Request Body:`, JSON.stringify(requestBody, null, 2));
 
             // Fetch data inside page context (bypasses CORS/Cloudflare)
@@ -566,20 +597,20 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(body)
                     });
-                    
+
                     const responseText = await res.text();
                     let data;
                     try {
                         data = JSON.parse(responseText);
-                        
+
                     } catch (e) {
                         return { error: `Invalid JSON response: ${responseText.substring(0, 200)}` };
                     }
-                    
+
                     if (!res.ok) {
                         return { error: `Status ${res.status}`, response: data };
                     }
-                    
+
                     return { data, status: res.status };
                 } catch (e) {
                     return { error: e.toString() };

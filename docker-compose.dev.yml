@@ -2,21 +2,24 @@ services:
   api:
     build: ./api
     ports:
-      - "5573:5573"
-      # Expose debugging port if needed
-      - "9229:9229"
+      - "${PORT}:${PORT}"
     environment:
-      - NODE_ENV=development
-      - PORT=5573
-      - GEMINI_API_KEY=AIzaSyBf452ABtErGZ9-RWQxYAmZXvQp3k2sgek
-      - FAL_KEY=1e80787c-9a39-4f09-9eac-d89f349f5a1e:9f8d078dce42d7c391b0891bb3bf011a
-      - JWT_SECRET=dev_secret_key_12345
-      - MONGO_USERNAME=extension
-      - MONGO_PASSWORD=Password1234
-      - MONGO_HOST=mongo
-      - MONGO_PORT=27017
-      - MONGO_DATABASE=facebookmark
-      - MONGO_AUTH_SOURCE=admin
+      - NODE_ENV=${NODE_ENV}
+      - PORT=${PORT}
+      - MONGO_USERNAME=${MONGO_USERNAME}
+      - MONGO_PASSWORD=${MONGO_PASSWORD}
+      - MONGO_HOST=${MONGO_HOST}
+      - MONGO_PORT=${MONGO_PORT}
+      - MONGO_DATABASE=${MONGO_DATABASE}
+      - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE}
+      - MONGO_URI=${MONGO_URI}
+      - JWT_SECRET=${JWT_SECRET}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - FAL_KEY=${FAL_KEY}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - FROM_EMAIL=${FROM_EMAIL}
+      - FRONTEND_URL=${FRONTEND_URL}
     volumes:
       - ./api:/app
       - /app/node_modules
@@ -26,6 +29,8 @@ services:
       - mongo
     networks:
       - extension-network
+    env_file:
+      - .env
     develop:
       watch:
         - action: sync
