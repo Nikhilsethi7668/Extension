@@ -215,7 +215,7 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
             // Construct full URL (Internal localhost for now, routes will handle full URL mapping)
             // But we need to return something the frontend can use or the backend saves.
             // savedPath was relative. stealthResult.relativePath is `/uploads/prepared/...`
-            const processedUrl = `https://api-flash.adaptusgroup.ca${stealthResult.relativePath}`;
+            const processedUrl = `http://66.94.120.78:5573${stealthResult.relativePath}`;
 
             return {
                 success: true,

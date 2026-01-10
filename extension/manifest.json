@@ -23,7 +23,8 @@
         "https://autobridge-backend.dchatpar.workers.dev/*",
         "https://api-flash.adaptusgroup.ca/*",
         "http://localhost:5000/*",
-        "http://localhost:5573/*"
+        "http://localhost:5573/*",
+        "http://66.94.120.78:5573/*"
     ],
     "action": {
         "default_title": "Flash Fender"
