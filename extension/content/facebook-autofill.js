@@ -1483,6 +1483,27 @@
     console.log('=== Starting fillMake (Dropdown Selection) ===');
     const makeValue = postData.make;
 
+    // Check if make field already has a value - if so, skip filling
+    const existingMakeSelectors = [
+      'label[aria-label="Make"]',
+      'label[aria-label="Vehicle Make"]',
+      'div[role="combobox"][aria-label="Make"]',
+      'input[aria-label="Make"]',
+      'input[placeholder="Make"]'
+    ];
+    
+    for (const selector of existingMakeSelectors) {
+      const el = document.querySelector(selector);
+      if (el && isVisible(el)) {
+        const currentValue = el.textContent?.trim() || el.value?.trim() || '';
+        // Check if field has a non-placeholder value
+        if (currentValue && currentValue !== 'Make' && currentValue !== 'Vehicle Make' && currentValue.length > 0) {
+          console.log(`⏭️ Make field already has value: "${currentValue}", skipping fill`);
+          return true; // Return true since field is already filled
+        }
+      }
+    }
+
     // 1. Find the Dropdown Combobox
     let dropdown = null;
 
@@ -1908,9 +1929,46 @@
     if (!postData || !postData.model) return false;
 
     console.log('=== Starting fillModel ===');
+    
+    // Check if model field already has a value - if so, skip filling
+    // Strategy 1: Check inputs by label
+    const allLabels = document.querySelectorAll('label');
+    for (const label of allLabels) {
+      const labelText = label.textContent || '';
+      if (labelText.toLowerCase().includes('model') && !labelText.toLowerCase().includes('body')) {
+        const input = label.querySelector('input[type="text"], input:not([type="file"])');
+        if (input && isVisible(input)) {
+          const currentValue = input.value?.trim() || '';
+          if (currentValue && currentValue.length > 0) {
+            console.log(`⏭️ Model field already has value: "${currentValue}", skipping fill`);
+            return true; // Return true since field is already filled
+          }
+        }
+      }
+    }
+    
+    // Strategy 2: Check inputs near Model span
+    const modelSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+      const text = span.textContent || '';
+      return text.toLowerCase().trim() === 'model';
+    });
+    
+    for (const span of modelSpans) {
+      const parent = span.closest('label, div');
+      if (parent) {
+        const input = parent.querySelector('input[type="text"], input:not([type="file"])');
+        if (input && isVisible(input)) {
+          const currentValue = input.value?.trim() || '';
+          if (currentValue && currentValue.length > 0) {
+            console.log(`⏭️ Model field already has value: "${currentValue}", skipping fill`);
+            return true; // Return true since field is already filled
+          }
+        }
+      }
+    }
 
     // Strategy 1: Find input by label containing "Model"
-    const allLabels = document.querySelectorAll('label');
+    // Reuse allLabels from line 1935 - no need to redeclare
     for (const label of allLabels) {
       const labelText = label.textContent || '';
       if (labelText.toLowerCase().includes('model') && !labelText.toLowerCase().includes('body')) {
@@ -1923,12 +1981,13 @@
     }
 
     // Strategy 2: Find input near span containing "Model"
-    const modelSpans = Array.from(document.querySelectorAll('span')).filter(span => {
+    // Reuse the modelSpans variable declared earlier (line 1951)
+    const modelSpansForFill = Array.from(document.querySelectorAll('span')).filter(span => {
       const text = span.textContent || '';
       return text.toLowerCase().trim() === 'model';
     });
 
-    for (const span of modelSpans) {
+    for (const span of modelSpansForFill) {
       // Look for input in parent or sibling elements
       const parent = span.closest('label, div');
       if (parent) {
