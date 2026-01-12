@@ -2446,7 +2446,7 @@
     // remove zip code (e.g. 70634) and "USA"
     // Type the location value character by character
     // Clean the location value to help Facebook's autocomplete
-    let locationValue = pendingPost.dealerAddress || 'British Columbia'; // Default to BC as requested
+    let locationValue = pendingPost.dealerAddress || 'Surrey, British Columbia'; // Default to Surrey as requested
 
     // Remove Zip Code (5 digits at the end)
     locationValue = locationValue.replace(/\s+\d{5}(-\d{4})?$/, '');
