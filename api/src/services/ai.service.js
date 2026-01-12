@@ -90,17 +90,17 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
             console.log('[AI Service] Analyzing Intent with Gemini...');
             const analysisPrompt = `
                 Analyze this image and the user's edit prompt: "${imagePrompt?.prompt || prompt}".
-                GOAL: Achieve a pixel-perfect, distortion-free result. Use common sense to ensure the vehicle retains accurate geometry and no parts appear distorted.
+                GOAL: Achieve a pixel-perfect result where the vehicle remains 100% authentic and geometrically accurate.
 
-                **Keep the car in the image as it is, do not remove it, or change its camera angle or position**
-                Task 1: Describe the image in detail (key "visualDescription"). Focus on the vehicle's integrity.
-                Task 2: Determine if the user wants to modify the ACTUAL VEHICLE ITSELF (e.g. change color, add spoiler, fix dent, change wheels, convert to convertible) or JUST THE BACKGROUND/ENVIRONMENT (e.g. showroom, beach, white background, remove background, sunny day).
+                **CRITICAL RULE: The subject vehicle must NOT be modified, distorted, or changed in any way unless explicitly requested. Do not change wheels, badging, or body shape.**
+                
+                Task 1: Describe the vehicle in extreme detail (key "visualDescription"). Mention specific brand, model year features, wheels, color, and lighting.
+                Task 2: Determine if the user wants to modify the ACTUAL VEHICLE ITSELF (e.g. change color, add spoiler, new wheels) or JUST THE BACKGROUND/ENVIRONMENT (e.g. showroom, beach, white background).
                 
                 If any modification to the car body, paint, or parts is requested, intent must be "MODIFY_VEHICLE".
                 If only the setting, location, or background is changing, intent must be "MODIFY_BACKGROUND".
                 
                 IMPORTANT: If the prompt mentions "remove background" or "transparent background", the intent MUST be "MODIFY_BACKGROUND".
-                NOTE: For "remove background", the goal is to remove background clutter but PRESERVE the road/ground and the vehicle (do not disturb the road or vehicle).
                 
                 Output JSON only:
                 {
@@ -181,7 +181,9 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
         // Switching to 'fal-ai/flux-general/inpainting' for better control over preservation.
         const falResult = await subscribe('fal-ai/flux-general/inpainting', {
             input: {
-                prompt: `${prompt}. ${visualDescription}. High quality, photorealistic, 8k, masterpiece. Do not modify the vehicle body. Keep vehicle geometry unchanged.`,
+                prompt: `${prompt}. ${visualDescription}. High quality, photorealistic, 8k, masterpiece. 
+                CRITICAL: Do not modify the vehicle body, wheels, or geometry. Keep the vehicle EXACTLY as it is. 
+                Ensure perfect perspective match between car and background. No floating cars.`,
                 image_url: originalImageUrl,
                 mask_url: maskUrl,
                 enable_safety_checker: false,
