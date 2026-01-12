@@ -3911,6 +3911,16 @@
         : selector;
 
       if (element && isVisible(element)) {
+        // Check if value is already filled
+        const currentValue = element.tagName === 'DIV' ? (element.textContent || '') : element.value;
+        const normalizedCurrent = String(currentValue).toLowerCase().trim();
+        const normalizedTarget = String(value).toLowerCase().trim();
+
+        if (normalizedCurrent === normalizedTarget || (normalizedCurrent.length > 0 && normalizedTarget.includes(normalizedCurrent))) {
+          console.log(`Field ${selector} already filled with "${currentValue}", skipping.`);
+          return true;
+        }
+
         // Focus the element
         element.focus();
         await sleep(100);
@@ -3937,6 +3947,12 @@
    * @param {boolean} isContentEditable - Whether element is contentEditable
    */
   async function humanLikeTyping(element, text, isContentEditable = false) {
+    // Check again before clearing
+    const currentValue = isContentEditable ? (element.textContent || '') : element.value;
+    if (String(currentValue).toLowerCase().trim() === String(text).toLowerCase().trim()) {
+      return;
+    }
+
     // Clear existing content
     if (isContentEditable) {
       element.textContent = '';
