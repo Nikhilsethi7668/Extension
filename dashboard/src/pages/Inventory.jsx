@@ -21,6 +21,12 @@ const Inventory = () => {
     const [detailOpen, setDetailOpen] = useState(false);
     const [imageFilter, setImageFilter] = useState('all');
 
+    // Profile Selection Setup
+    const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+    const [chromeProfiles, setChromeProfiles] = useState([]);
+    const [selectedProfileId, setSelectedProfileId] = useState('');
+    const [postingVehicle, setPostingVehicle] = useState(null); // The vehicle being posted
+
     // State for Assignment Conflict
     const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
     const [assignmentMode, setAssignmentMode] = useState('merge'); // 'merge' | 'replace'
@@ -88,7 +94,7 @@ const Inventory = () => {
         if (!organizationId) return;
 
         // Create socket connection
-        const newSocket = socketIO('http://66.94.120.78:5573', {
+        const newSocket = socketIO(import.meta.env.VITE_API_BASE_URL, {
             withCredentials: true,
             transports: ['websocket', 'polling']
         });
@@ -446,6 +452,43 @@ const Inventory = () => {
         }
     };
 
+    // Post to Marketplace Handler
+    const handlePostClick = async (vehicle) => {
+        setPostingVehicle(vehicle);
+        setLoading(true);
+        try {
+            // Fetch profiles
+            const { data } = await apiClient.get('/chrome-profiles');
+            setChromeProfiles(data);
+            if (data.length === 0) {
+                 alert('No synced Chrome profiles found. Please sync profiles from the desktop app first.');
+            } else {
+                 setProfileDialogOpen(true);
+            }
+        } catch (error) {
+            console.error('Failed to fetch profiles:', error);
+            alert('Failed to load Chrome profiles: ' + error.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const confirmPost = () => {
+        if (!socket || !postingVehicle || !selectedProfileId) return;
+
+        // Emit socket event to trigger posting on desktop app
+        // We need to send this to the SERVER, which then forwards to the desktop app room
+        socket.emit('request-posting', {
+            vehicleId: postingVehicle._id,
+            profileId: selectedProfileId
+        });
+
+        alert(`Posting request sent for ${postingVehicle.make} ${postingVehicle.model}! Check your desktop app.`);
+        setProfileDialogOpen(false);
+        setPostingVehicle(null);
+        setSelectedProfileId('');
+    };
+
     // Marketplace Preparation Handlers REMOVED (Auto-Stealth on Scrape)
 
     const isAdmin = currentUser && ['org_admin', 'super_admin'].includes(currentUser.role);
@@ -670,6 +713,15 @@ const Inventory = () => {
                                                     <Eye size={18} />
                                                 </IconButton>
                                             </Tooltip>
+                                            <Tooltip title="Post to Marketplace">
+                                                <IconButton
+                                                    size="small"
+                                                    color="primary"
+                                                    onClick={(e) => { e.stopPropagation(); handlePostClick(v); }}
+                                                >
+                                                    <ExternalLink size={18} />
+                                                </IconButton>
+                                            </Tooltip>
                                             {v.status !== 'sold' ? (
                                                 <Tooltip title="Mark as Sold">
                                                     <IconButton
@@ -789,6 +841,43 @@ const Inventory = () => {
                         disabled={loading || !selectedAgentId}
                     >
                         {loading ? 'Assigning...' : 'Confirm Assignment'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Profile Selection Dialog */}
+            <Dialog open={profileDialogOpen} onClose={() => setProfileDialogOpen(false)} maxWidth="xs" fullWidth>
+                <DialogTitle>Select Chrome Profile</DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Choose a Chrome profile to launch for posting:
+                    </Typography>
+                    <FormControl fullWidth size="small">
+                        <Select
+                            value={selectedProfileId}
+                            onChange={(e) => setSelectedProfileId(e.target.value)}
+                            displayEmpty
+                        >
+                            <MenuItem value="" disabled>Select Profile</MenuItem>
+                            {chromeProfiles.map((p) => (
+                                <MenuItem key={p.uniqueId} value={p.uniqueId}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        {p.avatarIcon && <img src={p.avatarIcon} alt="" style={{ width: 20, height: 20, borderRadius: '50%' }} />}
+                                        {p.name}
+                                    </Box>
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setProfileDialogOpen(false)}>Cancel</Button>
+                    <Button
+                        onClick={confirmPost}
+                        variant="contained"
+                        disabled={!selectedProfileId}
+                    >
+                        🚀 Launch & Post
                     </Button>
                 </DialogActions>
             </Dialog>

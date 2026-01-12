@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flash Fender Auto-Poster</title>
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <h1>⚡ Flash Fender Auto-Poster</h1>
+                <div class="header-controls">
+                    <div class="status-indicator">
+                        <span class="status-dot" id="statusDot"></span>
+                        <span id="statusText">Stopped</span>
+                    </div>
+                    <div class="status-indicator">
+                        <span class="status-dot" id="socketDot"></span>
+                        <span id="socketText">Socket: Disconnected</span>
+                    </div>
+                    <button id="logoutBtn" class="btn-logout" title="Logout">🚪 Logout</button>
+                </div>
+            </div>
+        </header>
+
+        <main>
+
+
+            <!-- Chrome Profiles Section -->
+            <section class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2 style="margin: 0;">Chrome Profiles</h2>
+                    <div>
+                        <button id="forceSyncBtn" class="btn btn-secondary" style="margin-right: 5px;">☁️ Upload to
+                            Cloud</button>
+                        <button id="refreshDbProfilesBtn" class="btn btn-secondary">🔄 Refresh</button>
+                    </div>
+                </div>
+
+                <div id="dbProfilesList" class="profiles-grid">
+                    <div class="empty-state">Loading synced profiles...</div>
+                </div>
+            </section>
+
+
+
+            <!-- Activity Log -->
+            <section class="card">
+                <h2>📋 Activity Log</h2>
+                <div id="activityLog" class="activity-log">
+                    <div class="log-entry info">
+                        <span class="log-time">Ready</span>
+                        <span class="log-message">Configure your settings and start automation</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Flash Fender Auto-Poster v1.0.0 | Running in background when minimized</p>
+        </footer>
+    </div>
+
+    <script src="dashboard-renderer.js"></script>
+    <style>
+        .profiles-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .profile-card {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+        }
+
+        .profile-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+
+        .profile-avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background: #eee;
+            margin: 0 auto 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .profile-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #333;
+        }
+
+        .profile-dir {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 10px;
+        }
+
+        .btn-launch {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            width: 100%;
+            cursor: pointer;
+        }
+
+        .btn-launch:hover {
+            background: #1976D2;
+        }
+
+        .empty-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 20px;
+            color: #888;
+            font-style: italic;
+        }
+    </style>
+</body>
+
+</html>

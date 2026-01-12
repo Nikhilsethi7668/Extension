@@ -84,7 +84,8 @@ router.post('/dashboard-api-login', async (req, res) => {
         }
 
         let user = await User.findOne({ apiKey }).populate('organization');
-
+       console.log(user);
+       
         // Case 1: User API Key (Agent)
         if (user) {
             if (user.status !== 'active') {
@@ -154,7 +155,7 @@ router.post('/dashboard-api-login', async (req, res) => {
             role: user.role,
             organization: user.organization,
             needsPasswordChange: user.needsPasswordChange,
-            token: generateToken(user._id),
+            token: generateToken(user._id, user.role, user.organization?._id || user.organization),
         });
 
     } catch (error) {

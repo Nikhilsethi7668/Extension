@@ -1,10 +1,16 @@
 // config.js
 // Global configuration for the extension
 
-const CONFIG = {
+// config.js
+// Global configuration for the extension
+
+var CONFIG = {
   // Extension Information
   name: 'Vehicle Scraper & FB Marketplace Auto-Lister',
   version: '1.0.0',
+  
+  // Backend URL
+  backendUrl: 'http://localhost:5573/api',
 
   // Supported Sites
   supportedSites: [

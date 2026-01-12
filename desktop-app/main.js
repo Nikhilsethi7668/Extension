@@ -1,19 +1,22 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, Notification } = require('electron');
+const { spawn } = require('child_process');
+const io = require('socket.io-client');
 const path = require('path');
 const fs = require('fs');
-const AutomationEngine = require('./automation-engine');
+
 
 // Keep a global reference to prevent garbage collection
 let mainWindow = null;
 let tray = null;
-let automationEngine = null;
+let socket = null;
 let isQuitting = false;
 
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
+const SESSION_PATH = path.join(app.getPath('userData'), 'session.json');
 
 // Default configuration
 const DEFAULT_CONFIG = {
-  apiUrl: 'http://66.94.120.78:5573/api',
+  apiUrl: 'http://localhost:5573/api',
   apiToken: '',
   pollingInterval: 5, // minutes
   autoStart: false,
@@ -26,7 +29,17 @@ function loadConfig() {
   try {
     if (fs.existsSync(CONFIG_PATH)) {
       const data = fs.readFileSync(CONFIG_PATH, 'utf8');
-      return { ...DEFAULT_CONFIG, ...JSON.parse(data) };
+      const savedConfig = JSON.parse(data);
+      
+      // Check if saved API URL matches default - if not, force reset
+      if (savedConfig.apiUrl !== DEFAULT_CONFIG.apiUrl) {
+        console.log('API URL changed, resetting config and session...');
+        clearSession();
+        fs.unlinkSync(CONFIG_PATH);
+        return DEFAULT_CONFIG;
+      }
+      
+      return { ...DEFAULT_CONFIG, ...savedConfig };
     }
   } catch (error) {
     console.error('Error loading config:', error);
@@ -45,6 +58,49 @@ function saveConfig(config) {
   }
 }
 
+// Load session
+function loadSession() {
+  try {
+    if (fs.existsSync(SESSION_PATH)) {
+      const data = fs.readFileSync(SESSION_PATH, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (error) {
+    console.error('Error loading session:', error);
+  }
+  return null;
+}
+
+// Save session
+function saveSession(session) {
+  try {
+    fs.writeFileSync(SESSION_PATH, JSON.stringify(session, null, 2));
+    return true;
+  } catch (error) {
+    console.error('Error saving session:', error);
+    return false;
+  }
+}
+
+// Clear session
+function clearSession() {
+  try {
+    if (fs.existsSync(SESSION_PATH)) {
+      fs.unlinkSync(SESSION_PATH);
+    }
+    return true;
+  } catch (error) {
+    console.error('Error clearing session:', error);
+    return false;
+  }
+}
+
+// Check if user is authenticated
+function isAuthenticated() {
+  const session = loadSession();
+  return session && session.isAuthenticated;
+}
+
 // Create the main window
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -58,7 +114,13 @@ function createWindow() {
     show: false
   });
 
-  mainWindow.loadFile('index.html');
+  // Load login or dashboard based on authentication
+  const authenticated = isAuthenticated();
+  if (authenticated) {
+    mainWindow.loadFile('dashboard.html');
+  } else {
+    mainWindow.loadFile('login.html');
+  }
 
   // Handle window close
   mainWindow.on('close', (event) => {
@@ -104,32 +166,12 @@ function createTray() {
 
 // Update tray menu based on automation status
 function updateTrayMenu() {
-  const isRunning = automationEngine && automationEngine.isRunning();
-  
   const contextMenu = Menu.buildFromTemplate([
     {
       label: 'Flash Fender Auto-Poster',
       enabled: false
     },
     { type: 'separator' },
-    {
-      label: isRunning ? 'Running' : 'Stopped',
-      enabled: false,
-      icon: isRunning 
-        ? nativeImage.createFromPath(path.join(__dirname, 'assets', 'status-active.png')).resize({ width: 12, height: 12 })
-        : nativeImage.createFromPath(path.join(__dirname, 'assets', 'status-inactive.png')).resize({ width: 12, height: 12 })
-    },
-    { type: 'separator' },
-    {
-      label: isRunning ? 'Stop Automation' : 'Start Automation',
-      click: () => {
-        if (isRunning) {
-          stopAutomation();
-        } else {
-          startAutomation();
-        }
-      }
-    },
     {
       label: 'Open Dashboard',
       click: () => {
@@ -149,62 +191,98 @@ function updateTrayMenu() {
   tray.setContextMenu(contextMenu);
 }
 
-// Start automation
-async function startAutomation() {
-  const config = loadConfig();
-  
-  if (!config.apiToken) {
-    if (mainWindow) {
-      mainWindow.webContents.send('error', 'Please configure API token first');
-      mainWindow.show();
-    }
-    return;
-  }
-  
-  if (!automationEngine) {
-    automationEngine = new AutomationEngine(config);
-    
-    // Setup event listeners
-    automationEngine.on('status', (status) => {
-      if (mainWindow) {
-        mainWindow.webContents.send('automation-status', status);
-      }
-      updateTrayMenu();
-    });
-    
-    automationEngine.on('vehicle-posted', (vehicle) => {
-      if (mainWindow) {
-        mainWindow.webContents.send('vehicle-posted', vehicle);
-      }
-      
-      if (Notification.isSupported()) {
-        new Notification({
-          title: 'Vehicle Posted',
-          body: `Successfully posted: ${vehicle.year} ${vehicle.make} ${vehicle.model}`
-        }).show();
-      }
-    });
-    
-    automationEngine.on('error', (error) => {
-      if (mainWindow) {
-        mainWindow.webContents.send('automation-error', error.message);
-      }
-    });
-  }
-  
-  await automationEngine.start();
-  updateTrayMenu();
-}
 
-// Stop automation
-async function stopAutomation() {
-  if (automationEngine) {
-    await automationEngine.stop();
-    updateTrayMenu();
-  }
-}
 
 // IPC Handlers
+
+// Authentication handlers
+ipcMain.handle('validate-login', async (event, credentials) => {
+  const axios = require('axios');
+  
+  console.log('=== LOGIN VALIDATION ===');
+  console.log('API URL:', credentials.apiUrl);
+  console.log('API Key provided:', credentials.apiToken ? 'Yes' : 'No');
+  
+  try {
+    // Use the same endpoint as the extension: /auth/dashboard-api-login
+    console.log('Testing connection to:', `${credentials.apiUrl}/auth/dashboard-api-login`);
+    
+    const response = await axios.post(`${credentials.apiUrl}/auth/dashboard-api-login`, {
+      apiKey: credentials.apiToken  // Send as apiKey in body, like the extension does
+    }, {
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      timeout: 5000
+    });
+    
+    console.log('Login successful! Response status:', response.status);
+    console.log('Received JWT token:', response.data.token ? 'Yes' : 'No');
+    
+    // If successful, save session and config with the JWT token
+    const session = {
+      isAuthenticated: true,
+      loginTime: new Date().toISOString()
+    };
+    
+    const config = {
+      apiUrl: credentials.apiUrl,
+      apiToken: response.data.token,  // Store the JWT token, not the API key
+      apiKey: credentials.apiToken,   // Also store the API key for reference
+      pollingInterval: 5,
+      autoStart: false,
+      extensionPath: ''
+    };
+    
+    saveSession(session);
+    saveConfig(config);
+    
+    // Navigate to dashboard
+    if (mainWindow) {
+      mainWindow.loadFile('dashboard.html');
+    }
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Login failed!');
+    console.error('Error message:', error.message);
+    console.error('Response status:', error.response?.status);
+    console.error('Response data:', error.response?.data);
+    
+    return { 
+      success: false, 
+      message: error.response?.data?.message || error.message || 'Invalid API key'
+    };
+  }
+});
+
+ipcMain.handle('check-auth', () => {
+  return isAuthenticated();
+});
+
+ipcMain.handle('logout', () => {
+  clearSession();
+  
+  // Navigate to login page
+  
+  // Navigate to login page
+  if (mainWindow) {
+    mainWindow.loadFile('login.html');
+  }
+  
+  return { success: true };
+});
+
+ipcMain.handle('get-saved-credentials', () => {
+  const config = loadConfig();
+  return {
+    apiUrl: config.apiUrl,
+    apiToken: config.apiToken,
+    rememberMe: true
+  };
+});
+
+// Configuration handlers
 ipcMain.handle('get-config', () => {
   return loadConfig();
 });
@@ -213,22 +291,7 @@ ipcMain.handle('save-config', (event, config) => {
   return saveConfig(config);
 });
 
-ipcMain.handle('start-automation', async () => {
-  await startAutomation();
-  return { success: true };
-});
 
-ipcMain.handle('stop-automation', async () => {
-  await stopAutomation();
-  return { success: true };
-});
-
-ipcMain.handle('get-status', () => {
-  if (automationEngine) {
-    return automationEngine.getStatus();
-  }
-  return { running: false, lastCheck: null, vehiclesPosted: 0 };
-});
 
 ipcMain.handle('test-connection', async () => {
   const config = loadConfig();
@@ -247,6 +310,140 @@ ipcMain.handle('test-connection', async () => {
   }
 });
 
+// Automation State
+let automationState = {
+  running: false,
+  lastCheck: null,
+  vehiclesPosted: 0,
+  errors: 0
+};
+
+// Automation Handlers
+ipcMain.handle('get-status', () => {
+  return automationState;
+});
+
+ipcMain.handle('start-automation', () => {
+  console.log('Starting automation (stub)...');
+  automationState.running = true;
+  // TODO: Integrate actual AutomationEngine here
+  return { success: true };
+});
+
+ipcMain.handle('stop-automation', () => {
+  console.log('Stopping automation (stub)...');
+  automationState.running = false;
+  return { success: true };
+});
+
+// Chrome Profile Management
+function getChromeProfiles() {
+  try {
+    const userDataPath = path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data');
+    const localStatePath = path.join(userDataPath, 'Local State');
+    
+    if (!fs.existsSync(localStatePath)) {
+      console.error('Chrome Local State file not found');
+      return [];
+    }
+
+    const localState = JSON.parse(fs.readFileSync(localStatePath, 'utf8'));
+    const profiles = localState.profile.info_cache;
+    
+    const profileList = [];
+    for (const [key, value] of Object.entries(profiles)) {
+      profileList.push({
+        id: key, // e.g., "Profile 1"
+        name: value.name, // e.g., "Person 1"
+        shortcut_name: value.shortcut_name,
+        avatar_icon: value.avatar_icon
+      });
+    }
+    
+    return profileList;
+  } catch (error) {
+    console.error('Error getting Chrome profiles:', error);
+    return [];
+  }
+}
+
+ipcMain.handle('get-chrome-profiles', () => {
+  return getChromeProfiles();
+});
+
+
+
+function launchChromeProfile(profileDir) {
+  try {
+    console.log(`Launching Chrome profile: ${profileDir}`);
+    // typical path for Windows
+    const chromePath = path.join(process.env.ProgramFiles, 'Google', 'Chrome', 'Application', 'chrome.exe');
+    const chromePath86 = path.join(process.env["ProgramFiles(x86)"], 'Google', 'Chrome', 'Application', 'chrome.exe');
+    
+    let executable = chromePath;
+    if (!fs.existsSync(executable)) {
+      if (fs.existsSync(chromePath86)) {
+        executable = chromePath86;
+      } else {
+        throw new Error('Chrome executable not found');
+      }
+    }
+
+    const child = spawn(executable, [`--profile-directory=${profileDir}`], {
+      detached: true,
+      stdio: 'ignore'
+    });
+    
+    child.unref(); // Allow the app to keep running independently
+    
+    return { success: true };
+  } catch (error) {
+    console.error('Error launching Chrome:', error);
+    throw error;
+  }
+}
+
+ipcMain.handle('launch-chrome-profile', (event, profileDir) => {
+  try {
+      launchChromeProfile(profileDir);
+      return { success: true };
+  } catch (error) {
+      return { success: false, message: error.message };
+  }
+});
+
+ipcMain.handle('get-db-profiles', async () => {
+  const config = loadConfig();
+  if (!config.apiToken) return [];
+
+  const axios = require('axios');
+  try {
+    const response = await axios.get(`${config.apiUrl}/chrome-profiles`, {
+      headers: {
+        'Authorization': `Bearer ${config.apiToken}`
+      },
+      timeout: 5000
+    });
+    
+    // Transform DB format to dashboard format if needed
+    // DB: { uniqueId, name, ... } -> Dashboard: { id, name, ... }
+    return response.data.map(p => ({
+      id: p.uniqueId,
+      name: p.name,
+      shortcut_name: p.shortcutName,
+      avatar_icon: p.avatarIcon
+    }));
+  } catch (error) {
+    console.error('Error fetching DB profiles:', error.message);
+    return [];
+  }
+});
+
+ipcMain.handle('force-sync-profiles', async () => {
+    await syncProfiles();
+    return { success: true };
+});
+
 // App lifecycle
 app.whenReady().then(() => {
   createWindow();
@@ -254,9 +451,9 @@ app.whenReady().then(() => {
   
   // Auto-start if configured
   const config = loadConfig();
-  if (config.autoStart) {
-    setTimeout(() => startAutomation(), 2000);
-  }
+  /* if (config.autoStart) {
+     // Removed automation start
+  } */
 });
 
 app.on('window-all-closed', (event) => {
@@ -266,13 +463,196 @@ app.on('window-all-closed', (event) => {
 
 app.on('before-quit', () => {
   isQuitting = true;
-  if (automationEngine) {
-    automationEngine.stop();
-  }
 });
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+
+// Socket.IO Logic
+function connectSocket() {
+  const config = loadConfig();
+  const session = loadSession();
+  
+  if (!config.apiToken || !session || !session.isAuthenticated) return;
+  if (socket && socket.connected) return;
+
+  // Decode token to get org ID if needed, or just let server handle it via auth handshake?
+  // Usually we pass token in auth option
+  
+  // Extract user info from token (naive decoding or just let server handle it)
+  // For joining room, we need to emit 'join-organization'. 
+  // We can decode the JWT locally without verification just to get the payload if needed, 
+  // OR we can make a request to /api/auth/me to get the user details first.
+  // Actually, let's just connect and wait for connect event, then fetch user details or assume main process knows?
+  // We don't have user details in session unfortunately, only isAuthenticated.
+  
+  // Let's rely on the token being passed in auth
+  socket = io(config.apiUrl.replace('/api', ''), { // Remove /api suffix for base URL
+    withCredentials: true,
+    transports: ['websocket', 'polling'],
+    reconnection: true,
+    reconnectionDelay: 10000,
+    reconnectionDelayMax: 10000,
+    extraHeaders: {
+      'Authorization': `Bearer ${config.apiToken}`
+    }
+  });
+
+  socket.on('connect', () => {
+    console.log('[Socket] Connected to server');
+    if (mainWindow) {
+        mainWindow.webContents.send('socket-status', { connected: true });
+    }
+    
+    // We need to join the organization room.
+    // Since we don't have the org ID readily available in config/session, 
+    // we can either fetch it or just emit an event that the server uses `req.user` to handle.
+    // The server code: `socket.on('join-organization', (orgId) => ...)`
+    // We need the orgId.
+    
+    // Quick fetch of user details to get Org ID
+    // Quick fetch of user details to get Org ID
+    const axios = require('axios');
+    axios.get(`${config.apiUrl}/auth/validate-key`, {
+       headers: { 'Authorization': `Bearer ${config.apiToken}` }
+    }).then(response => {
+       const user = response.data; // validate-key returns user object directly, not wrapped in data.data usually?
+       // Let's check auth.routes.js: res.json({ _id, ... }) -> yes, direct object.
+       // But axios response structure is data: { ...user }
+       // Wait, previous code used response.data.data?
+       // auth.routes.js: res.json({ ... })
+       // Axios: response.data = object
+       
+       const orgId = user.organization?._id || user.organization;
+       if (orgId) {
+           socket.emit('join-organization', orgId);
+           console.log(`[Socket] Joined organization: ${orgId}`);
+       }
+    }).catch(err => console.error('[Socket] Failed to fetch user details for room join:', err.message));
+  });
+
+  socket.on('launch-browser-profile', async (data) => {
+    console.log('[Socket] Received launch-browser-profile event:', data);
+    const { profileId } = data;
+    
+    if (!profileId) {
+        console.error('[Socket] Invalid profile data received');
+        return;
+    }
+
+    // Show notification
+    if (Notification.isSupported()) {
+        new Notification({
+          title: 'Browser Launch Triggered',
+          body: `Opening Chrome Profile: ${profileId}`
+        }).show();
+    }
+
+    try {
+        launchChromeProfile(profileId);
+    } catch (error) {
+        console.error('[Socket] Launch failed:', error);
+        if (Notification.isSupported()) {
+            new Notification({
+              title: 'Launch Failed',
+              body: error.message
+            }).show();
+        }
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log('[Socket] Disconnected');
+    if (mainWindow) {
+        mainWindow.webContents.send('socket-status', { connected: false });
+    }
+  });
+}
+
+function disconnectSocket() {
+    if (socket) {
+        socket.disconnect();
+        socket = null;
+    }
+}
+
+// Profile Sync Logic
+async function syncProfiles() {
+  const config = loadConfig();
+  if (!config.apiToken) return; // not logged in
+
+  const profiles = getChromeProfiles();
+  if (profiles.length === 0) return;
+
+  const axios = require('axios');
+  try {
+    await axios.post(`${config.apiUrl}/chrome-profiles/sync`, {
+      profiles: profiles
+    }, {
+      headers: {
+        'Authorization': `Bearer ${config.apiToken}`
+      }
+    });
+    console.log(`[Sync] Synced ${profiles.length} Chrome profiles.`);
+  } catch (error) {
+    console.error('[Sync] Failed to sync profiles:', error.message);
+  }
+}
+
+// Sync Interval (5 minutes)
+let syncInterval = null;
+
+// Start sync when app is ready or login status changes
+function startSync() {
+  if (syncInterval) clearInterval(syncInterval);
+  syncProfiles(); // initial run
+  syncProfiles(); // initial run
+  syncInterval = setInterval(syncProfiles, 30 * 1000); // 30 seconds
+  connectSocket();
+}
+
+// Stop sync
+function stopSync() {
+  if (syncInterval) clearInterval(syncInterval);
+  syncInterval = null;
+  disconnectSocket();
+}
+
+// Hook into app lifecycle and auth
+const originalCreateWindow = createWindow;
+createWindow = function() {
+    originalCreateWindow();
+    if(isAuthenticated()) {
+        startSync();
+    }
+}
+
+// ... but wait, createWindow is called inside app.whenReady ... 
+// Better to adding listeners or checks.
+
+// Let's attach to where session is saved/cleared
+const originalSaveSession = saveSession;
+saveSession = function(session) {
+    const res = originalSaveSession(session);
+    if (session.isAuthenticated) {
+        startSync();
+    }
+    return res;
+};
+
+const originalClearSession = clearSession;
+clearSession = function() {
+    const res = originalClearSession();
+    stopSync();
+    return res;
+};
+
+// Also start on app ready if authenticated
+app.on('ready', () => {
+    if (isAuthenticated()) {
+        startSync();
+    }
 });

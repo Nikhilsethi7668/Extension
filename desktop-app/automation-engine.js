@@ -8,6 +8,15 @@ class AutomationEngine extends EventEmitter {
   constructor(config) {
     super();
     this.config = config;
+    
+    console.log('=== AUTOMATION ENGINE INITIALIZED ===');
+    console.log('Config received:', {
+      apiUrl: config.apiUrl,
+      hasToken: !!config.apiToken,
+      tokenLength: config.apiToken?.length || 0,
+      pollingInterval: config.pollingInterval
+    });
+    
     this.running = false;
     this.browser = null;
     this.pollingTimer = null;
@@ -119,6 +128,12 @@ class AutomationEngine extends EventEmitter {
 
   async fetchPendingVehicles() {
     try {
+      console.log('=== FETCHING VEHICLES ===');
+      console.log('API URL:', `${this.config.apiUrl}/vehicles`);
+      console.log('Has token:', !!this.config.apiToken);
+      console.log('Token length:', this.config.apiToken?.length);
+      console.log('Authorization header:', `Bearer ${this.config.apiToken?.substring(0, 20)}...`);
+      
       const response = await axios.get(`${this.config.apiUrl}/vehicles`, {
         params: {
           status: 'scraped',
@@ -130,9 +145,13 @@ class AutomationEngine extends EventEmitter {
         timeout: 30000
       });
 
+      console.log('Vehicles fetched successfully:', response.data.vehicles?.length || 0);
       return response.data.vehicles || [];
     } catch (error) {
-      console.error('Error fetching vehicles:', error.message);
+      console.error('=== FETCH VEHICLES ERROR ===');
+      console.error('Error message:', error.message);
+      console.error('Status code:', error.response?.status);
+      console.error('Response data:', error.response?.data);
       throw new Error(`Failed to fetch vehicles: ${error.message}`);
     }
   }
@@ -229,8 +248,45 @@ class AutomationEngine extends EventEmitter {
     }
   }
 
-  async initBrowser() {
-    console.log('Initializing browser with extension...');
+  async postSingleVehicle(vehicle, profileDir) {
+    if (!vehicle || !profileDir) throw new Error('Missing vehicle or profile');
+
+    console.log(`[Engine] Posting single vehicle ${vehicle._id} with profile ${profileDir}`);
+    
+    // Close existing browser if it's running (to switch profiles or ensure clean state)
+    // Actually, we might want to keep it if it's the SAME profile, but checking that is complex.
+    // For safety, let's close and reopen.
+    if (this.browser) {
+        await this.browser.close();
+        this.browser = null;
+    }
+
+    try {
+        await this.initBrowser(profileDir);
+        
+        await this.postVehicle(vehicle); // Reuse existing logic
+        
+        // Don't close immediately if we want to show the user? 
+        // But automations usually close. Let's close after a delay or just leave it open?
+        // User request: "open that browser profile". 
+        // If we close it, they can't see it. But `postVehicle` closes the page. 
+        // The browser instance is `this.browser`.
+        // `postVehicle` calls `page.close()`, not `browser.close()`.
+        
+        // However, `postVehicle` logic (line 215) closes the PAGE.
+        // The browser remains open in `this.browser`.
+        
+        // Let's leave the browser open for a bit or indefinitely?
+        // If we leave it open, subsequent calls might reuse it.
+        
+    } catch (error) {
+        console.error('[Engine] Single post failed:', error);
+        throw error;
+    }
+  }
+
+  async initBrowser(profileDir = null) {
+    console.log(`Initializing browser with extension... Profile: ${profileDir || 'Default'}`);
 
     // Find Chrome executable
     const chromePath = this.findChrome();
@@ -255,7 +311,7 @@ class AutomationEngine extends EventEmitter {
     this.browser = await puppeteer.launch({
       headless: false, // Must be non-headless for extensions
       executablePath: chromePath,
-      args: [
+    const args = [
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
         '--no-sandbox',
@@ -263,8 +319,20 @@ class AutomationEngine extends EventEmitter {
         '--disable-dev-shm-usage',
         '--disable-blink-features=AutomationControlled',
         '--window-size=1280,800'
-      ],
-      defaultViewport: null
+    ];
+
+    if (profileDir) {
+        const userDataDir = path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data');
+        args.push(`--user-data-dir=${userDataDir}`);
+        args.push(`--profile-directory=${profileDir}`);
+    }
+
+    this.browser = await puppeteer.launch({
+      headless: false, // Must be non-headless for extensions
+      executablePath: chromePath,
+      args: args,
+      defaultViewport: null,
+      userDataDir: profileDir ? path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data') : undefined
     });
 
     console.log('Browser initialized successfully');
