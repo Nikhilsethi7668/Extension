@@ -1524,12 +1524,45 @@ async function batchEditImages() {
   batchBtn.disabled = true;
   batchBtn.innerHTML = '<span class="editing-spinner"></span> Processing...';
 
+
+  // Define stop handler
+  let isStopped = false;
+  const stopBtn = document.getElementById('loaderStopBtn');
+  if (stopBtn) {
+    stopBtn.onclick = () => {
+      isStopped = true;
+      stopBtn.innerHTML = 'Stopping...';
+      stopBtn.disabled = true;
+    }
+  }
+
   // Process each image
   for (const job of editJobs) {
-    await editSingleImage(job.index);
+    if (isStopped) {
+      showNotification('Batch processing stopped by user.', 'warning');
+      break;
+    }
+
+    // Update status in loader
+    addLoaderStatus(job.index.toString(), `Processing image ${job.index + 1}...`, 'processing');
+
+    try {
+      await editSingleImage(job.index);
+      updateLoaderStatus(job.index.toString(), 'success', `Image ${job.index + 1} complete`);
+    } catch (err) {
+      updateLoaderStatus(job.index.toString(), 'error', `Image ${job.index + 1} failed`);
+      console.error(err);
+    }
+
+    updateLoaderProgress(editJobs.indexOf(job) + 1, editJobs.length);
+
     // Small delay between edits
     await sleep(500);
   }
+
+  // Cleanup
+  hideGlobalLoader();
+
 
   batchBtn.disabled = false;
   batchBtn.innerHTML = '<span class="btn-icon">✨</span> AI Edit All Images';
@@ -2980,6 +3013,19 @@ async function processBatchImages() {
   showGlobalLoader('Processing Images', `Processing ${imagesArray.length} images with AI...`);
   updateLoaderProgress(0, imagesArray.length);
 
+  const controller = new AbortController();
+  const signal = controller.signal;
+
+  // Wire up Stop button
+  const stopBtn = document.getElementById('loaderStopBtn');
+  if (stopBtn) {
+    stopBtn.onclick = () => {
+      controller.abort();
+      stopBtn.innerHTML = 'Stopping...';
+      stopBtn.disabled = true;
+    };
+  }
+
   try {
     showNotification(`Processing ${imagesArray.length} images...`, 'info');
 
@@ -2992,6 +3038,7 @@ async function processBatchImages() {
 
     const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${window.currentVehicleId}/batch-edit-images`, {
       method: 'POST',
+      signal: signal,
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': currentUser.apiKey
@@ -3051,6 +3098,13 @@ async function processBatchImages() {
     }
 
   } catch (error) {
+    if (error.name === 'AbortError') {
+      console.log('Batch processing stopped by user');
+      hideGlobalLoader();
+      showNotification('Processing stopped by user', 'warning');
+      return;
+    }
+
     console.error('Batch processing error:', error);
 
     // Show error state in loader

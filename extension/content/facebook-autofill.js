@@ -982,10 +982,11 @@
     // Find exterior color dropdown - look for div with "Exterior colour" text
     let dropdown = null;
 
-    // Strategy 1: Find span with "Exterior colour" text and look for nearby combobox/dropdown
+    // Strategy 1: Find span with "Exterior color/colour" text and look for nearby combobox/dropdown
     const exteriorColorSpans = Array.from(document.querySelectorAll('span')).filter(span => {
-      const text = span.textContent || '';
-      return text.toLowerCase().includes('exterior') && text.toLowerCase().includes('colour');
+      const text = (span.textContent || '').toLowerCase();
+      // Support both UK 'colour' and US 'color'
+      return text.includes('exterior') && (text.includes('colour') || text.includes('color'));
     });
 
     for (const span of exteriorColorSpans) {
@@ -1032,8 +1033,8 @@
     if (!dropdown) {
       const allLabels = document.querySelectorAll('label');
       for (const label of allLabels) {
-        const labelText = label.textContent || '';
-        if (labelText.toLowerCase().includes('exterior') && labelText.toLowerCase().includes('colour')) {
+        const labelText = (label.textContent || '').toLowerCase();
+        if (labelText.includes('exterior') && (labelText.includes('colour') || labelText.includes('color'))) {
           // Check if label itself is combobox
           if (label.getAttribute('role') === 'combobox') {
             dropdown = label;
@@ -1235,8 +1236,8 @@
 
     // Strategy 1: Find span with "Interior colour" text and look for nearby combobox/dropdown
     const interiorColorSpans = Array.from(document.querySelectorAll('span')).filter(span => {
-      const text = span.textContent || '';
-      return text.toLowerCase().includes('interior') && text.toLowerCase().includes('colour');
+      const text = (span.textContent || '').toLowerCase();
+      return text.includes('interior') && (text.includes('colour') || text.includes('color'));
     });
 
     for (const span of interiorColorSpans) {
@@ -1283,8 +1284,8 @@
     if (!dropdown) {
       const allLabels = document.querySelectorAll('label');
       for (const label of allLabels) {
-        const labelText = label.textContent || '';
-        if (labelText.toLowerCase().includes('interior') && labelText.toLowerCase().includes('colour')) {
+        const labelText = (label.textContent || '').toLowerCase();
+        if (labelText.includes('interior') && (labelText.includes('colour') || labelText.includes('color'))) {
           // Check if label itself is combobox
           if (label.getAttribute('role') === 'combobox') {
             dropdown = label;
@@ -1318,8 +1319,8 @@
       for (const cb of allComboboxes) {
         const parent = cb.closest('div');
         if (parent) {
-          const text = parent.textContent || '';
-          if (text.toLowerCase().includes('interior') && text.toLowerCase().includes('colour')) {
+          const text = (parent.textContent || '').toLowerCase();
+          if (text.includes('interior') && (text.includes('colour') || text.includes('color'))) {
             dropdown = cb;
             break;
           }
@@ -1491,7 +1492,7 @@
       'input[aria-label="Make"]',
       'input[placeholder="Make"]'
     ];
-    
+
     for (const selector of existingMakeSelectors) {
       const el = document.querySelector(selector);
       if (el && isVisible(el)) {
@@ -1511,8 +1512,8 @@
     const selectors = [
       'label[aria-label="Make"]',
       'label[aria-label="Vehicle Make"]',
-      'div[role="combobox"][aria-label="Make"]', 
-      'input[aria-label="Make"]', 
+      'div[role="combobox"][aria-label="Make"]',
+      'input[aria-label="Make"]',
       'input[placeholder="Make"]'
     ];
 
@@ -1521,17 +1522,17 @@
       if (el && isVisible(el)) {
         // If it's an input, find the wrapping combobox
         if (el.tagName === 'INPUT') {
-            const wrapper = el.closest('[role="combobox"]');
-            if (wrapper) {
-                dropdown = wrapper;
-                console.log(`Found Make combobox wrapper via input selector: ${selector}`);
-            } else {
-                // Sometimes the input IS the main interactive element or close to it
-                dropdown = el.parentElement; 
-            }
+          const wrapper = el.closest('[role="combobox"]');
+          if (wrapper) {
+            dropdown = wrapper;
+            console.log(`Found Make combobox wrapper via input selector: ${selector}`);
+          } else {
+            // Sometimes the input IS the main interactive element or close to it
+            dropdown = el.parentElement;
+          }
         } else {
-            dropdown = el;
-            console.log(`Found Make dropdown via selector: ${selector}`);
+          dropdown = el;
+          console.log(`Found Make dropdown via selector: ${selector}`);
         }
         break;
       }
@@ -1539,130 +1540,130 @@
 
     // Strategy 2: Text Search (improved to handle more variations)
     if (!dropdown) {
-        console.log('Trying text search for Make field...');
-        const labels = document.querySelectorAll('label, span, div');
-        for (const el of labels) {
-            if (!isVisible(el)) continue;
-            const text = (el.textContent || '').trim();
-            // More flexible text matching
-            if (text === 'Make' || text === 'Vehicle Make' || text === 'Car make') {
-                const parent = el.closest('label') || el.closest('div[role="combobox"]') || el.closest('div[role="group"]');
-                if (parent) {
-                    // Look for combobox in multiple locations
-                    const combobox = parent.querySelector('[role="combobox"]') || 
-                                   parent.parentElement?.querySelector('[role="combobox"]') ||
-                                   parent.nextElementSibling?.querySelector('[role="combobox"]');
-                    if (combobox && isVisible(combobox)) {
-                        dropdown = combobox;
-                        console.log('Found Make combobox near text label');
-                        break;
-                    }
-                    
-                    // Also check for input with autocomplete
-                    const input = parent.querySelector('input[type="text"]') || 
-                                parent.querySelector('input:not([type])');
-                    if (input && isVisible(input)) {
-                        dropdown = input.closest('[role="combobox"]') || input.parentElement;
-                        console.log('Found Make input field near text label');
-                        break;
-                    }
-                }
+      console.log('Trying text search for Make field...');
+      const labels = document.querySelectorAll('label, span, div');
+      for (const el of labels) {
+        if (!isVisible(el)) continue;
+        const text = (el.textContent || '').trim();
+        // More flexible text matching
+        if (text === 'Make' || text === 'Vehicle Make' || text === 'Car make') {
+          const parent = el.closest('label') || el.closest('div[role="combobox"]') || el.closest('div[role="group"]');
+          if (parent) {
+            // Look for combobox in multiple locations
+            const combobox = parent.querySelector('[role="combobox"]') ||
+              parent.parentElement?.querySelector('[role="combobox"]') ||
+              parent.nextElementSibling?.querySelector('[role="combobox"]');
+            if (combobox && isVisible(combobox)) {
+              dropdown = combobox;
+              console.log('Found Make combobox near text label');
+              break;
             }
+
+            // Also check for input with autocomplete
+            const input = parent.querySelector('input[type="text"]') ||
+              parent.querySelector('input:not([type])');
+            if (input && isVisible(input)) {
+              dropdown = input.closest('[role="combobox"]') || input.parentElement;
+              console.log('Found Make input field near text label');
+              break;
+            }
+          }
         }
+      }
     }
-    
+
     // Strategy 3: Positional detection - Make field typically comes after Year field
     if (!dropdown) {
-        console.log('Trying positional detection (field after Year)...');
-        const allComboboxes = document.querySelectorAll('[role="combobox"]');
-        let foundYear = false;
-        
-        for (const cb of allComboboxes) {
-            if (!isVisible(cb)) continue;
-            
-            const cbText = (cb.textContent || '').toLowerCase();
-            
-            // Check if this is the year field
-            if (cbText.includes('year') || cbText.match(/\b(19|20)\d{2}\b/)) {
-                foundYear = true;
-                continue;
-            }
-            
-            // If we just passed the year field, this might be make
-            if (foundYear) {
-                dropdown = cb;
-                console.log('Found Make dropdown via positional detection (after Year)');
-                break;
-            }
+      console.log('Trying positional detection (field after Year)...');
+      const allComboboxes = document.querySelectorAll('[role="combobox"]');
+      let foundYear = false;
+
+      for (const cb of allComboboxes) {
+        if (!isVisible(cb)) continue;
+
+        const cbText = (cb.textContent || '').toLowerCase();
+
+        // Check if this is the year field
+        if (cbText.includes('year') || cbText.match(/\b(19|20)\d{2}\b/)) {
+          foundYear = true;
+          continue;
         }
+
+        // If we just passed the year field, this might be make
+        if (foundYear) {
+          dropdown = cb;
+          console.log('Found Make dropdown via positional detection (after Year)');
+          break;
+        }
+      }
     }
-    
+
     // Strategy 4: Look for input with autocomplete attribute
     if (!dropdown) {
-        console.log('Trying autocomplete input detection...');
-        const inputs = document.querySelectorAll('input[autocomplete], input[role="combobox"]');
-        for (const input of inputs) {
-            if (!isVisible(input)) continue;
-            
-            const label = input.getAttribute('aria-label') || 
-                        input.getAttribute('placeholder') ||
-                        input.closest('label')?.textContent || '';
-            
-            if (label.toLowerCase().includes('make')) {
-                dropdown = input.closest('[role="combobox"]') || input.parentElement;
-                console.log('Found Make input via autocomplete attribute');
-                break;
-            }
+      console.log('Trying autocomplete input detection...');
+      const inputs = document.querySelectorAll('input[autocomplete], input[role="combobox"]');
+      for (const input of inputs) {
+        if (!isVisible(input)) continue;
+
+        const label = input.getAttribute('aria-label') ||
+          input.getAttribute('placeholder') ||
+          input.closest('label')?.textContent || '';
+
+        if (label.toLowerCase().includes('make')) {
+          dropdown = input.closest('[role="combobox"]') || input.parentElement;
+          console.log('Found Make input via autocomplete attribute');
+          break;
         }
+      }
     }
-    
+
     // Strategy 5: Generic search for any combobox that might be make (last resort)
     if (!dropdown) {
-        console.log('Trying generic combobox search...');
-        const allComboboxes = document.querySelectorAll('[role="combobox"]');
-        console.log(`Total comboboxes found: ${allComboboxes.length}`);
-        
-        for (let i = 0; i < allComboboxes.length; i++) {
-            const cb = allComboboxes[i];
-            if (!isVisible(cb)) continue;
-            
-            const cbText = (cb.textContent || '').toLowerCase();
-            console.log(`Combobox ${i}: "${cbText.substring(0, 50)}..."`);
-            
-            // Skip if it's clearly not the make field
-            if (cbText.includes('vehicle type') || 
-                cbText.includes('year') || 
-                cbText.includes('colour') ||
-                cbText.includes('color') ||
-                cbText.includes('condition') ||
-                cbText.includes('transmission')) {
-                continue;
-            }
-            
-            // If it's empty or has placeholder-like text, it might be make
-            if (cbText === '' || cbText === 'make' || cbText.length < 20) {
-                dropdown = cb;
-                console.log(`Potentially found Make dropdown at index ${i}`);
-                break;
-            }
+      console.log('Trying generic combobox search...');
+      const allComboboxes = document.querySelectorAll('[role="combobox"]');
+      console.log(`Total comboboxes found: ${allComboboxes.length}`);
+
+      for (let i = 0; i < allComboboxes.length; i++) {
+        const cb = allComboboxes[i];
+        if (!isVisible(cb)) continue;
+
+        const cbText = (cb.textContent || '').toLowerCase();
+        console.log(`Combobox ${i}: "${cbText.substring(0, 50)}..."`);
+
+        // Skip if it's clearly not the make field
+        if (cbText.includes('vehicle type') ||
+          cbText.includes('year') ||
+          cbText.includes('colour') ||
+          cbText.includes('color') ||
+          cbText.includes('condition') ||
+          cbText.includes('transmission')) {
+          continue;
         }
+
+        // If it's empty or has placeholder-like text, it might be make
+        if (cbText === '' || cbText === 'make' || cbText.length < 20) {
+          dropdown = cb;
+          console.log(`Potentially found Make dropdown at index ${i}`);
+          break;
+        }
+      }
     }
 
     if (!dropdown) {
-        console.error('❌ Make dropdown not found after all strategies');
-        console.log('Debug: Dumping all visible comboboxes on page:');
-        const allComboboxes = document.querySelectorAll('[role="combobox"]');
-        allComboboxes.forEach((cb, idx) => {
-            if (isVisible(cb)) {
-                console.log(`  Combobox ${idx}:`, {
-                    tag: cb.tagName,
-                    ariaLabel: cb.getAttribute('aria-label'),
-                    text: cb.textContent?.substring(0, 50),
-                    expanded: cb.getAttribute('aria-expanded')
-                });
-            }
-        });
-        return false;
+      console.error('❌ Make dropdown not found after all strategies');
+      console.log('Debug: Dumping all visible comboboxes on page:');
+      const allComboboxes = document.querySelectorAll('[role="combobox"]');
+      allComboboxes.forEach((cb, idx) => {
+        if (isVisible(cb)) {
+          console.log(`  Combobox ${idx}:`, {
+            tag: cb.tagName,
+            ariaLabel: cb.getAttribute('aria-label'),
+            text: cb.textContent?.substring(0, 50),
+            expanded: cb.getAttribute('aria-expanded')
+          });
+        }
+      });
+      return false;
     }
 
     console.log(`Found Make dropdown: ${dropdown.tagName}, role: ${dropdown.getAttribute('role')}`);
@@ -1671,255 +1672,255 @@
     console.log('Opening Make dropdown...');
     dropdown.scrollIntoView({ block: "center" });
     await sleep(300); // Give time for scroll
-    
+
     // Focus the dropdown first
     dropdown.focus();
     await sleep(100);
-    
+
     // Check if expandable
     const isExpanded = () => dropdown.getAttribute("aria-expanded") === "true";
-    
+
     if (isExpanded()) {
-        console.log('Dropdown already open');
+      console.log('Dropdown already open');
     } else {
-        // Try multiple interaction methods
-        console.log('Attempting to open dropdown...');
-        
-        // Method 1: Click
-        dropdown.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-        dropdown.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-        dropdown.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-        // Increased delay to allow "drawer" to open fully (User Request)
-        await sleep(2000);
-        
-        if (!isExpanded()) {
-            // Method 2: Look for inner trigger button or input
-            const trigger = dropdown.querySelector('[role="button"]') || 
-                          dropdown.querySelector('i') || 
-                          dropdown.querySelector('input');
-            if (trigger) {
-                console.log('Trying inner trigger element...');
-                trigger.focus();
-                trigger.click();
-                await sleep(500);
-            }
+      // Try multiple interaction methods
+      console.log('Attempting to open dropdown...');
+
+      // Method 1: Click
+      dropdown.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+      dropdown.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
+      dropdown.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      // Increased delay to allow "drawer" to open fully (User Request)
+      await sleep(2000);
+
+      if (!isExpanded()) {
+        // Method 2: Look for inner trigger button or input
+        const trigger = dropdown.querySelector('[role="button"]') ||
+          dropdown.querySelector('i') ||
+          dropdown.querySelector('input');
+        if (trigger) {
+          console.log('Trying inner trigger element...');
+          trigger.focus();
+          trigger.click();
+          await sleep(500);
         }
-        
-        if (!isExpanded()) {
-            // Method 3: Keyboard events
-            console.log('Trying keyboard events...');
-            dropdown.dispatchEvent(new KeyboardEvent("keydown", {
-                key: "ArrowDown",
-                code: "ArrowDown",
-                bubbles: true
-            }));
-            await sleep(500);
-        }
+      }
+
+      if (!isExpanded()) {
+        // Method 3: Keyboard events
+        console.log('Trying keyboard events...');
+        dropdown.dispatchEvent(new KeyboardEvent("keydown", {
+          key: "ArrowDown",
+          code: "ArrowDown",
+          bubbles: true
+        }));
+        await sleep(500);
+      }
     }
-    
+
     // 3. Find input field for typing
     console.log('Looking for input field...');
     let input = dropdown.querySelector('input');
-    
+
     // If no input in dropdown, check if dropdown itself contains an input or if there's one nearby
     if (!input) {
-        const allInputs = document.querySelectorAll('input[type="text"], input:not([type])');
-        for (const inp of allInputs) {
-            if (isVisible(inp) && inp.getAttribute('aria-label')?.toLowerCase().includes('make')) {
-                input = inp;
-                break;
-            }
+      const allInputs = document.querySelectorAll('input[type="text"], input:not([type])');
+      for (const inp of allInputs) {
+        if (isVisible(inp) && inp.getAttribute('aria-label')?.toLowerCase().includes('make')) {
+          input = inp;
+          break;
         }
+      }
     }
-    
+
     // If still no input, check active element
     if (!input && document.activeElement && document.activeElement.tagName === 'INPUT') {
-        input = document.activeElement;
+      input = document.activeElement;
     }
-    
+
     if (!input) {
-        console.warn('No input field found for typing make value - will try direct selection from list');
-        // We continue instead of returning false, hoping the list is already visible or searchable by scroll
+      console.warn('No input field found for typing make value - will try direct selection from list');
+      // We continue instead of returning false, hoping the list is already visible or searchable by scroll
     } else {
-        console.log('Found input field, preparing to type...');
-        
-        // Ensure input has focus
-        input.focus();
-        input.click();
-        await sleep(300);
-        
-        // 4. Type the make value to filter options
-        input.focus();
-        await sleep(200);
-        
-        // Clear existing value
-        input.value = '';
+      console.log('Found input field, preparing to type...');
+
+      // Ensure input has focus
+      input.focus();
+      input.click();
+      await sleep(300);
+
+      // 4. Type the make value to filter options
+      input.focus();
+      await sleep(200);
+
+      // Clear existing value
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      await sleep(200);
+
+      // Type character by character with proper events
+      console.log(`Typing "${makeValue}" into input...`);
+      for (let i = 0; i < makeValue.length; i++) {
+        input.value += makeValue[i];
+
+        // Trigger multiple events for better compatibility
         input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        await sleep(200);
-        
-        // Type character by character with proper events
-        console.log(`Typing "${makeValue}" into input...`);
-        for (let i = 0; i < makeValue.length; i++) {
-            input.value += makeValue[i];
-            
-            // Trigger multiple events for better compatibility
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.dispatchEvent(new Event('keyup', { bubbles: true }));
-            input.dispatchEvent(new InputEvent('input', { bubbles: true, data: makeValue[i] }));
-            
-            await sleep(80); // Slightly slower typing for better detection
-        }
-        
-        // Wait for dropdown to filter/load options
-        console.log('Waiting for options to load...');
-        await sleep(1500);
+        input.dispatchEvent(new Event('keyup', { bubbles: true }));
+        input.dispatchEvent(new InputEvent('input', { bubbles: true, data: makeValue[i] }));
+
+        await sleep(80); // Slightly slower typing for better detection
+      }
+
+      // Wait for dropdown to filter/load options
+      console.log('Waiting for options to load...');
+      await sleep(1500);
     }
-    
+
     // 5. Find and select the matching option
     const findOption = async (retries = 3) => {
-        for (let attempt = 0; attempt < retries; attempt++) {
-            if (attempt > 0) {
-                console.log(`Retry ${attempt + 1}/${retries} to find option...`);
-                await sleep(500);
-            }
-            
-            // Strategy 1: Standard ARIA roles
-            const listboxes = document.querySelectorAll('[role="listbox"], [role="menu"]');
-            for (const listbox of listboxes) {
-                if (isVisible(listbox)) {
-                    const options = listbox.querySelectorAll('[role="option"], [role="menuitem"], div[role="button"]');
-                    console.log(`Found ${options.length} ARIA options in listbox`);
-                    
-                    for (const opt of options) {
-                        const text = (opt.textContent || '').trim();
-                        if (text.toLowerCase() === makeValue.toLowerCase()) {
-                            console.log(`Exact match found (ARIA): "${text}"`);
-                            return opt;
-                        }
-                    }
-                }
-            }
-
-            // Strategy 2: Text Content Search (Fallback)
-            // If we didn't find it via ARIA, look for any visible element with the exact text
-            // We limit scope to elements that look like list items or clickable text
-            console.log('Trying text content search...');
-            const potentialOptions = document.querySelectorAll('div, span, li');
-            for (const el of potentialOptions) {
-                // Optimization: Skip elements with too much text (likely containers)
-                if (el.textContent.length > 50) continue;
-                
-                const text = (el.textContent || '').trim();
-                if (text.toLowerCase() === makeValue.toLowerCase()) {
-                    if (isVisible(el)) {
-                         // Check if it's interactive or inside an interactive element
-                         const isInteractive = el.getAttribute('role') === 'button' || 
-                                             el.onclick || 
-                                             el.closest('[role="button"]') ||
-                                             el.closest('[role="option"]');
-                         
-                         // If we are desperate (attempt > 0), we accept non-interactive looking text too
-                         // provided it's fairly isolated
-                         console.log(`Exact match found (Text): "${text}"`);
-                         return el;
-                    }
-                }
-            }
+      for (let attempt = 0; attempt < retries; attempt++) {
+        if (attempt > 0) {
+          console.log(`Retry ${attempt + 1}/${retries} to find option...`);
+          await sleep(500);
         }
-        return null;
+
+        // Strategy 1: Standard ARIA roles
+        const listboxes = document.querySelectorAll('[role="listbox"], [role="menu"]');
+        for (const listbox of listboxes) {
+          if (isVisible(listbox)) {
+            const options = listbox.querySelectorAll('[role="option"], [role="menuitem"], div[role="button"]');
+            console.log(`Found ${options.length} ARIA options in listbox`);
+
+            for (const opt of options) {
+              const text = (opt.textContent || '').trim();
+              if (text.toLowerCase() === makeValue.toLowerCase()) {
+                console.log(`Exact match found (ARIA): "${text}"`);
+                return opt;
+              }
+            }
+          }
+        }
+
+        // Strategy 2: Text Content Search (Fallback)
+        // If we didn't find it via ARIA, look for any visible element with the exact text
+        // We limit scope to elements that look like list items or clickable text
+        console.log('Trying text content search...');
+        const potentialOptions = document.querySelectorAll('div, span, li');
+        for (const el of potentialOptions) {
+          // Optimization: Skip elements with too much text (likely containers)
+          if (el.textContent.length > 50) continue;
+
+          const text = (el.textContent || '').trim();
+          if (text.toLowerCase() === makeValue.toLowerCase()) {
+            if (isVisible(el)) {
+              // Check if it's interactive or inside an interactive element
+              const isInteractive = el.getAttribute('role') === 'button' ||
+                el.onclick ||
+                el.closest('[role="button"]') ||
+                el.closest('[role="option"]');
+
+              // If we are desperate (attempt > 0), we accept non-interactive looking text too
+              // provided it's fairly isolated
+              console.log(`Exact match found (Text): "${text}"`);
+              return el;
+            }
+          }
+        }
+      }
+      return null;
     };
 
     const targetOption = await findOption();
-    
+
     if (targetOption) {
-        console.log(`Selecting option: "${targetOption.textContent}"`);
-        
-        // Scroll option into view first
-        targetOption.scrollIntoView({ block: "center" });
+      console.log(`Selecting option: "${targetOption.textContent}"`);
+
+      // Scroll option into view first
+      targetOption.scrollIntoView({ block: "center" });
+      await sleep(300);
+
+      // METHOD 1: Mouse hover and click events (most reliable for Facebook)
+      console.log('Method 1: Trying mouse hover + click...');
+
+      // Simulate hover state first
+      targetOption.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
+      targetOption.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
+      targetOption.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, cancelable: true }));
+      await sleep(100);
+
+      // Focus the option
+      targetOption.focus();
+      await sleep(100);
+
+      // Full mouse click sequence
+      targetOption.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+      targetOption.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      targetOption.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+      targetOption.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true }));
+      targetOption.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      await sleep(500);
+
+      // Check if dropdown closed (selection worked)
+      let success = !isExpanded() || dropdown.getAttribute('aria-expanded') === 'false';
+
+      if (!success) {
+        // METHOD 2: Try keyboard navigation
+        console.log('Method 2: Trying keyboard navigation...');
+
+        // Make sure input still has focus
+        input.focus();
+        await sleep(100);
+
+        // Navigate down to first option
+        input.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'ArrowDown',
+          code: 'ArrowDown',
+          keyCode: 40,
+          which: 40,
+          bubbles: true,
+          cancelable: true
+        }));
         await sleep(300);
-        
-        // METHOD 1: Mouse hover and click events (most reliable for Facebook)
-        console.log('Method 1: Trying mouse hover + click...');
-        
-        // Simulate hover state first
-        targetOption.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, cancelable: true }));
-        targetOption.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, cancelable: true }));
-        targetOption.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, cancelable: true }));
-        await sleep(100);
-        
-        // Focus the option
-        targetOption.focus();
-        await sleep(100);
-        
-        // Full mouse click sequence
-        targetOption.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
-        targetOption.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-        targetOption.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-        targetOption.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true }));
-        targetOption.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+        // Press Enter to select
+        input.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Enter',
+          code: 'Enter',
+          keyCode: 13,
+          which: 13,
+          bubbles: true,
+          cancelable: true
+        }));
         await sleep(500);
-        
-        // Check if dropdown closed (selection worked)
-        let success = !isExpanded() || dropdown.getAttribute('aria-expanded') === 'false';
-        
-        if (!success) {
-            // METHOD 2: Try keyboard navigation
-            console.log('Method 2: Trying keyboard navigation...');
-            
-            // Make sure input still has focus
-            input.focus();
-            await sleep(100);
-            
-            // Navigate down to first option
-            input.dispatchEvent(new KeyboardEvent('keydown', {
-                key: 'ArrowDown',
-                code: 'ArrowDown',
-                keyCode: 40,
-                which: 40,
-                bubbles: true,
-                cancelable: true
-            }));
-            await sleep(300);
-            
-            // Press Enter to select
-            input.dispatchEvent(new KeyboardEvent('keydown', {
-                key: 'Enter',
-                code: 'Enter',
-                keyCode: 13,
-                which: 13,
-                bubbles: true,
-                cancelable: true
-            }));
-            await sleep(500);
-            
-            success = !isExpanded() || dropdown.getAttribute('aria-expanded') === 'false';
-        }
-        
-        if (!success) {
-            // METHOD 3: Direct native click on option
-            console.log('Method 3: Trying native click...');
-            targetOption.click();
-            await sleep(500);
-            
-            success = !isExpanded() || dropdown.getAttribute('aria-expanded') === 'false';
-        }
-        
-        if (!success) {
-            // METHOD 4: Use the fbSelectOption helper as last resort
-            console.log('Method 4: Trying fbSelectOption helper...');
-            fbSelectOption(targetOption);
-            await sleep(800);
-        }
-        
-        // Verify selection
-        const selectedValue = dropdown.textContent || input.value;
-        console.log(`✅ Make selection complete. Value: "${selectedValue}"`);
-        return true;
+
+        success = !isExpanded() || dropdown.getAttribute('aria-expanded') === 'false';
+      }
+
+      if (!success) {
+        // METHOD 3: Direct native click on option
+        console.log('Method 3: Trying native click...');
+        targetOption.click();
+        await sleep(500);
+
+        success = !isExpanded() || dropdown.getAttribute('aria-expanded') === 'false';
+      }
+
+      if (!success) {
+        // METHOD 4: Use the fbSelectOption helper as last resort
+        console.log('Method 4: Trying fbSelectOption helper...');
+        fbSelectOption(targetOption);
+        await sleep(800);
+      }
+
+      // Verify selection
+      const selectedValue = dropdown.textContent || input.value;
+      console.log(`✅ Make selection complete. Value: "${selectedValue}"`);
+      return true;
     } else {
-        console.error(`❌ Could not find matching Make option for "${makeValue}"`);
-        console.log('Available options might not include this make, or filtering failed');
-        return false;
+      console.error(`❌ Could not find matching Make option for "${makeValue}"`);
+      console.log('Available options might not include this make, or filtering failed');
+      return false;
     }
   }
 
@@ -1929,7 +1930,7 @@
     if (!postData || !postData.model) return false;
 
     console.log('=== Starting fillModel ===');
-    
+
     // Check if model field already has a value - if so, skip filling
     // Strategy 1: Check inputs by label
     const allLabels = document.querySelectorAll('label');
@@ -1946,13 +1947,13 @@
         }
       }
     }
-    
+
     // Strategy 2: Check inputs near Model span
     const modelSpans = Array.from(document.querySelectorAll('span')).filter(span => {
       const text = span.textContent || '';
       return text.toLowerCase().trim() === 'model';
     });
-    
+
     for (const span of modelSpans) {
       const parent = span.closest('label, div');
       if (parent) {
@@ -2407,6 +2408,21 @@
       if (element && isVisible(element)) {
         locationInput = element;
         break;
+      }
+    }
+
+    // Fallback: Find by Label "Location"
+    if (!locationInput) {
+      const labels = Array.from(document.querySelectorAll('label'));
+      for (const label of labels) {
+        if ((label.textContent || '').toLowerCase().includes('location')) {
+          const input = label.querySelector('input') || document.getElementById(label.getAttribute('for'));
+          if (input && isVisible(input)) {
+            locationInput = input;
+            console.log('Found location input by label');
+            break;
+          }
+        }
       }
     }
 
