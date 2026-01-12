@@ -30,7 +30,7 @@ export const generateVehicleContent = async (vehicle, instructions, sentiment = 
 
       Please provide:
       Title: (A catchy title under 100 characters)
-      Description: (A detailed, engaging description under 60 words, including 3-4 relevant emojis)
+      Description: (A detailed, engaging description under 60 words. REQUIRED: You MUST include 3-4 relevant emojis in the description body)
       
       Output in JSON format: { "title": "...", "description": "..." }
     `;

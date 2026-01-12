@@ -155,7 +155,7 @@ router.get('/user-posts', protect, async (req, res) => {
     if (req.user.role === 'org_admin' || req.user.role === 'super_admin') {
         // Admins can see all, or filter by specific agent
         if (assignedUser && assignedUser !== 'all') {
-             query.assignedUsers = { $in: [assignedUser] };
+            query.assignedUsers = { $in: [assignedUser] };
         }
     } else {
         // Agents ONLY see their own posts
@@ -203,11 +203,11 @@ router.get('/user-posts', protect, async (req, res) => {
 
         const baseUrl = getBaseUrl(req);
         const formattedVehicles = vehicles.map(vehicle => {
-             const v = vehicle.toObject();
-             if (v.images && v.images.length > 0) {
-                 v.images = v.images.map(url => toFullUrl(url, baseUrl));
-             }
-             return v;
+            const v = vehicle.toObject();
+            if (v.images && v.images.length > 0) {
+                v.images = v.images.map(url => toFullUrl(url, baseUrl));
+            }
+            return v;
         });
 
         res.json({
@@ -562,6 +562,8 @@ router.get('/:id', protect, async (req, res, next) => {
                 const prompt = `
                     You are an expert car salesman copywriting assistant. 
                     I need you to write a catchy title and a detailed, selling description for a vehicle listing on Facebook Marketplace.
+                    REQUIRED: The description MUST include 3-4 relevant emojis to make it engaging.
+                    
                     
                     Vehicle Details:
                     Year: ${formattedData.year}
@@ -909,7 +911,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
 
     // Get IO instance
     const io = req.app.get('io');
-    
+
     // Determine Total Count (Effectively)
     const totalToProcess = limit ? parseInt(limit) : urls.length;
 
@@ -924,7 +926,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
     // Process with a queue to support dynamic expansion
     const queue = [...urls];
     const processed = new Set();
-    let totalScrapedCount = 0; 
+    let totalScrapedCount = 0;
     let totalPreparedCount = 0;
     const preparationBuffer = [];
 
@@ -1098,7 +1100,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
                                     failed: results.failed
                                 });
                             }
-                            
+
                             // Artificial delay to allow UI to render progress smoothly
                             await new Promise(resolve => setTimeout(resolve, 150));
 
@@ -1116,7 +1118,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
                                 vehicleId: vehicle._id,
                                 title: `${vehicle.year} ${vehicle.make} ${vehicle.model}`
                             });
-                            
+
                             // Emit vehicle created event
                             io.to(`org:${organizationId}`).emit('scrape:vehicle', {
                                 vehicle: {
@@ -1207,7 +1209,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
             }
 
             results.items.push({ url: trimmedUrl, status: 'success', vehicleId: vehicle._id, title: `${vehicle.year} ${vehicle.make} ${vehicle.model}` });
-            
+
             // Emit vehicle created event
             io.to(`org:${organizationId}`).emit('scrape:vehicle', {
                 vehicle: {
@@ -1222,7 +1224,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
         } catch (error) {
             results.failed++;
             results.items.push({ url: trimmedUrl, status: 'failed', error: error.message });
-            
+
             // Emit error event
             io.to(`org:${organizationId}`).emit('scrape:error', {
                 url: trimmedUrl,
@@ -1231,7 +1233,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
             });
         }
     }
-    
+
     // Flush remaining
     await flushPreparationBuffer();
 
@@ -1293,7 +1295,7 @@ router.delete('/:id', protect, async (req, res) => {
                     // Pattern 1: Starts with /uploads (relative)
                     // Pattern 2: Full URL containing /uploads (absolute)
                     // We assume standard setup where /uploads maps to public/uploads
-                    
+
                     let relativePath = null;
                     if (url.startsWith('/uploads')) {
                         relativePath = url;
@@ -1311,7 +1313,7 @@ router.delete('/:id', protect, async (req, res) => {
                         // uploads serves from ../public/uploads relative to src/index.js? 
                         // Let's rely on standard structure: api/public/uploads
                         // If process.cwd() is 'api', then 'public/uploads'
-                        
+
                         // normalize path
                         const safePath = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, '');
                         const fullPath = path.join(process.cwd(), 'public', safePath);
@@ -1358,8 +1360,8 @@ router.delete('/:id', protect, async (req, res) => {
             entityId: vehicle._id, // Note: ID still valid for log even if doc deleted
             user: req.user._id,
             organization: req.user.organization._id,
-            details: { 
-                title: `${vehicle.year} ${vehicle.make} ${vehicle.model}`, 
+            details: {
+                title: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
                 vin: vehicle.vin,
                 deletedFilesCount: uniqueFiles.length
             },
