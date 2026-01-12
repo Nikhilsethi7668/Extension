@@ -522,7 +522,7 @@ router.get('/:id', protect, async (req, res, next) => {
             model: vehicle.model || ' ',
             mileage: vehicle.mileage ? String(vehicle.mileage) : '0',
             price: vehicle.price ? String(vehicle.price) : '0',
-            dealerAddress: vehicle.location || 'british columbia',
+            dealerAddress: vehicle.location || 'Surrey, British Columbia',
             title: vehicle.aiContent?.title || `${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}`.trim() || 'Vehicle Listing',
             description: vehicle.description || vehicle.aiContent?.description ||
                 `Excellent condition ${vehicle.year || ''} ${vehicle.make || ''} ${vehicle.model || ''}. Well maintained. All service records available. No accidents. Perfect for daily commute or family use. Contact for more details!`,
