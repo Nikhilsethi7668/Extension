@@ -1,61 +1,53 @@
-// Native fetch is available in Node 18+
-
-const DEALER_DOMAIN = 'brownboysauto.com';
-const VEHICLE_ID = '509760'; // The ID of the problem car
-const VIN = 'SALWS2RU3MA767985';
-
-const SLUG = '2021-LandRover-RangeRover-509760';
-
-const CANDIDATES = [
-    // Media/Gallery specific probes
-    `https://api.hillzusers.com/api/dealership/vehicle/${VEHICLE_ID}/media`,
-    `https://api.hillzusers.com/api/dealership/vehicle/${VEHICLE_ID}/images`,
-    `https://api.hillzusers.com/api/dealership/vehicle/${VEHICLE_ID}/photos`,
-    `https://api.hillzusers.com/api/vehicle/${VEHICLE_ID}/media`,
-    `https://api.hillzusers.com/api/vehicle/${VEHICLE_ID}/images`,
-    // Helper/Internal?
-    `https://api.hillzusers.com/api/dealership/media/${VEHICLE_ID}`,
-    `https://api.hillzusers.com/api/v1/vehicle/${VEHICLE_ID}/media`,
-    // Try the "MidVDSMedia" pattern?
-    `https://api.hillzusers.com/api/dealership/vehicle/${VEHICLE_ID}/midvdsmedia`,
-    // Try VIN based
-    `https://api.hillzusers.com/api/dealership/vehicle/${VIN}/media`
-];
 
 (async () => {
-    console.log('--- Probing API Endpoints ---');
+    console.log('--- NETWORK PROBE (Native Fetch) ---');
+    console.log('Time:', new Date().toISOString());
+    console.log('Node Version:', process.version);
 
-    const doFetch = fetch;
+    const checks = [
+        { name: 'Google (Internet)', url: 'https://www.google.com' },
+        { name: 'Brown Boys (Direct)', url: 'https://www.brownboysauto.com' },
+        { name: 'API Hillz (Direct)', url: 'https://api.hillzusers.com/api/dealership/advance/search/vehicles/www.brownboysauto.com?page=1&limit=1' },
+        { name: 'Google Translate (Top)', url: 'https://translate.google.com' },
+        { name: 'Google Translate (Proxy)', url: 'https://www-brownboysauto-com.translate.goog/cars' }
+    ];
 
-    for (const url of CANDIDATES) {
+    const runCheck = async (check) => {
+        console.log(`\nTesting: ${check.name} ...`);
+        console.log(`URL: ${check.url}`);
+        const start = Date.now();
+
         try {
-            console.log(`Testing: ${url}`);
-            const res = await doFetch(url, {
-                method: 'GET',
-                headers: { 'Content-Type': 'application/json' }
+            // Native fetch with minimal headers (mimicking a browser slightly)
+            const response = await fetch(check.url, {
+                method: check.name.includes('API') ? 'POST' : 'GET', // Use POST for API check if needed, though GET might be enough to test connectivity
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                },
+                body: check.name.includes('API') ? JSON.stringify({ keywords: "" }) : undefined,
             });
 
-            console.log(`  > Status: ${res.status}`);
-            if (res.status === 200) {
-                const text = await res.text();
-                try {
-                    const json = JSON.parse(text);
-                    console.log('  > ✅ Valid JSON Response!');
-                    // Check if it has images
-                    const keys = Object.keys(json);
-                    console.log('  > Keys:', keys.slice(0, 5));
+            const duration = Date.now() - start;
+            console.log(`[PASS] Status: ${response.status} (${duration}ms)`);
 
-                    if (JSON.stringify(json).includes('MidVDSMedia') || JSON.stringify(json).includes('images')) {
-                        console.log('  > 📸 Contains Image Data!');
-                        console.log('  > DUMP (First 500 chars):', JSON.stringify(json).slice(0, 500));
-                        return; // Found it!
-                    }
-                } catch (e) {
-                    console.log('  > ❌ Not JSON:', text.slice(0, 50));
-                }
+            if (response.status === 403 || response.status === 503) {
+                console.log('       Type: BLOCKED/UNAVAILABLE');
+                const text = await response.text();
+                console.log(`       Body Preview: ${text.substring(0, 100)}...`);
+            } else if (response.ok) {
+                // Read body to ensure full connection
+                const text = await response.text();
+                console.log(`       Body Length: ${text.length}`);
             }
-        } catch (e) {
-            console.log(`  > Error: ${e.message}`);
+        } catch (error) {
+            const duration = Date.now() - start;
+            console.log(`[FAIL] Error: ${error.message} (${duration}ms)`);
+            if (error.cause) console.log(`       Cause: ${error.cause}`);
         }
+    };
+
+    for (const check of checks) {
+        await runCheck(check);
     }
+    console.log('\n--- END PROBE ---');
 })();
