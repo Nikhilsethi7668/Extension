@@ -102,14 +102,38 @@ const io = new Server(httpServer, {
     }
 });
 
+// Initialize Workers
+import { initWorker } from './workers/posting.worker.js';
+initWorker(io);
+
+// Socket.IO connection handling
 // Socket.IO connection handling
 io.on('connection', (socket) => {
-    console.log(`[Socket.IO] Client connected: ${socket.id}`);
+    const clientType = socket.handshake.auth.clientType || socket.handshake.query.clientType || 'unknown';
+    console.log(`[Socket.IO] Client connected: ${socket.id} (Type: ${clientType})`);
     
-    // Join organization room for multi-tenant isolation
+    // Register client type and join specific rooms
+    socket.on('register-client', (data) => {
+        const { orgId, clientType } = data; // clientType: 'dashboard' | 'desktop' | 'extension'
+        
+        if (!orgId) return;
+
+        // Join generic organization room (for broadcasts)
+        socket.join(`org:${orgId}`);
+        console.log(`[Socket.IO] Client ${socket.id} (${clientType}) joined org:${orgId}`);
+
+        // Join specific client-type room (for targeted commands)
+        // e.g., org:123:desktop
+        if (clientType) {
+            socket.join(`org:${orgId}:${clientType}`);
+            console.log(`[Socket.IO] Client ${socket.id} joined specific room: org:${orgId}:${clientType}`);
+        }
+    });
+
+    // Backward compatibility for generic join (treats as dashboard/generic)
     socket.on('join-organization', (organizationId) => {
         socket.join(`org:${organizationId}`);
-        console.log(`[Socket.IO] Client ${socket.id} joined organization room: org:${organizationId}`);
+        console.log(`[Socket.IO] Client ${socket.id} joined organization room (legacy): org:${organizationId}`);
     });
 
     socket.on('request-posting', async (data) => {
@@ -118,13 +142,20 @@ io.on('connection', (socket) => {
         
         if (!vehicleId || !profileId) return;
 
-        let rooms = Array.from(socket.rooms).filter(r => r.startsWith('org:'));
-        if (rooms.length === 0) { 
+        // Find the organization this socket belongs to
+        // We look for a room starting with 'org:' but NOT containing another ':' (which would be the specific room)
+        // Or we just parse one.
+        const rooms = Array.from(socket.rooms);
+        const orgRoom = rooms.find(r => r.startsWith('org:') && r.split(':').length === 2);
+        
+        if (!orgRoom) { 
              console.error('[Socket] Sender not in an org room');
              return;
         }
-        
-        const orgRoom = rooms[0]; // Assuming one org per socket
+
+        const orgId = orgRoom.split(':')[1];
+        const desktopRoom = `org:${orgId}:desktop`;
+        const extensionRoom = `org:${orgId}:extension`;
         
         // Fetch vehicle details
         try {
@@ -135,19 +166,20 @@ io.on('connection', (socket) => {
                  console.log(`[Socket] Orchestrating posting flow for vehicle ${vehicle.stockNumber || vehicle._id}`);
                  
                  // Step 1: Launch Browser (Desktop App)
-                 console.log(`[Socket] Step 1: Requesting browser launch for profile ${profileId}`);
-                 io.to(orgRoom).emit('launch-browser-profile', { 
+                 console.log(`[Socket] Step 1: Requesting browser launch for profile ${profileId} in room ${desktopRoom}`);
+                 io.to(desktopRoom).emit('launch-browser-profile', { 
                      profileId: profileId
                  });
 
                  // Step 2: Wait for browser to open and extension to connect
-                 const DELAY_MS = 15000; // 15 seconds
+                 const DELAY_MS = 15000; // 15 seconds wait for browser launch
                  console.log(`[Socket] Step 2: Waiting ${DELAY_MS}ms for extension to be ready...`);
                  
                  setTimeout(() => {
                      // Step 3: Trigger Posting (Extension)
-                     console.log(`[Socket] Step 3: Triggering posting on extension`);
-                     io.to(orgRoom).emit('start-posting-vehicle', { 
+                     // We send to the extension-specific room
+                     console.log(`[Socket] Step 3: Triggering posting on extension in room ${extensionRoom}`);
+                     io.to(extensionRoom).emit('start-posting-vehicle', { 
                          vehicleId: vehicle._id,
                          vehicleData: vehicle
                      });
@@ -156,6 +188,14 @@ io.on('connection', (socket) => {
         } catch (error) {
             console.error('[Socket] Error fetching vehicle for posting:', error);
         }
+
+    });
+
+    // Verification Signal Listener
+    socket.on('verify-vehicle-posting', (data) => {
+        console.log(`[Socket] Received verification signal from ${socket.id}`, data);
+        // Here you can trigger a verification bot or update DB status
+        // For now, we just log it as requested
     });
     
     socket.on('disconnect', () => {

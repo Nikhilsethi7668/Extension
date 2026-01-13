@@ -192,6 +192,7 @@ function initializeSocket(token = null, apiKey = null) {
   const authData = {};
   if (token) authData.token = token;
   if (apiKey) authData.apiKey = apiKey;
+  authData.clientType = 'extension'; // Identify as extension on connection
 
   // No auth data? Can't connect properly usually, but let's try or return
   if (!token && !apiKey) return;
@@ -218,6 +219,24 @@ function initializeSocket(token = null, apiKey = null) {
 
       socket.on('connect', () => {
           console.log('[Extension] Socket connected:', socket.id);
+          
+          // Fetch user details to get Org ID, then register
+          fetch(`${BACKEND_URL}/auth/validate-key`, {
+              method: 'GET',
+              headers: {
+                  'Content-Type': 'application/json',
+                  'x-api-key': apiKey || (authData.token ? undefined : '')
+              }
+          })
+          .then(res => res.json())
+          .then(user => {
+              const orgId = user.organization?._id || user.organization;
+              if (orgId) {
+                  socket.emit('register-client', { orgId, clientType: 'extension' });
+                  console.log(`[Extension] Registered as extension client for org: ${orgId}`);
+              }
+          })
+          .catch(err => console.error('[Extension] Failed to fetch org ID for socket registration:', err));
       });
 
       socket.on('disconnect', () => {
@@ -225,29 +244,62 @@ function initializeSocket(token = null, apiKey = null) {
       });
 
       // Listen for 'start-posting-vehicle' event
-      socket.on('start-posting-vehicle', (data) => {
+      socket.on('start-posting-vehicle', async (data) => {
           console.log('[Extension] Received start-posting-vehicle:', data);
           
-          showNotification('Auto-Posting Started', `Posting vehicle: ${data.vehicleId}`);
-
+          const vehicleId = data.vehicleId || (data.vehicleData && data.vehicleData._id);
+          
+          if (vehicleId) {
+             showNotification('Auto-Posting Started', `Fetching data for vehicle: ${vehicleId}`);
+             
+             // Fetch latest data to ensure we have images and full details
+             try {
+                // Get session for API key
+                const stored = await chrome.storage.local.get(['userSession']);
+                const apiKey = stored.userSession?.apiKey;
+                
+                if (apiKey) {
+                    console.log(`[Extension] Fetching full details for ${vehicleId}`);
+                    const response = await fetch(`${BACKEND_URL}/vehicles/${vehicleId}?purpose=posting`, {
+                        method: 'GET',
+                        headers: {
+                            'x-api-key': apiKey,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        const result = await response.json();
+                        if (result.success && result.data) {
+                            console.log('[Extension] Fetched fresh vehicle data:', result.data.stockNumber);
+                            data.vehicleData = result.data; // Update with fresh data
+                        }
+                    } else {
+                         console.warn('[Extension] Failed to fetch fresh data, status:', response.status);
+                    }
+                }
+             } catch (err) {
+                 console.error('[Extension] Error fetching vehicle details:', err);
+             }
+          }
+          
+          // Proceed with posting logic
           chrome.tabs.query({ url: "https://www.facebook.com/marketplace/create/vehicle*" }, (tabs) => {
+              const dataToUse = data.vehicleData || data;
+              dataToUse.uploadImages = true; // Enable image upload for socket (auto) posting
+              // Pass posting IDs for feedback loop
+              if (data.postingId) dataToUse.postingId = data.postingId;
+              if (data.jobId) dataToUse.jobId = data.jobId;
+
               if (tabs && tabs.length > 0) {
                   const tabId = tabs[0].id;
                   chrome.tabs.update(tabId, { active: true });
-                  
-                  if (data.vehicleData) {
-                    handleFillFormWithTestData(data.vehicleData, tabId);
-                  } else {
-                    handleFillFormWithTestData(data, tabId); 
-                  }
+                  handleFillFormWithTestData(dataToUse, tabId);
               } else {
                  chrome.tabs.create({ url: "https://www.facebook.com/marketplace/create/vehicle" }, (tab) => {
+                     // Wait for page load
                      setTimeout(() => {
-                         if (data.vehicleData) {
-                             handleFillFormWithTestData(data.vehicleData, tab.id);
-                         } else {
-                             handleFillFormWithTestData(data, tab.id);
-                         }
+                         handleFillFormWithTestData(dataToUse, tab.id);
                      }, 5000);
                  });
               }
@@ -323,8 +375,75 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true; 
   }
 
+  if (request.action === 'posting_result') {
+    handlePostingResult(request.data)
+        .then(res => sendResponse(res))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   return true;
 });
+
+async function handlePostingResult(data) {
+    console.log('[Extension] Handling posting result:', data);
+    const { postingId, jobId, status, error, listingUrl } = data;
+    
+    // Only proceed if we have a postingId (queue job)
+    if (!postingId) return { success: false, error: 'No postingId provided' };
+
+    try {
+        const stored = await chrome.storage.local.get(['userSession']);
+        const apiKey = stored.userSession?.apiKey;
+        
+        if (!apiKey) throw new Error('No API key found');
+
+        const response = await fetch(`${BACKEND_URL}/vehicles/posting-result`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey
+            },
+            body: JSON.stringify({
+                postingId,
+                jobId,
+                status,
+                error,
+                listingUrl
+            })
+        });
+
+        const result = await response.json();
+        console.log('[Extension] Posting result reported:', result);
+        
+        if (result.success && status === 'completed') {
+             // Verification Signal: Emit socket event as requested
+             if (socket && socket.connected) {
+                 console.log(`[Extension] Emitting verify-vehicle-posting for ${data.vehicleId}`);
+                 socket.emit('verify-vehicle-posting', {
+                     vehicleId: data.vehicleId,
+                     listingUrl: listingUrl,
+                     postingId: postingId
+                 });
+             } else {
+                 console.warn('[Extension] Socket not connected, could not emit verification signal');
+             }
+
+             chrome.notifications.create({
+                type: 'basic',
+                iconUrl: 'icons/icon128.png',
+                title: 'Queue Posting Success',
+                message: 'Vehicle posted successfully via queue!',
+                priority: 2
+            });
+        }
+        
+        return result;
+    } catch (err) {
+        console.error('[Extension] Failed to report posting result:', err);
+        return { success: false, error: err.message };
+    }
+}
 
 const recentlyPosted = new Map();
 
@@ -548,8 +667,35 @@ async function logToBackend(logData) {
   }
 }
 
-chrome.alarms.create('validateSession', { periodInMinutes: 30 });
+// Self-healing connection check
+function checkConnection() {
+    chrome.storage.local.get(['userSession'], (result) => {
+        if (result.userSession) {
+             if (!socket || !socket.connected) {
+                 console.log('[Extension] Connection check: Socket not connected, initializing...');
+                 initializeSocket(result.userSession.token, result.userSession.apiKey);
+             }
+        }
+    });
+}
 
+// Check connection every minute (via alarms is better for SW, but interval works for active SW)
+// For Manifest V3 Service Workers, alarms are preferred for periodic tasks
+chrome.alarms.create('checkConnection', { periodInMinutes: 1 });
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === 'checkConnection') {
+        checkConnection();
+    }
+    // ... existing alarm handler ...
+});
+
+chrome.runtime.onStartup.addListener(() => {
+    console.log('[Extension] Browser Startup detected. Initializing connection...');
+    checkConnection();
+});
+
+// Existing alarm handler (merged)
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === 'validateSession') {
     const stored = await chrome.storage.local.get(['userSession']);

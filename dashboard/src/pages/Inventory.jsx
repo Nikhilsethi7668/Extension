@@ -83,6 +83,17 @@ const Inventory = () => {
         }
     };
 
+
+
+    const fetchChromeProfiles = async () => {
+        try {
+            const { data } = await apiClient.get('/chrome-profiles');
+            setChromeProfiles(data);
+        } catch (error) {
+            console.error('Failed to fetch chrome profiles:', error);
+        }
+    };
+
     // Socket.IO Setup
     useEffect(() => {
         const userStr = localStorage.getItem('user');
@@ -96,12 +107,17 @@ const Inventory = () => {
         // Create socket connection
         const newSocket = socketIO(import.meta.env.VITE_API_BASE_URL, {
             withCredentials: true,
-            transports: ['websocket', 'polling']
+            transports: ['websocket', 'polling'],
+            auth: {
+                clientType: 'dashboard'
+            }
         });
 
         newSocket.on('connect', () => {
             console.log('[Socket.IO] Connected:', newSocket.id);
-            newSocket.emit('join-organization', organizationId);
+            // Register as dashboard client
+            newSocket.emit('register-client', { orgId: organizationId, clientType: 'dashboard' });
+            console.log(`[Socket.IO] Registered as dashboard client for org: ${organizationId}`);
         });
 
         newSocket.on('scrape:start', (data) => {
@@ -452,46 +468,34 @@ const Inventory = () => {
         }
     };
 
-    // Post to Marketplace Handler
-    const handlePostClick = async (vehicle) => {
-        setPostingVehicle(vehicle);
+    // Post to Marketplace Handler (Bulk Queue) - Trigger Dialog
+    const handleBulkPost = () => {
+        if (!selectedIds || selectedIds.length === 0) return;
+        fetchChromeProfiles();
+        setProfileDialogOpen(true);
+    };
+
+    const confirmBulkPost = async () => {
         setLoading(true);
         try {
-            // Fetch profiles
-            const { data } = await apiClient.get('/chrome-profiles');
-            setChromeProfiles(data);
-            if (data.length === 0) {
-                 alert('No synced Chrome profiles found. Please sync profiles from the desktop app first.');
-            } else {
-                 setProfileDialogOpen(true);
-            }
+            const { data } = await apiClient.post('/vehicles/queue-posting', { 
+                vehicleIds: selectedIds,
+                profileId: selectedProfileId 
+            });
+            alert(data.message);
+            setSelectedIds([]);
+            setProfileDialogOpen(false);
+            fetchVehicles();
         } catch (error) {
-            console.error('Failed to fetch profiles:', error);
-            alert('Failed to load Chrome profiles: ' + error.message);
+            console.error('Queue failed:', error);
+            alert('Failed to queue vehicles: ' + (error.response?.data?.message || error.message));
         } finally {
             setLoading(false);
         }
     };
 
-    const confirmPost = () => {
-        if (!socket || !postingVehicle || !selectedProfileId) return;
-
-        // Emit socket event to trigger posting on desktop app
-        // We need to send this to the SERVER, which then forwards to the desktop app room
-        socket.emit('request-posting', {
-            vehicleId: postingVehicle._id,
-            profileId: selectedProfileId
-        });
-
-        alert(`Posting request sent for ${postingVehicle.make} ${postingVehicle.model}! Check your desktop app.`);
-        setProfileDialogOpen(false);
-        setPostingVehicle(null);
-        setSelectedProfileId('');
-    };
-
-    // Marketplace Preparation Handlers REMOVED (Auto-Stealth on Scrape)
-
     const isAdmin = currentUser && ['org_admin', 'super_admin'].includes(currentUser.role);
+    const canSelect = true; // Allow everyone to select for bulk actions
 
     return (
         <Layout title="Vehicle Inventory">
@@ -518,28 +522,32 @@ const Inventory = () => {
                         </Select>
                     </FormControl>
 
-                    {isAdmin && selectedIds.length > 0 && (() => {
-                        // Check if any selected vehicle needs preparation
-                        const selectedVehicles = vehicles.filter(v => selectedIds.includes(v._id));
-                        const needsPreparation = selectedVehicles.some(v =>
-                            !(v.preparedImages && v.preparedImages.length > 0 &&
-                                v.images && v.images.length > 0 &&
-                                v.preparationStatus === 'ready')
-                        );
-
+                    {selectedIds.length > 0 && (() => {
                         return (
                             <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: 'primary.dark', color: 'white', px: 2, mr: 2, borderRadius: 1, height: 40, gap: 1 }}>
                                 <Typography variant="body2" sx={{ mr: 1 }}>{selectedIds.length} Selected</Typography>
-                                {/* Removed Batch Prepare (Auto-Stealth) */}
+                                
                                 <Button
                                     size="small"
                                     variant="contained"
-                                    color="warning"
-                                    startIcon={<UserPlus size={16} />}
-                                    onClick={() => setAssignDialogOpen(true)}
+                                    color="success"
+                                    startIcon={<ExternalLink size={16} />}
+                                    onClick={handleBulkPost}
                                 >
-                                    Assign
+                                    Post
                                 </Button>
+
+                                {isAdmin && (
+                                    <Button
+                                        size="small"
+                                        variant="contained"
+                                        color="warning"
+                                        startIcon={<UserPlus size={16} />}
+                                        onClick={() => setAssignDialogOpen(true)}
+                                    >
+                                        Assign
+                                    </Button>
+                                )}
                             </Box>
                         );
                     })()}
@@ -573,7 +581,7 @@ const Inventory = () => {
                     <Table stickyHeader>
                         <TableHead>
                             <TableRow>
-                                {isAdmin && (
+                                {canSelect && (
                                     <TableCell padding="checkbox">
                                         <Checkbox
                                             color="primary"
@@ -614,7 +622,7 @@ const Inventory = () => {
                                         sx={{ cursor: 'pointer', '&:last-child td, &:last-child th': { border: 0 } }}
                                         onClick={() => handleViewVehicle(v)}
                                     >
-                                        {isAdmin && (
+                                        {canSelect && (
                                             <TableCell padding="checkbox">
                                                 <Checkbox
                                                     color="primary"
@@ -644,7 +652,7 @@ const Inventory = () => {
                                                 {v.trim}
                                             </Typography>
                                         </TableCell>
-                                        {isAdmin && (
+                                        {canSelect && (
                                             <TableCell>
                                                 {v.assignedUsers && v.assignedUsers.length > 1 ? (
                                                     <Chip
@@ -713,15 +721,7 @@ const Inventory = () => {
                                                     <Eye size={18} />
                                                 </IconButton>
                                             </Tooltip>
-                                            <Tooltip title="Post to Marketplace">
-                                                <IconButton
-                                                    size="small"
-                                                    color="primary"
-                                                    onClick={(e) => { e.stopPropagation(); handlePostClick(v); }}
-                                                >
-                                                    <ExternalLink size={18} />
-                                                </IconButton>
-                                            </Tooltip>
+                                            
                                             {v.status !== 'sold' ? (
                                                 <Tooltip title="Mark as Sold">
                                                     <IconButton
@@ -845,6 +845,8 @@ const Inventory = () => {
                 </DialogActions>
             </Dialog>
 
+
+
             {/* Profile Selection Dialog */}
             <Dialog open={profileDialogOpen} onClose={() => setProfileDialogOpen(false)} maxWidth="xs" fullWidth>
                 <DialogTitle>Select Chrome Profile</DialogTitle>
@@ -873,11 +875,11 @@ const Inventory = () => {
                 <DialogActions>
                     <Button onClick={() => setProfileDialogOpen(false)}>Cancel</Button>
                     <Button
-                        onClick={confirmPost}
+                        onClick={confirmBulkPost}
                         variant="contained"
-                        disabled={!selectedProfileId}
+                        disabled={!selectedProfileId || loading}
                     >
-                        🚀 Launch & Post
+                        🚀 Queue & Post
                     </Button>
                 </DialogActions>
             </Dialog>

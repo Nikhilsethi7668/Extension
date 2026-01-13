@@ -2028,7 +2028,8 @@ async function executePostToFacebook(vehicleData = null) {
         whereToPost: whereToPostEl ? whereToPostEl.value : 'marketplace',
         distance: distanceEl ? distanceEl.value : '20',
         groups: fbGroupsEl ? fbGroupsEl.value.split('\n').filter(g => g.trim()) : []
-      }
+      },
+      uploadImages: false // Disable auto-upload for manual post (user request)
     };
 
     // Check if we are already on the Facebook Marketplace create page

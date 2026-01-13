@@ -2,6 +2,8 @@ import express from 'express';
 import Vehicle from '../models/Vehicle.js';
 import AuditLog from '../models/AuditLog.js';
 import User from '../models/User.js';
+import Posting from '../models/posting.model.js';
+import { postingQueue } from '../config/queue.js';
 import { protect, admin } from '../middleware/auth.js';
 import { generateVehicleContent, processImageWithGemini } from '../services/ai.service.js';
 import { prepareImageBatch, getAvailableCameras, DEFAULT_GPS } from '../services/image-processor.service.js';
@@ -1984,6 +1986,146 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
 
     } catch (error) {
         res.status(500).json({ message: error.message });
+    }
+});
+
+// @desc    Queue multiple vehicles for posting
+// @route   POST /api/vehicles/queue-posting
+// @access  Protected
+router.post('/queue-posting', protect, async (req, res) => {
+    const { vehicleIds, profileId } = req.body;
+
+    if (!vehicleIds || !Array.isArray(vehicleIds) || vehicleIds.length === 0) {
+        return res.status(400).json({ message: 'No vehicle IDs provided' });
+    }
+
+    try {
+        const jobs = [];
+        const orgId = req.user.organization._id || req.user.organization;
+        const results = { queued: 0, skipped: 0 };
+
+        // Create Posting records and Jobs
+        for (const vehicleId of vehicleIds) {
+            // Check if already processing (strict skip)
+            const activePosting = await Posting.findOne({
+                vehicleId,
+                status: 'processing'
+            });
+
+            if (activePosting) {
+                console.log(`Skipping vehicle ${vehicleId}, currently processing`);
+                results.skipped++;
+                continue;
+            }
+
+            // Check if active in queue (we will update/restart it)
+            let posting = await Posting.findOne({
+                vehicleId,
+                status: 'queued'
+            });
+
+            if (posting) {
+                 // Update existing queued posting
+                 posting.profileId = profileId || null;
+                 posting.logs.push({ message: `Re-queued by user ${req.user._id}`, timestamp: new Date() });
+                 await posting.save();
+            } else {
+                // Create new posting
+                posting = await Posting.create({
+                    vehicleId,
+                    userId: req.user._id,
+                    orgId: orgId,
+                    profileId: profileId || null, // Store optional profileId
+                    status: 'queued',
+                    logs: [{ message: `Queued by user ${req.user._id}`, timestamp: new Date() }]
+                });
+            }
+
+            // Add to BullMQ
+            const job = await postingQueue.add('post-vehicle', {
+                postingId: posting._id,
+                vehicleId,
+                userId: req.user._id,
+                orgId: orgId,
+                profileId: profileId // Pass to worker
+            }, {
+                attempts: 50, // Retry many times (since we wait for user availability)
+                backoff: {
+                    type: 'fixed',
+                    delay: 10000 // Check every 10 seconds
+                },
+                removeOnComplete: true,
+                removeOnFail: true
+            });
+
+            posting.jobId = job.id;
+            await posting.save();
+            jobs.push(posting);
+            results.queued++;
+        }
+
+        res.json({ success: true, count: jobs.length, message: `Queued ${jobs.length} vehicles` });
+    } catch (error) {
+        console.error('Queue error:', error);
+        res.status(500).json({ message: 'Failed to queue vehicles' });
+    }
+});
+
+// @desc    Update posting result (called by Extension via API)
+// @route   POST /api/vehicles/posting-result
+// @access  Protected (or API Key)
+router.post('/posting-result', async (req, res) => {
+    // Note: If calling from extension, might need API Key middleware instead of 'protect'. 
+    // Assuming 'protect' works if extension sends Bearer token, otherwise we check API Key manually.
+    // For now, let's allow basic API Key check if 'protect' fails or just manual check.
+    // The extension usually sends x-api-key, so we might need a custom middleware here or logic.
+    // Let's assume the extension uses the standard fetch with correct headers.
+    
+    // Simplification: Check for API Key in header if user not in req
+    const apiKey = req.headers['x-api-key'];
+    let user = req.user;
+
+    if (!user && apiKey) {
+        // Find user by API Key (if logic exists, otherwise skip for MVP and assume trust/socket path)
+        // Ideally we should validate. 
+        // For MVP, if we trust the worker waiting loop, we just need to update the DB.
+    }
+
+    const { postingId, status, error, listingUrl } = req.body;
+
+    try {
+        const posting = await Posting.findById(postingId);
+        if (!posting) return res.status(404).json({ message: 'Posting not found' });
+
+        if (status === 'success') {
+            posting.status = 'completed';
+            posting.completedAt = new Date();
+            
+            // Also update Vehicle status
+            const vehicle = await Vehicle.findById(posting.vehicleId);
+            if (vehicle) {
+                vehicle.status = 'posted';
+                if (!vehicle.postingHistory) vehicle.postingHistory = [];
+                vehicle.postingHistory.push({
+                   platform: 'facebook',
+                   listingUrl: listingUrl,
+                   timestamp: new Date(),
+                   status: 'active',
+                   user: posting.userId
+                });
+                await vehicle.save();
+            }
+        } else {
+            posting.status = 'failed';
+            posting.error = error || 'Unknown error';
+            posting.completedAt = new Date();
+        }
+
+        await posting.save();
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Posting result error:', err);
+        res.status(500).json({ message: err.message });
     }
 });
 

@@ -373,8 +373,16 @@ ipcMain.handle('get-chrome-profiles', () => {
 
 
 
+const launchedProfiles = new Map();
+
 function launchChromeProfile(profileDir) {
   try {
+    // Check if already running
+    if (launchedProfiles.has(profileDir)) {
+      console.log(`Profile ${profileDir} is already running.`);
+      return { success: true, message: 'Profile already running' };
+    }
+
     console.log(`Launching Chrome profile: ${profileDir}`);
     // typical path for Windows
     const chromePath = path.join(process.env.ProgramFiles, 'Google', 'Chrome', 'Application', 'chrome.exe');
@@ -389,11 +397,19 @@ function launchChromeProfile(profileDir) {
       }
     }
 
-    const child = spawn(executable, [`--profile-directory=${profileDir}`], {
+    const child = spawn(executable, [`--profile-directory=${profileDir}`, 'https://www.facebook.com'], {
       detached: true,
       stdio: 'ignore'
     });
     
+    // Track the process
+    launchedProfiles.set(profileDir, child);
+
+    child.on('exit', (code) => {
+       console.log(`Profile ${profileDir} exited with code ${code}`);
+       launchedProfiles.delete(profileDir);
+    });
+
     child.unref(); // Allow the app to keep running independently
     
     return { success: true };
@@ -405,8 +421,7 @@ function launchChromeProfile(profileDir) {
 
 ipcMain.handle('launch-chrome-profile', (event, profileDir) => {
   try {
-      launchChromeProfile(profileDir);
-      return { success: true };
+      return launchChromeProfile(profileDir);
   } catch (error) {
       return { success: false, message: error.message };
   }
@@ -496,6 +511,9 @@ function connectSocket() {
     reconnection: true,
     reconnectionDelay: 10000,
     reconnectionDelayMax: 10000,
+    auth: {
+        clientType: 'desktop'
+    },
     extraHeaders: {
       'Authorization': `Bearer ${config.apiToken}`
     }
@@ -528,8 +546,9 @@ function connectSocket() {
        
        const orgId = user.organization?._id || user.organization;
        if (orgId) {
-           socket.emit('join-organization', orgId);
-           console.log(`[Socket] Joined organization: ${orgId}`);
+           // Register as desktop client
+           socket.emit('register-client', { orgId, clientType: 'desktop' });
+           console.log(`[Socket] Registered as desktop client for org: ${orgId}`);
        }
     }).catch(err => console.error('[Socket] Failed to fetch user details for room join:', err.message));
   });

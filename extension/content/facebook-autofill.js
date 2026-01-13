@@ -423,25 +423,108 @@
         await sleep(500);
       }
 
-      /* 
       // Handle images (only once)
-      if (!filledFields.has('images') && postData?.images && postData.images.length > 0) {
+      if (!filledFields.has('images') && postData?.images && postData.images.length > 0 && postData.uploadImages) {
         await handleImages();
         filledFields.add('images');
+
+        // Auto-Click NEXT after images
+        console.log('Auto-clicking "Next" button...');
+        await sleep(2000); // Wait for uploads to settle
+        const nextClicked = await clickNextButton();
+        
+        if (nextClicked) {
+           console.log('Next button clicked. Waiting for Publish button...');
+           await sleep(3000); // Wait for next page/step
+           
+           // Auto-Click PUBLISH
+           console.log('Auto-clicking "Publish" button...');
+           await clickPublishButton();
+           
+           // Report success for queue
+           if (postData.postingId) {
+               console.log('Reporting queue success...');
+               // Give it a moment to register the click
+               setTimeout(() => {
+                   chrome.runtime.sendMessage({
+                       action: 'posting_result',
+                       data: {
+                           postingId: postData.postingId,
+                           jobId: postData.jobId,
+                           vehicleId: postData._id || postData.vehicleId, // Pass vehicleId
+                           status: 'completed',
+                           listingUrl: window.location.href
+                       }
+                   });
+               }, 1000);
+           }
+        } else {
+           console.error('Could not find or click "Next" button');
+        }
       }
-      */
 
       // Notify user of progress
       sendProgressUpdate('Auto-fill complete! Please verify details.');
 
-      // Start monitoring for the "Publish" button click
+      // Start monitoring for the "Publish" button click (fallback if auto-click fails or for manual)
       monitorPublishButton(postData);
 
     } catch (error) {
       console.error('Auto-fill error:', error);
+      
+      if (postData?.postingId) {
+          chrome.runtime.sendMessage({
+              action: 'posting_result',
+              data: {
+                  postingId: postData.postingId,
+                  jobId: postData.jobId,
+                  status: 'failed',
+                  error: error.message
+              }
+          });
+      }
     } finally {
       isFilling = false;
     }
+  }
+
+  async function clickNextButton() {
+      // Try to find the Next button
+      const buttons = Array.from(document.querySelectorAll('[aria-label="Next"], button, [role="button"]'));
+      const nextBtn = buttons.find(b => {
+          const text = (b.innerText || b.textContent || '').toLowerCase().trim();
+          return text === 'next' || b.getAttribute('aria-label') === 'Next';
+      });
+
+      if (nextBtn) {
+          console.log('Found Next button:', nextBtn);
+          nextBtn.scrollIntoView({ block: "center" });
+          await sleep(500);
+          nextBtn.click();
+          return true;
+      }
+      return false;
+  }
+
+  async function clickPublishButton() {
+      // Try to find the Publish button
+      // Often checking for "Publish" or "Post"
+      const buttons = Array.from(document.querySelectorAll('[aria-label="Publish"], [aria-label="Post"], button, [role="button"]'));
+      const publishBtn = buttons.find(b => {
+          const text = (b.innerText || b.textContent || '').toLowerCase().trim();
+          return text === 'publish' || text === 'post';
+      });
+
+      if (publishBtn) {
+          console.log('Found Publish button:', publishBtn);
+          publishBtn.scrollIntoView({ block: "center" });
+          await sleep(500);
+          publishBtn.click();
+          return true;
+      } else {
+          console.log('Publish button not found yet.');
+          return false;
+      }
   }
 
   // Monitor for Publish/Next button clicks
