@@ -17,6 +17,37 @@ const router = express.Router();
 import fs from 'fs';
 import path from 'path';
 
+// @desc    Clear all queues and postings
+// @route   GET /api/vehicles/clear-queues
+// @access  Protected/Admin
+router.get('/clear-queues', protect, admin, async (req, res) => {
+    try {
+        console.log('--- Clearing All Queues and Postings ---');
+
+        // 1. Clear BullMQ Queue
+        console.log('Draining BullMQ queue...');
+        await postingQueue.drain();
+        
+        // Force obliterate to ensure everything is gone (active, delayed, etc)
+        await postingQueue.obliterate({ force: true });
+        console.log('Queue obliterated.');
+
+        // 2. Clear MongoDB Records
+        console.log('Deleting ALL postings from MongoDB...');
+        const result = await Posting.deleteMany({}); 
+        console.log(`Deleted ${result.deletedCount} postings.`);
+
+        res.json({
+            success: true,
+            message: `Cleared queue and deleted ${result.deletedCount} postings.`,
+            deletedCount: result.deletedCount
+        });
+    } catch (error) {
+        console.error('Error clearing queues:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
 // @desc    Sync Prompts from JSON to DB
 // @route   POST /api/vehicles/sync-prompts
 // @access  Protected (Admin only really, but strict protect for now)
@@ -2004,46 +2035,12 @@ router.post('/queue-posting', protect, async (req, res) => {
         const orgId = req.user.organization._id || req.user.organization;
         const results = { queued: 0, skipped: 0 };
 
-        // Create Posting records and Jobs
+        // Create Jobs directly (Ephemeral)
         for (const vehicleId of vehicleIds) {
-            // Check if already processing (strict skip)
-            const activePosting = await Posting.findOne({
-                vehicleId,
-                status: 'processing'
-            });
-
-            if (activePosting) {
-                console.log(`Skipping vehicle ${vehicleId}, currently processing`);
-                results.skipped++;
-                continue;
-            }
-
-            // Check if active in queue (we will update/restart it)
-            let posting = await Posting.findOne({
-                vehicleId,
-                status: 'queued'
-            });
-
-            if (posting) {
-                 // Update existing queued posting
-                 posting.profileId = profileId || null;
-                 posting.logs.push({ message: `Re-queued by user ${req.user._id}`, timestamp: new Date() });
-                 await posting.save();
-            } else {
-                // Create new posting
-                posting = await Posting.create({
-                    vehicleId,
-                    userId: req.user._id,
-                    orgId: orgId,
-                    profileId: profileId || null, // Store optional profileId
-                    status: 'queued',
-                    logs: [{ message: `Queued by user ${req.user._id}`, timestamp: new Date() }]
-                });
-            }
-
-            // Add to BullMQ
+            // Add to BullMQ directly
             const job = await postingQueue.add('post-vehicle', {
-                postingId: posting._id,
+                // postingId is now just a placeholder or job.id since we don't have a DB record
+                postingId: `ephemeral_${Date.now()}_${vehicleId}`, 
                 vehicleId,
                 userId: req.user._id,
                 orgId: orgId,
@@ -2058,9 +2055,11 @@ router.post('/queue-posting', protect, async (req, res) => {
                 removeOnFail: true
             });
 
-            posting.jobId = job.id;
-            await posting.save();
-            jobs.push(posting);
+            // We can't easily check for duplicates without DB, 
+            // but we could check queue.getJobs() if really needed. 
+            // For now, we trust the user or just let it queue.
+            
+            jobs.push({ id: job.id, vehicleId, status: 'queued' });
             results.queued++;
         }
 
@@ -2085,44 +2084,21 @@ router.post('/posting-result', async (req, res) => {
     const apiKey = req.headers['x-api-key'];
     let user = req.user;
 
-    if (!user && apiKey) {
-        // Find user by API Key (if logic exists, otherwise skip for MVP and assume trust/socket path)
-        // Ideally we should validate. 
-        // For MVP, if we trust the worker waiting loop, we just need to update the DB.
-    }
-
     const { postingId, status, error, listingUrl } = req.body;
 
     try {
-        const posting = await Posting.findById(postingId);
-        if (!posting) return res.status(404).json({ message: 'Posting not found' });
+        // Ephemeral Queue Logic: Signal the worker directly
+        // Dynamic import to avoid circular dependency
+        const { jobEvents } = await import('../workers/posting.worker.js');
+        
+        jobEvents.emit('job-completed', { 
+            jobId: jobId || postingId, // Use whatever ID the extension sent back
+            success: status === 'success',
+            error: error,
+            listingUrl: listingUrl
+        });
 
-        if (status === 'success') {
-            posting.status = 'completed';
-            posting.completedAt = new Date();
-            
-            // Also update Vehicle status
-            const vehicle = await Vehicle.findById(posting.vehicleId);
-            if (vehicle) {
-                vehicle.status = 'posted';
-                if (!vehicle.postingHistory) vehicle.postingHistory = [];
-                vehicle.postingHistory.push({
-                   platform: 'facebook',
-                   listingUrl: listingUrl,
-                   timestamp: new Date(),
-                   status: 'active',
-                   user: posting.userId
-                });
-                await vehicle.save();
-            }
-        } else {
-            posting.status = 'failed';
-            posting.error = error || 'Unknown error';
-            posting.completedAt = new Date();
-        }
-
-        await posting.save();
-        res.json({ success: true });
+        res.json({ success: true, message: 'Result received' });
     } catch (err) {
         console.error('Posting result error:', err);
         res.status(500).json({ message: err.message });

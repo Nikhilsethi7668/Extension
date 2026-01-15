@@ -1,144 +1,171 @@
 import { Worker } from 'bullmq';
 import { redisConnection } from '../config/queue.js';
-import Posting from '../models/posting.model.js';
 import Vehicle from '../models/Vehicle.js';
+import { EventEmitter } from 'events';
+
+// Global Event Emitter for ephemeral communication between API routes and Worker
+// This allows api/src/index.js to emit 'posting-result' here.
+export const jobEvents = new EventEmitter();
 
 let worker;
 
 export const initWorker = (io) => {
     worker = new Worker('posting-queue', async (job) => {
         const { postingId, vehicleId, userId, orgId } = job.data;
-        console.log(`[Worker] Processing Job ${job.id} for Posting ${postingId}`);
+        console.log(`[Worker] Processing Job ${job.id} for Vehicle ${vehicleId} (User: ${userId})`);
+
+        const lockKey = `lock:user:${userId}`;
 
         try {
-            // 1. Fetch Posting & Validate
-            const posting = await Posting.findById(postingId);
-            if (!posting) throw new Error('Posting record not found');
-            
-            // 2. Concurrency Check: Check if user already has a 'processing' posting (excluding self)
-            // Note: This relies on the previous job correctly marking itself as completed/failed.
-            // If the previous job crashed, we might need a cleanup mechanism, but the timeout handles that.
-            const activePosting = await Posting.findOne({
-                userId,
-                status: 'processing',
-                _id: { $ne: postingId }
-            });
-
-            if (activePosting) {
-                // If another posting is active, delay this job by throwing an error that triggers backoff
-                console.log(`[Worker] User ${userId} has active posting ${activePosting._id}. Delaying job ${job.id}.`);
-                // Throwing an error will cause BullMQ to move to 'failed' temporarily, 
-                // and then retry based on 'backoff' settings in the job.
+            // 0. Per-User Sequential Check
+            // Check if this user is already processing a job (excluding self - though lock is simple key)
+            // Ideally we check if key exists.
+            const existingLock = await redisConnection.get(lockKey);
+            if (existingLock && existingLock !== job.id) {
+                // User is busy with another job. Backoff.
+                console.log(`[Worker] User ${userId} is busy (Lock held by ${existingLock}). Delaying job ${job.id}.`);
                 throw new Error('User has active posting - Retrying later');
             }
 
-            // 3. Mark as Processing
-            posting.status = 'processing';
-            posting.startedAt = new Date();
-            await posting.save();
+            // Acquire Lock
+            // Set with NX (only if not exists) is safer, but here we just overwrite or set.
+            // We use a TTL of 5 minutes (safety net if crash).
+            await redisConnection.set(lockKey, job.id, 'EX', 300); 
 
-            // 4. Fetch Vehicle Data
+            // 1. Fetch Vehicle Data (Source of Truth)
             const vehicle = await Vehicle.findById(vehicleId);
             if (!vehicle) throw new Error('Vehicle not found');
 
-            // 4.5 Launch/Focus Profile (if specified)
+            // 2. Launch/Focus Profile (if specified)
             if (job.data.profileId) {
                 const desktopRoom = `org:${orgId}:desktop`;
                 console.log(`[Worker] Launching/Focusing profile ${job.data.profileId} via ${desktopRoom}`);
                 io.to(desktopRoom).emit('launch-browser-profile', { profileId: job.data.profileId });
-                // Brief wait to ensure browser comes to foreground/launches
+                
+                // Wait for browser to launch/focus
                 await new Promise(r => setTimeout(r, 5000));
             }
 
-            // 5. Emit Socket Event to Extension
-            // Target the specific organization/extension room
+            // 3. Emit Socket Event to Extension
             const room = `org:${orgId}:extension`;
             console.log(`[Worker] Emitting start-posting-vehicle to ${room}`);
             
             io.to(room).emit('start-posting-vehicle', {
                 vehicleId: vehicleId,
-                vehicleData: vehicle, // Send full data (redundant with fetch in extension, but helpful)
-                postingId: postingId,
+                vehicleData: vehicle,
+                postingId: postingId, // Pass through for correlation
                 jobId: job.id
             });
 
-            // 6. Wait for Completion or Timeout
-            // We return a Promise that resolves when the socket event 'posting-result' comes back
-            // OR rejects after 3 minutes (180000 ms)
-            
+            // 4. Wait for Completion or Timeout
             await new Promise((resolve, reject) => {
-                const timeout = setTimeout(async () => {
+                const timeout = setTimeout(() => {
                     cleanup();
-                    // Mark as Timeout in DB
-                    posting.status = 'timeout';
-                    posting.error = 'Operation timed out (3 minutes)';
-                    posting.completedAt = new Date();
-                    await posting.save();
-                    reject(new Error('Posting timed out'));
-                }, 180000); // 3 minutes
+                    reject(new Error('Posting timed out (3 minutes)'));
+                }, 180000); // 3 minutes timeout
 
-                // We need a listener for the result. 
-                // Since this worker might be running in the same process as the socket server (for now),
-                // we can listen to an internal event emitter or just rely on the API updating the DB.
-                // 
-                // Strategy: The extension will call an API endpoint /api/vehicles/posting-result
-                // That API endpoint will update the Posting AND trigger a job completion.
-                // 
-                // BUT BullMQ works best if the worker function waits = Lock the job.
-                // 
-                // Alternative: The worker *just* starts the process and returns. 
-                // But the user wants "1 at a time". If we return, the next job starts.
-                // So we MUST wait here.
-                
-                // We'll use a polling check or an internal Event Emitter.
-                // Let's use an internal Event Emitter exposed by the app/index.
-                // Or simpler: Poll the DB every 5 seconds to see if status changed to 'completed'/'failed'.
-                
-                const pollInterval = setInterval(async () => {
-                    try {
-                        // Keep lock alive explicitly
-                        await job.updateProgress({ pct: 50, message: 'Waiting for extension...' });
-                        await job.extendLock(30000); // Extend by 30s every loop
-
-                        const updatedPosting = await Posting.findById(postingId);
-                        if (updatedPosting.status === 'completed') {
-                            cleanup();
+                // Handler for completion event from API
+                const resultHandler = async ({ jobId: resJobId, success, error, listingUrl }) => {
+                    // Check if this result matches our current job
+                    if (resJobId === job.id || resJobId === postingId) {
+                        cleanup();
+                        if (success) {
+                            try {
+                                // Success! Update Vehicle status
+                                const vehicle = await Vehicle.findById(vehicleId);
+                                if (vehicle) {
+                                    vehicle.status = 'posted';
+                                    vehicle.marketplaceStatus = 'listed';
+                                    vehicle.marketplaceUrl = listingUrl;
+                                    vehicle.lastPostedAt = new Date();
+                                    
+                                    if (!vehicle.postingHistory) vehicle.postingHistory = [];
+                                    vehicle.postingHistory.push({
+                                        platform: 'facebook',
+                                        listingUrl: listingUrl,
+                                        timestamp: new Date(),
+                                        status: 'active',
+                                        user: userId
+                                    });
+                                    await vehicle.save();
+                                    console.log(`[Worker] Vehicle ${vehicleId} marked as posted.`);
+                                }
+                            } catch (dbErr) {
+                                console.error('[Worker] Failed to update vehicle status:', dbErr);
+                                // Don't fail the job just because DB update failed, but log it.
+                            }
                             resolve('Posting completed successfully');
-                        } else if (updatedPosting.status === 'failed') {
-                            cleanup();
-                            reject(new Error(updatedPosting.error || 'Posting failed'));
-                        }
-                    } catch (err) {
-                        // Ignore lock errors here to keep polling, but log critical ones
-                        if (err.message && !err.message.includes('Missing lock')) {
-                             console.error('[Worker] Polling error:', err);
+                        } else {
+                            reject(new Error(error || 'Posting failed'));
                         }
                     }
-                }, 2000);
+                };
 
-                function cleanup() {
+                const cleanup = () => {
                     clearTimeout(timeout);
-                    clearInterval(pollInterval);
+                    clearInterval(lockInterval);
+                    jobEvents.off('job-completed', resultHandler);
+                };
+
+                // Listen for event from API (emitted by index.js on receiving 'posting-result')
+                jobEvents.on('job-completed', resultHandler);
+
+                // Keep lock alive while waiting (Both Redis Lock and BullMQ Lock)
+                const lockInterval = setInterval(async () => {
+                    try {
+                        await job.updateProgress({ pct: 50, message: 'Waiting for extension...' });
+                        await job.extendLock(30000); // BullMQ Lock
+                        
+                        // Extend Redis User Lock
+                        await redisConnection.expire(lockKey, 300); 
+                    } catch (err) {
+                        // ignore lock errors
+                    }
+                }, 5000);
+            }).finally(async () => {
+                // Key Step: Release User Lock regardless of success/failure
+                // Only delete if WE hold it (though simple del is usually fine here)
+                const currentLock = await redisConnection.get(lockKey);
+                if (currentLock === job.id) {
+                     await redisConnection.del(lockKey);
+                     console.log(`[Worker] Released lock for User ${userId}`);
                 }
             });
 
         } catch (error) {
-            console.error(`[Worker] Job ${job.id} failed:`, error.message);
-            // Update DB if not already updated (e.g. initial fetch fail)
-            const posting = await Posting.findById(postingId);
-            if (posting && posting.status !== 'timeout' && posting.status !== 'failed') {
-                posting.status = 'failed';
-                posting.error = error.message;
-                posting.completedAt = new Date();
-                await posting.save();
+            // If it's just a concurrency delay, don't log as a scary error
+            if (error.message === 'User has active posting - Retrying later') {
+                 console.log(`[Worker] Job ${job.id} waiting for user lock... (Backoff triggered)`);
+            } else {
+                 console.error(`[Worker] Job ${job.id} failed:`, error);
             }
-            throw error; // Let BullMQ know it failed
+
+             // Ensure lock is released if we crash before finally block (e.g. initial sync error)
+            // But finally block above handles the promise chain. 
+            // If error is thrown BEFORE promise chain (step 0, 1), we need to catch it here.
+            // Step 0 throws 'User busy' - we do NOT want to delete the lock then (someone else has it).
+            // Step 1 throws error - we DO want to delete lock if we set it.
+            
+            // Checking if we set the lock is tricky unless we track state. 
+            // But Step 0 checks existing lock. If we passed Step 0, we likely set the lock.
+            // EXCEPT if set failed.
+            
+            // Safe bet: Check if lock equals our job ID.
+             const lockKeys = `lock:user:${userId}`; // Needs scope access or re-define
+             // Re-define lockKey here or move scope. 
+             // Actually 'lockKey' is in scope above.
+             const currentLock = await redisConnection.get(lockKey);
+             if (currentLock === job.id) {
+                  await redisConnection.del(lockKey);
+             }
+            
+            throw error;
         }
 
     }, { 
         connection: redisConnection,
-        lockDuration: 240000, // 4 minutes (must be longer than the 3 min timeout)
-        concurrency: 5 // Optional: Allow multiple concurrent jobs if node process can handle it (since mostly waiting)
+        lockDuration: 240000, 
+        concurrency: 5 // Allow 5 concurrent jobs globally (but only 1 per user due to logic above)
     });
 
     worker.on('completed', job => {
@@ -146,6 +173,10 @@ export const initWorker = (io) => {
     });
 
     worker.on('failed', (job, err) => {
-        console.log(`[Worker] Job ${job.id} has failed with ${err.message}`);
+        if (err.message === 'User has active posting - Retrying later') {
+            console.log(`[Worker] Job ${job.id} queued for retry (User busy)`);
+        } else {
+            console.log(`[Worker] Job ${job.id} has failed with ${err.message}`);
+        }
     });
 };

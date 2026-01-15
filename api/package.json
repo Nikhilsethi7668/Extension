@@ -7,7 +7,8 @@
     "scripts": {
         "start": "node src/index.js",
         "dev": "nodemon src/index.js",
-        "init-admin": "node src/scripts/init_admin.js"
+        "init-admin": "node src/scripts/init_admin.js",
+        "clear-queue": "node src/clear-queue.js"
     },
     "dependencies": {
         "@fal-ai/client": "^1.8.1",

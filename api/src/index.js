@@ -194,8 +194,25 @@ io.on('connection', (socket) => {
     // Verification Signal Listener
     socket.on('verify-vehicle-posting', (data) => {
         console.log(`[Socket] Received verification signal from ${socket.id}`, data);
-        // Here you can trigger a verification bot or update DB status
-        // For now, we just log it as requested
+    });
+
+    // Posting Result Listener (Ephemeral Queue Bridge)
+    socket.on('posting-result', (data) => {
+        console.log(`[Socket] Received posting-result from ${socket.id}`, data); // { postingId, success, error }
+        
+        // Dynamically import the emitter to avoid top-level circular dependency issues if any,
+        // (though ES modules usually handle it, let's keep it safe or just rely on global)
+        // Actually, let's assume we import jobEvents at the top.
+        // For now, let's use a dynamic import or assume it's available.
+        // Better: We will add the import at the top of the file in a separate edit.
+        // Here we just use it.
+        import('./workers/posting.worker.js').then(({ jobEvents }) => {
+             jobEvents.emit('job-completed', { 
+                 jobId: data.jobId || data.postingId, // Extension should send jobId back
+                 success: data.success,
+                 error: data.error
+             });
+        });
     });
     
     socket.on('disconnect', () => {

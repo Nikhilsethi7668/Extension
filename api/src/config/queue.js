@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const redisConfig = {
-    host: 'redis', // Hostname in docker-compose
+    host: process.env.REDIS_HOST || 'redis', // Hostname in docker-compose or env
     port: 6379,
     maxRetriesPerRequest: null
 };
