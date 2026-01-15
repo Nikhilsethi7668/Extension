@@ -8,7 +8,7 @@ class AutomationEngine extends EventEmitter {
   constructor(config) {
     super();
     this.config = config;
-    
+
     console.log('=== AUTOMATION ENGINE INITIALIZED ===');
     console.log('Config received:', {
       apiUrl: config.apiUrl,
@@ -16,7 +16,7 @@ class AutomationEngine extends EventEmitter {
       tokenLength: config.apiToken?.length || 0,
       pollingInterval: config.pollingInterval
     });
-    
+
     this.running = false;
     this.browser = null;
     this.pollingTimer = null;
@@ -55,7 +55,7 @@ class AutomationEngine extends EventEmitter {
   async stop() {
     console.log('Stopping automation engine...');
     this.running = false;
-    
+
     if (this.pollingTimer) {
       clearTimeout(this.pollingTimer);
       this.pollingTimer = null;
@@ -73,7 +73,7 @@ class AutomationEngine extends EventEmitter {
     if (!this.running) return;
 
     const waitTime = delay || (this.config.pollingInterval * 60 * 1000);
-    
+
     this.pollingTimer = setTimeout(async () => {
       await this.checkAndPostVehicles();
       this.scheduleNextCheck();
@@ -107,7 +107,7 @@ class AutomationEngine extends EventEmitter {
           await this.postVehicle(vehicle);
           this.stats.vehiclesPosted++;
           this.emit('vehicle-posted', vehicle);
-          
+
           // Wait between posts to avoid detection
           await this.sleep(10000); // 10 seconds between posts
         } catch (error) {
@@ -133,7 +133,7 @@ class AutomationEngine extends EventEmitter {
       console.log('Has token:', !!this.config.apiToken);
       console.log('Token length:', this.config.apiToken?.length);
       console.log('Authorization header:', `Bearer ${this.config.apiToken?.substring(0, 20)}...`);
-      
+
       const response = await axios.get(`${this.config.apiUrl}/vehicles`, {
         params: {
           status: 'scraped',
@@ -166,7 +166,7 @@ class AutomationEngine extends EventEmitter {
 
     // Navigate to Facebook Marketplace
     const page = await this.browser.newPage();
-    
+
     try {
       // Set user agent
       await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
@@ -198,7 +198,7 @@ class AutomationEngine extends EventEmitter {
 
       // Check if we're still on the create page or if posting succeeded
       const currentUrl = page.url();
-      
+
       // Wait for posting to complete (extension will submit the form)
       await page.waitForNavigation({ timeout: 60000, waitUntil: 'networkidle2' }).catch(() => {
         console.log('Navigation timeout, checking manually...');
@@ -252,36 +252,36 @@ class AutomationEngine extends EventEmitter {
     if (!vehicle || !profileDir) throw new Error('Missing vehicle or profile');
 
     console.log(`[Engine] Posting single vehicle ${vehicle._id} with profile ${profileDir}`);
-    
+
     // Close existing browser if it's running (to switch profiles or ensure clean state)
     // Actually, we might want to keep it if it's the SAME profile, but checking that is complex.
     // For safety, let's close and reopen.
     if (this.browser) {
-        await this.browser.close();
-        this.browser = null;
+      await this.browser.close();
+      this.browser = null;
     }
 
     try {
-        await this.initBrowser(profileDir);
-        
-        await this.postVehicle(vehicle); // Reuse existing logic
-        
-        // Don't close immediately if we want to show the user? 
-        // But automations usually close. Let's close after a delay or just leave it open?
-        // User request: "open that browser profile". 
-        // If we close it, they can't see it. But `postVehicle` closes the page. 
-        // The browser instance is `this.browser`.
-        // `postVehicle` calls `page.close()`, not `browser.close()`.
-        
-        // However, `postVehicle` logic (line 215) closes the PAGE.
-        // The browser remains open in `this.browser`.
-        
-        // Let's leave the browser open for a bit or indefinitely?
-        // If we leave it open, subsequent calls might reuse it.
-        
+      await this.initBrowser(profileDir);
+
+      await this.postVehicle(vehicle); // Reuse existing logic
+
+      // Don't close immediately if we want to show the user? 
+      // But automations usually close. Let's close after a delay or just leave it open?
+      // User request: "open that browser profile". 
+      // If we close it, they can't see it. But `postVehicle` closes the page. 
+      // The browser instance is `this.browser`.
+      // `postVehicle` calls `page.close()`, not `browser.close()`.
+
+      // However, `postVehicle` logic (line 215) closes the PAGE.
+      // The browser remains open in `this.browser`.
+
+      // Let's leave the browser open for a bit or indefinitely?
+      // If we leave it open, subsequent calls might reuse it.
+
     } catch (error) {
-        console.error('[Engine] Single post failed:', error);
-        throw error;
+      console.error('[Engine] Single post failed:', error);
+      throw error;
     }
   }
 
@@ -290,7 +290,7 @@ class AutomationEngine extends EventEmitter {
 
     // Find Chrome executable
     const chromePath = this.findChrome();
-    
+
     if (!chromePath) {
       throw new Error('Chrome/Chromium not found. Please install Google Chrome.');
     }
@@ -311,7 +311,7 @@ class AutomationEngine extends EventEmitter {
     this.browser = await puppeteer.launch({
       headless: false, // Must be non-headless for extensions
       executablePath: chromePath,
-    const args = [
+      const args = [
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
         '--no-sandbox',
@@ -319,45 +319,45 @@ class AutomationEngine extends EventEmitter {
         '--disable-dev-shm-usage',
         '--disable-blink-features=AutomationControlled',
         '--window-size=1280,800'
-    ];
+      ];
 
-    if (profileDir) {
+      if(profileDir) {
         const userDataDir = path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data');
         args.push(`--user-data-dir=${userDataDir}`);
         args.push(`--profile-directory=${profileDir}`);
-    }
+      }
 
     this.browser = await puppeteer.launch({
-      headless: false, // Must be non-headless for extensions
-      executablePath: chromePath,
-      args: args,
-      defaultViewport: null,
-      userDataDir: profileDir ? path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data') : undefined
-    });
+        headless: false, // Must be non-headless for extensions
+        executablePath: chromePath,
+        args: args,
+        defaultViewport: null,
+        userDataDir: profileDir ? path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data') : undefined
+      });
 
-    console.log('Browser initialized successfully');
-  }
-
-  findChrome() {
-    const possiblePaths = [
-      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-      process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
-      'C:\\Program Files\\Chromium\\Application\\chrome.exe'
-    ];
-
-    for (const chromePath of possiblePaths) {
-      if (fs.existsSync(chromePath)) {
-        return chromePath;
-      }
+      console.log('Browser initialized successfully');
     }
 
+  findChrome() {
+      const possiblePaths = [
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        process.env.LOCALAPPDATA + '\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files\\Chromium\\Application\\chrome.exe'
+      ];
+
+      for(const chromePath of possiblePaths) {
+        if (fs.existsSync(chromePath)) {
+          return chromePath;
+        }
+      }
+
     return null;
-  }
+    }
 
   sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
 }
 
 module.exports = AutomationEngine;

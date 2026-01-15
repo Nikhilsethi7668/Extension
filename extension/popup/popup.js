@@ -3058,13 +3058,24 @@ async function processBatchImages() {
     const result = await response.json();
 
     if (result.success) {
-      // Update progress to 100%
-      updateLoaderProgress(imagesArray.length, imagesArray.length);
+      // Update progress using actual results
+      if (result.results && Array.isArray(result.results)) {
+        result.results.forEach((res, index) => {
+          const url = res.original;
+          if (res.success) {
+            updateLoaderStatus(url, 'success', 'Processed successfully');
+          } else {
+            updateLoaderStatus(url, 'error', `Failed: ${res.error || 'Unknown error'}`);
+          }
+        });
+      } else {
+        // Fallback if no results array (shouldn't happen with updated backend)
+        imagesArray.forEach((url) => {
+          updateLoaderStatus(url, 'success', 'Processed successfully');
+        });
+      }
 
-      // Update all statuses to success
-      imagesArray.forEach((url, index) => {
-        updateLoaderStatus(url, 'success', `Image ${index + 1} processed successfully`);
-      });
+      updateLoaderProgress(imagesArray.length, imagesArray.length);
 
       // Wait a moment to show completion
       await sleep(1000);

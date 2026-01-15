@@ -432,34 +432,34 @@
         console.log('Auto-clicking "Next" button...');
         await sleep(2000); // Wait for uploads to settle
         const nextClicked = await clickNextButton();
-        
+
         if (nextClicked) {
-           console.log('Next button clicked. Waiting for Publish button...');
-           await sleep(3000); // Wait for next page/step
-           
-           // Auto-Click PUBLISH
-           console.log('Auto-clicking "Publish" button...');
-           await clickPublishButton();
-           
-           // Report success for queue
-           if (postData.postingId) {
-               console.log('Reporting queue success...');
-               // Give it a moment to register the click
-               setTimeout(() => {
-                   chrome.runtime.sendMessage({
-                       action: 'posting_result',
-                       data: {
-                           postingId: postData.postingId,
-                           jobId: postData.jobId,
-                           vehicleId: postData._id || postData.vehicleId, // Pass vehicleId
-                           status: 'completed',
-                           listingUrl: window.location.href
-                       }
-                   });
-               }, 1000);
-           }
+          console.log('Next button clicked. Waiting for Publish button...');
+          await sleep(3000); // Wait for next page/step
+
+          // Auto-Click PUBLISH
+          console.log('Auto-clicking "Publish" button...');
+          await clickPublishButton();
+
+          // Report success for queue
+          if (postData.postingId) {
+            console.log('Reporting queue success...');
+            // Give it a moment to register the click
+            setTimeout(() => {
+              chrome.runtime.sendMessage({
+                action: 'posting_result',
+                data: {
+                  postingId: postData.postingId,
+                  jobId: postData.jobId,
+                  vehicleId: postData._id || postData.vehicleId, // Pass vehicleId
+                  status: 'completed',
+                  listingUrl: window.location.href
+                }
+              });
+            }, 1000);
+          }
         } else {
-           console.error('Could not find or click "Next" button');
+          console.error('Could not find or click "Next" button');
         }
       }
 
@@ -471,17 +471,17 @@
 
     } catch (error) {
       console.error('Auto-fill error:', error);
-      
+
       if (postData?.postingId) {
-          chrome.runtime.sendMessage({
-              action: 'posting_result',
-              data: {
-                  postingId: postData.postingId,
-                  jobId: postData.jobId,
-                  status: 'failed',
-                  error: error.message
-              }
-          });
+        chrome.runtime.sendMessage({
+          action: 'posting_result',
+          data: {
+            postingId: postData.postingId,
+            jobId: postData.jobId,
+            status: 'failed',
+            error: error.message
+          }
+        });
       }
     } finally {
       isFilling = false;
@@ -489,42 +489,42 @@
   }
 
   async function clickNextButton() {
-      // Try to find the Next button
-      const buttons = Array.from(document.querySelectorAll('[aria-label="Next"], button, [role="button"]'));
-      const nextBtn = buttons.find(b => {
-          const text = (b.innerText || b.textContent || '').toLowerCase().trim();
-          return text === 'next' || b.getAttribute('aria-label') === 'Next';
-      });
+    // Try to find the Next button
+    const buttons = Array.from(document.querySelectorAll('[aria-label="Next"], button, [role="button"]'));
+    const nextBtn = buttons.find(b => {
+      const text = (b.innerText || b.textContent || '').toLowerCase().trim();
+      return text === 'next' || b.getAttribute('aria-label') === 'Next';
+    });
 
-      if (nextBtn) {
-          console.log('Found Next button:', nextBtn);
-          nextBtn.scrollIntoView({ block: "center" });
-          await sleep(500);
-          nextBtn.click();
-          return true;
-      }
-      return false;
+    if (nextBtn) {
+      console.log('Found Next button:', nextBtn);
+      nextBtn.scrollIntoView({ block: "center" });
+      await sleep(500);
+      nextBtn.click();
+      return true;
+    }
+    return false;
   }
 
   async function clickPublishButton() {
-      // Try to find the Publish button
-      // Often checking for "Publish" or "Post"
-      const buttons = Array.from(document.querySelectorAll('[aria-label="Publish"], [aria-label="Post"], button, [role="button"]'));
-      const publishBtn = buttons.find(b => {
-          const text = (b.innerText || b.textContent || '').toLowerCase().trim();
-          return text === 'publish' || text === 'post';
-      });
+    // Try to find the Publish button
+    // Often checking for "Publish" or "Post"
+    const buttons = Array.from(document.querySelectorAll('[aria-label="Publish"], [aria-label="Post"], button, [role="button"]'));
+    const publishBtn = buttons.find(b => {
+      const text = (b.innerText || b.textContent || '').toLowerCase().trim();
+      return text === 'publish' || text === 'post';
+    });
 
-      if (publishBtn) {
-          console.log('Found Publish button:', publishBtn);
-          publishBtn.scrollIntoView({ block: "center" });
-          await sleep(500);
-          publishBtn.click();
-          return true;
-      } else {
-          console.log('Publish button not found yet.');
-          return false;
-      }
+    if (publishBtn) {
+      console.log('Found Publish button:', publishBtn);
+      publishBtn.scrollIntoView({ block: "center" });
+      await sleep(500);
+      publishBtn.click();
+      return true;
+    } else {
+      console.log('Publish button not found yet.');
+      return false;
+    }
   }
 
   // Monitor for Publish/Next button clicks
@@ -3934,18 +3934,23 @@
   // ============ Image Handling ============
 
   async function handleImages() {
-    if (!pendingPost.images || pendingPost.images.length === 0) return;
+    // Prioritize preparedImages (stealth) if available, otherwise use original images
+    const imagesToUse = (pendingPost.preparedImages && pendingPost.preparedImages.length > 0)
+      ? pendingPost.preparedImages
+      : pendingPost.images;
 
-    console.log(`Preparing to upload ${pendingPost.images.length} images`);
+    if (!imagesToUse || imagesToUse.length === 0) return;
+
+    console.log(`Preparing to upload ${imagesToUse.length} images (Source: ${pendingPost.preparedImages ? 'Stealth/Prepared' : 'Original'})`);
 
     // Find file input
     const fileInput = document.querySelector('input[type="file"][accept*="image"]');
 
     if (fileInput) {
       // Download and upload images
-      for (let i = 0; i < Math.min(pendingPost.images.length, 24); i++) {
+      for (let i = 0; i < Math.min(imagesToUse.length, 24); i++) {
         try {
-          const imageUrl = pendingPost.images[i];
+          const imageUrl = imagesToUse[i];
           await uploadImage(fileInput, imageUrl, i);
           await sleep(1000); // Wait between uploads
         } catch (error) {

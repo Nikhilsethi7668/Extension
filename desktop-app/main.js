@@ -30,7 +30,7 @@ function loadConfig() {
     if (fs.existsSync(CONFIG_PATH)) {
       const data = fs.readFileSync(CONFIG_PATH, 'utf8');
       const savedConfig = JSON.parse(data);
-      
+
       // Check if saved API URL matches default - if not, force reset
       if (savedConfig.apiUrl !== DEFAULT_CONFIG.apiUrl) {
         console.log('API URL changed, resetting config and session...');
@@ -38,7 +38,7 @@ function loadConfig() {
         fs.unlinkSync(CONFIG_PATH);
         return DEFAULT_CONFIG;
       }
-      
+
       return { ...DEFAULT_CONFIG, ...savedConfig };
     }
   } catch (error) {
@@ -127,7 +127,7 @@ function createWindow() {
     if (!isQuitting) {
       event.preventDefault();
       mainWindow.hide();
-      
+
       // Show notification on first minimize
       if (Notification.isSupported()) {
         new Notification({
@@ -148,11 +148,11 @@ function createWindow() {
 function createTray() {
   const iconPath = path.join(__dirname, 'assets', 'tray-icon.png');
   const trayIcon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
-  
+
   tray = new Tray(trayIcon);
-  
+
   updateTrayMenu();
-  
+
   tray.on('click', () => {
     if (mainWindow.isVisible()) {
       mainWindow.hide();
@@ -160,7 +160,7 @@ function createTray() {
       mainWindow.show();
     }
   });
-  
+
   tray.setToolTip('Flash Fender Auto-Poster');
 }
 
@@ -187,7 +187,7 @@ function updateTrayMenu() {
       }
     }
   ]);
-  
+
   tray.setContextMenu(contextMenu);
 }
 
@@ -198,15 +198,15 @@ function updateTrayMenu() {
 // Authentication handlers
 ipcMain.handle('validate-login', async (event, credentials) => {
   const axios = require('axios');
-  
+
   console.log('=== LOGIN VALIDATION ===');
   console.log('API URL:', credentials.apiUrl);
   console.log('API Key provided:', credentials.apiToken ? 'Yes' : 'No');
-  
+
   try {
     // Use the same endpoint as the extension: /auth/dashboard-api-login
     console.log('Testing connection to:', `${credentials.apiUrl}/auth/dashboard-api-login`);
-    
+
     const response = await axios.post(`${credentials.apiUrl}/auth/dashboard-api-login`, {
       apiKey: credentials.apiToken  // Send as apiKey in body, like the extension does
     }, {
@@ -215,16 +215,16 @@ ipcMain.handle('validate-login', async (event, credentials) => {
       },
       timeout: 5000
     });
-    
+
     console.log('Login successful! Response status:', response.status);
     console.log('Received JWT token:', response.data.token ? 'Yes' : 'No');
-    
+
     // If successful, save session and config with the JWT token
     const session = {
       isAuthenticated: true,
       loginTime: new Date().toISOString()
     };
-    
+
     const config = {
       apiUrl: credentials.apiUrl,
       apiToken: response.data.token,  // Store the JWT token, not the API key
@@ -233,24 +233,24 @@ ipcMain.handle('validate-login', async (event, credentials) => {
       autoStart: false,
       extensionPath: ''
     };
-    
+
     saveSession(session);
     saveConfig(config);
-    
+
     // Navigate to dashboard
     if (mainWindow) {
       mainWindow.loadFile('dashboard.html');
     }
-    
+
     return { success: true };
   } catch (error) {
     console.error('Login failed!');
     console.error('Error message:', error.message);
     console.error('Response status:', error.response?.status);
     console.error('Response data:', error.response?.data);
-    
-    return { 
-      success: false, 
+
+    return {
+      success: false,
       message: error.response?.data?.message || error.message || 'Invalid API key'
     };
   }
@@ -262,14 +262,14 @@ ipcMain.handle('check-auth', () => {
 
 ipcMain.handle('logout', () => {
   clearSession();
-  
+
   // Navigate to login page
-  
+
   // Navigate to login page
   if (mainWindow) {
     mainWindow.loadFile('login.html');
   }
-  
+
   return { success: true };
 });
 
@@ -296,7 +296,7 @@ ipcMain.handle('save-config', (event, config) => {
 ipcMain.handle('test-connection', async () => {
   const config = loadConfig();
   const axios = require('axios');
-  
+
   try {
     const response = await axios.get(`${config.apiUrl}/vehicles`, {
       headers: {
@@ -341,7 +341,7 @@ function getChromeProfiles() {
   try {
     const userDataPath = path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data');
     const localStatePath = path.join(userDataPath, 'Local State');
-    
+
     if (!fs.existsSync(localStatePath)) {
       console.error('Chrome Local State file not found');
       return [];
@@ -349,7 +349,7 @@ function getChromeProfiles() {
 
     const localState = JSON.parse(fs.readFileSync(localStatePath, 'utf8'));
     const profiles = localState.profile.info_cache;
-    
+
     const profileList = [];
     for (const [key, value] of Object.entries(profiles)) {
       profileList.push({
@@ -359,7 +359,7 @@ function getChromeProfiles() {
         avatar_icon: value.avatar_icon
       });
     }
-    
+
     return profileList;
   } catch (error) {
     console.error('Error getting Chrome profiles:', error);
@@ -387,7 +387,7 @@ function launchChromeProfile(profileDir) {
     // typical path for Windows
     const chromePath = path.join(process.env.ProgramFiles, 'Google', 'Chrome', 'Application', 'chrome.exe');
     const chromePath86 = path.join(process.env["ProgramFiles(x86)"], 'Google', 'Chrome', 'Application', 'chrome.exe');
-    
+
     let executable = chromePath;
     if (!fs.existsSync(executable)) {
       if (fs.existsSync(chromePath86)) {
@@ -401,17 +401,17 @@ function launchChromeProfile(profileDir) {
       detached: true,
       stdio: 'ignore'
     });
-    
+
     // Track the process
     launchedProfiles.set(profileDir, child);
 
     child.on('exit', (code) => {
-       console.log(`Profile ${profileDir} exited with code ${code}`);
-       launchedProfiles.delete(profileDir);
+      console.log(`Profile ${profileDir} exited with code ${code}`);
+      launchedProfiles.delete(profileDir);
     });
 
     child.unref(); // Allow the app to keep running independently
-    
+
     return { success: true };
   } catch (error) {
     console.error('Error launching Chrome:', error);
@@ -421,9 +421,9 @@ function launchChromeProfile(profileDir) {
 
 ipcMain.handle('launch-chrome-profile', (event, profileDir) => {
   try {
-      return launchChromeProfile(profileDir);
+    return launchChromeProfile(profileDir);
   } catch (error) {
-      return { success: false, message: error.message };
+    return { success: false, message: error.message };
   }
 });
 
@@ -439,7 +439,7 @@ ipcMain.handle('get-db-profiles', async () => {
       },
       timeout: 5000
     });
-    
+
     // Transform DB format to dashboard format if needed
     // DB: { uniqueId, name, ... } -> Dashboard: { id, name, ... }
     return response.data.map(p => ({
@@ -455,15 +455,15 @@ ipcMain.handle('get-db-profiles', async () => {
 });
 
 ipcMain.handle('force-sync-profiles', async () => {
-    await syncProfiles();
-    return { success: true };
+  await syncProfiles();
+  return { success: true };
 });
 
 // App lifecycle
 app.whenReady().then(() => {
   createWindow();
   createTray();
-  
+
   // Auto-start if configured
   const config = loadConfig();
   /* if (config.autoStart) {
@@ -490,20 +490,20 @@ app.on('activate', () => {
 function connectSocket() {
   const config = loadConfig();
   const session = loadSession();
-  
+
   if (!config.apiToken || !session || !session.isAuthenticated) return;
   if (socket && socket.connected) return;
 
   // Decode token to get org ID if needed, or just let server handle it via auth handshake?
   // Usually we pass token in auth option
-  
+
   // Extract user info from token (naive decoding or just let server handle it)
   // For joining room, we need to emit 'join-organization'. 
   // We can decode the JWT locally without verification just to get the payload if needed, 
   // OR we can make a request to /api/auth/me to get the user details first.
   // Actually, let's just connect and wait for connect event, then fetch user details or assume main process knows?
   // We don't have user details in session unfortunately, only isAuthenticated.
-  
+
   // Let's rely on the token being passed in auth
   socket = io(config.apiUrl.replace('/api', ''), { // Remove /api suffix for base URL
     withCredentials: true,
@@ -512,7 +512,7 @@ function connectSocket() {
     reconnectionDelay: 10000,
     reconnectionDelayMax: 10000,
     auth: {
-        clientType: 'desktop'
+      clientType: 'desktop'
     },
     extraHeaders: {
       'Authorization': `Bearer ${config.apiToken}`
@@ -522,80 +522,80 @@ function connectSocket() {
   socket.on('connect', () => {
     console.log('[Socket] Connected to server');
     if (mainWindow) {
-        mainWindow.webContents.send('socket-status', { connected: true });
+      mainWindow.webContents.send('socket-status', { connected: true });
     }
-    
+
     // We need to join the organization room.
     // Since we don't have the org ID readily available in config/session, 
     // we can either fetch it or just emit an event that the server uses `req.user` to handle.
     // The server code: `socket.on('join-organization', (orgId) => ...)`
     // We need the orgId.
-    
+
     // Quick fetch of user details to get Org ID
     // Quick fetch of user details to get Org ID
     const axios = require('axios');
     axios.get(`${config.apiUrl}/auth/validate-key`, {
-       headers: { 'Authorization': `Bearer ${config.apiToken}` }
+      headers: { 'Authorization': `Bearer ${config.apiToken}` }
     }).then(response => {
-       const user = response.data; // validate-key returns user object directly, not wrapped in data.data usually?
-       // Let's check auth.routes.js: res.json({ _id, ... }) -> yes, direct object.
-       // But axios response structure is data: { ...user }
-       // Wait, previous code used response.data.data?
-       // auth.routes.js: res.json({ ... })
-       // Axios: response.data = object
-       
-       const orgId = user.organization?._id || user.organization;
-       if (orgId) {
-           // Register as desktop client
-           socket.emit('register-client', { orgId, clientType: 'desktop' });
-           console.log(`[Socket] Registered as desktop client for org: ${orgId}`);
-       }
+      const user = response.data; // validate-key returns user object directly, not wrapped in data.data usually?
+      // Let's check auth.routes.js: res.json({ _id, ... }) -> yes, direct object.
+      // But axios response structure is data: { ...user }
+      // Wait, previous code used response.data.data?
+      // auth.routes.js: res.json({ ... })
+      // Axios: response.data = object
+
+      const orgId = user.organization?._id || user.organization;
+      if (orgId) {
+        // Register as desktop client
+        socket.emit('register-client', { orgId, clientType: 'desktop' });
+        console.log(`[Socket] Registered as desktop client for org: ${orgId}`);
+      }
     }).catch(err => console.error('[Socket] Failed to fetch user details for room join:', err.message));
   });
 
   socket.on('launch-browser-profile', async (data) => {
     console.log('[Socket] Received launch-browser-profile event:', data);
     const { profileId } = data;
-    
+
     if (!profileId) {
-        console.error('[Socket] Invalid profile data received');
-        return;
+      console.error('[Socket] Invalid profile data received');
+      return;
     }
 
     // Show notification
     if (Notification.isSupported()) {
-        new Notification({
-          title: 'Browser Launch Triggered',
-          body: `Opening Chrome Profile: ${profileId}`
-        }).show();
+      new Notification({
+        title: 'Browser Launch Triggered',
+        body: `Opening Chrome Profile: ${profileId}`
+      }).show();
     }
 
     try {
-        launchChromeProfile(profileId);
+      launchChromeProfile(profileId);
     } catch (error) {
-        console.error('[Socket] Launch failed:', error);
-        if (Notification.isSupported()) {
-            new Notification({
-              title: 'Launch Failed',
-              body: error.message
-            }).show();
-        }
+      console.error('[Socket] Launch failed:', error);
+      if (Notification.isSupported()) {
+        new Notification({
+          title: 'Launch Failed',
+          body: error.message
+        }).show();
+      }
     }
   });
 
   socket.on('disconnect', () => {
     console.log('[Socket] Disconnected');
     if (mainWindow) {
-        mainWindow.webContents.send('socket-status', { connected: false });
+      mainWindow.webContents.send('socket-status', { connected: false });
     }
   });
 }
 
 function disconnectSocket() {
-    if (socket) {
-        socket.disconnect();
-        socket = null;
-    }
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
 }
 
 // Profile Sync Logic
@@ -642,11 +642,11 @@ function stopSync() {
 
 // Hook into app lifecycle and auth
 const originalCreateWindow = createWindow;
-createWindow = function() {
-    originalCreateWindow();
-    if(isAuthenticated()) {
-        startSync();
-    }
+createWindow = function () {
+  originalCreateWindow();
+  if (isAuthenticated()) {
+    startSync();
+  }
 }
 
 // ... but wait, createWindow is called inside app.whenReady ... 
@@ -654,24 +654,24 @@ createWindow = function() {
 
 // Let's attach to where session is saved/cleared
 const originalSaveSession = saveSession;
-saveSession = function(session) {
-    const res = originalSaveSession(session);
-    if (session.isAuthenticated) {
-        startSync();
-    }
-    return res;
+saveSession = function (session) {
+  const res = originalSaveSession(session);
+  if (session.isAuthenticated) {
+    startSync();
+  }
+  return res;
 };
 
 const originalClearSession = clearSession;
-clearSession = function() {
-    const res = originalClearSession();
-    stopSync();
-    return res;
+clearSession = function () {
+  const res = originalClearSession();
+  stopSync();
+  return res;
 };
 
 // Also start on app ready if authenticated
 app.on('ready', () => {
-    if (isAuthenticated()) {
-        startSync();
-    }
+  if (isAuthenticated()) {
+    startSync();
+  }
 });

@@ -27,14 +27,14 @@ router.get('/clear-queues', protect, admin, async (req, res) => {
         // 1. Clear BullMQ Queue
         console.log('Draining BullMQ queue...');
         await postingQueue.drain();
-        
+
         // Force obliterate to ensure everything is gone (active, delayed, etc)
         await postingQueue.obliterate({ force: true });
         console.log('Queue obliterated.');
 
         // 2. Clear MongoDB Records
         console.log('Deleting ALL postings from MongoDB...');
-        const result = await Posting.deleteMany({}); 
+        const result = await Posting.deleteMany({});
         console.log(`Deleted ${result.deletedCount} postings.`);
 
         res.json({
@@ -1952,28 +1952,43 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
         }
 
         let processedCount = 0;
-        const results = [];
+        // const results = []; // Removed to avoid redeclaration
 
-        // Process sequentially to manage load
-        for (const imageUrl of images) {
+        // Process in parallel for speed
+        // Map images to array of promises
+        const editPromises = images.map(async (imageUrl) => {
             try {
                 // processImageWithGemini handles promptId lookup if provided
                 const aiResult = await processImageWithGemini(imageUrl, prompt, promptId);
-                const processedImageUrl = aiResult.processedUrl;
-
-                // Update vehicle images
-                const imageIndex = vehicle.images.indexOf(imageUrl);
-                if (imageIndex > -1) {
-                    vehicle.images[imageIndex] = processedImageUrl;
-                } else {
-                    vehicle.images.push(processedImageUrl);
-                }
-
-                processedCount++;
-                results.push({ success: true, original: imageUrl, processed: processedImageUrl });
+                return {
+                    success: true,
+                    original: imageUrl,
+                    processed: aiResult.processedUrl
+                };
             } catch (err) {
                 console.error(`Batch processing failed for image ${imageUrl}:`, err);
-                results.push({ success: false, original: imageUrl, error: err.message });
+                return {
+                    success: false,
+                    original: imageUrl,
+                    error: err.message
+                };
+            }
+        });
+
+        // specific concurrency limit could be added here (e.g., p-limit) if needed, 
+        // but for <10-20 images, Promise.all is fine.
+        const results = await Promise.all(editPromises);
+
+        // Update Vehicle with results
+        for (const res of results) {
+            if (res.success) {
+                const imageIndex = vehicle.images.indexOf(res.original);
+                if (imageIndex > -1) {
+                    vehicle.images[imageIndex] = res.processed;
+                } else {
+                    vehicle.images.push(res.processed);
+                }
+                processedCount++;
             }
         }
 
@@ -2023,8 +2038,12 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
 // @desc    Queue multiple vehicles for posting
 // @route   POST /api/vehicles/queue-posting
 // @access  Protected
+// @desc    Queue multiple vehicles for posting with scheduling options
+// @route   POST /api/vehicles/queue-posting
+// @access  Protected
 router.post('/queue-posting', protect, async (req, res) => {
-    const { vehicleIds, profileId } = req.body;
+    const { vehicleIds, profileId, schedule } = req.body;
+    // schedule: { intervalMinutes: number, randomize: boolean, stealth: boolean }
 
     if (!vehicleIds || !Array.isArray(vehicleIds) || vehicleIds.length === 0) {
         return res.status(400).json({ message: 'No vehicle IDs provided' });
@@ -2035,21 +2054,89 @@ router.post('/queue-posting', protect, async (req, res) => {
         const orgId = req.user.organization._id || req.user.organization;
         const results = { queued: 0, skipped: 0 };
 
-        // Create Jobs directly (Ephemeral)
-        for (const vehicleId of vehicleIds) {
-            // Add to BullMQ directly
+        // Default scheduler settings
+        const intervalMinutes = schedule?.intervalMinutes || 15; // default 15 mins
+        const randomize = schedule?.randomize !== false; // default true
+        const useStealth = schedule?.stealth === true;
+
+        console.log(`[Queue] Scheduling ${vehicleIds.length} vehicles. Interval: ${intervalMinutes}m, Random: ${randomize}, Stealth: ${useStealth}`);
+
+        // Create Posting records and Jobs
+        for (let i = 0; i < vehicleIds.length; i++) {
+            const vehicleId = vehicleIds[i];
+
+            // Check if already processing (strict skip)
+            const activePosting = await Posting.findOne({
+                vehicleId,
+                status: 'processing'
+            });
+
+            if (activePosting) {
+                console.log(`Skipping vehicle ${vehicleId}, currently processing`);
+                results.skipped++;
+                continue;
+            }
+
+            // Calculate Delay
+            let delayMs = 0;
+            if (intervalMinutes > 0) {
+                // Base delay
+                delayMs = i * intervalMinutes * 60 * 1000;
+
+                // Add randomization (±20% variance) if requested, but preserve order roughly
+                // actually, just adding explicit random padding (0-5 mins) is safer for "human-like"
+                if (randomize && i > 0) {
+                    const variance = Math.floor(Math.random() * 300000); // 0-5 mins
+                    delayMs += variance;
+                }
+            }
+
+            // Check if active in queue (we will update/restart it)
+            let posting = await Posting.findOne({
+                vehicleId,
+                status: 'queued'
+            });
+
+            if (posting) {
+                // Update existing queued posting
+                posting.profileId = profileId || null;
+                posting.logs.push({ message: `Re-queued by user ${req.user._id}`, timestamp: new Date() });
+                posting.schedulerOptions = {
+                    delay: Math.round(delayMs / 60000), // store in minutes
+                    stealth: useStealth
+                };
+                await posting.save();
+            } else {
+                // Create new posting
+                posting = await Posting.create({
+                    vehicleId,
+                    userId: req.user._id,
+                    orgId: orgId,
+                    profileId: profileId || null,
+                    status: 'queued',
+                    schedulerOptions: {
+                        delay: Math.round(delayMs / 60000), // minutes
+                        stealth: useStealth
+                    },
+                    logs: [{ message: `Queued by user ${req.user._id}`, timestamp: new Date() }]
+                });
+            }
+
+            // Add to BullMQ
             const job = await postingQueue.add('post-vehicle', {
                 // postingId is now just a placeholder or job.id since we don't have a DB record
-                postingId: `ephemeral_${Date.now()}_${vehicleId}`, 
+                postingId: `ephemeral_${Date.now()}_${vehicleId}`,
                 vehicleId,
                 userId: req.user._id,
                 orgId: orgId,
-                profileId: profileId // Pass to worker
+                profileId: profileId,
+                stealth: useStealth // Pass stealth flag to worker
             }, {
-                attempts: 50, // Retry many times (since we wait for user availability)
+                delay: delayMs, // BullMQ handles the delay
+                attempts: 50,
                 backoff: {
                     type: 'fixed',
-                    delay: 10000 // Check every 10 seconds
+                    delay: 10000
                 },
                 removeOnComplete: true,
                 removeOnFail: true
@@ -2058,12 +2145,12 @@ router.post('/queue-posting', protect, async (req, res) => {
             // We can't easily check for duplicates without DB, 
             // but we could check queue.getJobs() if really needed. 
             // For now, we trust the user or just let it queue.
-            
+
             jobs.push({ id: job.id, vehicleId, status: 'queued' });
             results.queued++;
         }
 
-        res.json({ success: true, count: jobs.length, message: `Queued ${jobs.length} vehicles` });
+        res.json({ success: true, count: jobs.length, message: `Queued ${jobs.length} vehicles`, results });
     } catch (error) {
         console.error('Queue error:', error);
         res.status(500).json({ message: 'Failed to queue vehicles' });
@@ -2079,7 +2166,7 @@ router.post('/posting-result', async (req, res) => {
     // For now, let's allow basic API Key check if 'protect' fails or just manual check.
     // The extension usually sends x-api-key, so we might need a custom middleware here or logic.
     // Let's assume the extension uses the standard fetch with correct headers.
-    
+
     // Simplification: Check for API Key in header if user not in req
     const apiKey = req.headers['x-api-key'];
     let user = req.user;
@@ -2090,15 +2177,40 @@ router.post('/posting-result', async (req, res) => {
         // Ephemeral Queue Logic: Signal the worker directly
         // Dynamic import to avoid circular dependency
         const { jobEvents } = await import('../workers/posting.worker.js');
-        
-        jobEvents.emit('job-completed', { 
+
+        jobEvents.emit('job-completed', {
             jobId: jobId || postingId, // Use whatever ID the extension sent back
             success: status === 'success',
             error: error,
             listingUrl: listingUrl
         });
 
-        res.json({ success: true, message: 'Result received' });
+        if (status === 'success') {
+            posting.status = 'completed';
+            posting.completedAt = new Date();
+
+            // Also update Vehicle status
+            const vehicle = await Vehicle.findById(posting.vehicleId);
+            if (vehicle) {
+                vehicle.status = 'posted';
+                if (!vehicle.postingHistory) vehicle.postingHistory = [];
+                vehicle.postingHistory.push({
+                    platform: 'facebook',
+                    listingUrl: listingUrl,
+                    timestamp: new Date(),
+                    status: 'active',
+                    user: posting.userId
+                });
+                await vehicle.save();
+            }
+        } else {
+            posting.status = 'failed';
+            posting.error = error || 'Unknown error';
+            posting.completedAt = new Date();
+        }
+
+        await posting.save();
+        res.json({ success: true });
     } catch (err) {
         console.error('Posting result error:', err);
         res.status(500).json({ message: err.message });

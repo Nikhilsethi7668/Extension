@@ -38,6 +38,14 @@ const postingSchema = new mongoose.Schema({
     error: {
         type: String
     },
+    schedulerOptions: {
+        delay: { type: Number, default: 0 }, // Delay in minutes
+        stealth: { type: Boolean, default: false }
+    },
+    variationData: {
+        preparedImages: [String], // Specific stealth images used for this job
+        metadata: Object // Store camera/GPS used
+    },
     logs: [{
         message: String,
         timestamp: { type: Date, default: Date.now }

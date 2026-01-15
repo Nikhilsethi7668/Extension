@@ -111,11 +111,11 @@ initWorker(io);
 io.on('connection', (socket) => {
     const clientType = socket.handshake.auth.clientType || socket.handshake.query.clientType || 'unknown';
     console.log(`[Socket.IO] Client connected: ${socket.id} (Type: ${clientType})`);
-    
+
     // Register client type and join specific rooms
     socket.on('register-client', (data) => {
         const { orgId, clientType } = data; // clientType: 'dashboard' | 'desktop' | 'extension'
-        
+
         if (!orgId) return;
 
         // Join generic organization room (for broadcasts)
@@ -139,7 +139,7 @@ io.on('connection', (socket) => {
     socket.on('request-posting', async (data) => {
         console.log(`[Socket] Received request-posting from ${socket.id}:`, data);
         const { vehicleId, profileId } = data;
-        
+
         if (!vehicleId || !profileId) return;
 
         // Find the organization this socket belongs to
@@ -147,43 +147,43 @@ io.on('connection', (socket) => {
         // Or we just parse one.
         const rooms = Array.from(socket.rooms);
         const orgRoom = rooms.find(r => r.startsWith('org:') && r.split(':').length === 2);
-        
-        if (!orgRoom) { 
-             console.error('[Socket] Sender not in an org room');
-             return;
+
+        if (!orgRoom) {
+            console.error('[Socket] Sender not in an org room');
+            return;
         }
 
         const orgId = orgRoom.split(':')[1];
         const desktopRoom = `org:${orgId}:desktop`;
         const extensionRoom = `org:${orgId}:extension`;
-        
+
         // Fetch vehicle details
         try {
             const Vehicle = (await import('./models/Vehicle.js')).default;
             const vehicle = await Vehicle.findById(vehicleId);
-            
-            if (vehicle) {
-                 console.log(`[Socket] Orchestrating posting flow for vehicle ${vehicle.stockNumber || vehicle._id}`);
-                 
-                 // Step 1: Launch Browser (Desktop App)
-                 console.log(`[Socket] Step 1: Requesting browser launch for profile ${profileId} in room ${desktopRoom}`);
-                 io.to(desktopRoom).emit('launch-browser-profile', { 
-                     profileId: profileId
-                 });
 
-                 // Step 2: Wait for browser to open and extension to connect
-                 const DELAY_MS = 15000; // 15 seconds wait for browser launch
-                 console.log(`[Socket] Step 2: Waiting ${DELAY_MS}ms for extension to be ready...`);
-                 
-                 setTimeout(() => {
-                     // Step 3: Trigger Posting (Extension)
-                     // We send to the extension-specific room
-                     console.log(`[Socket] Step 3: Triggering posting on extension in room ${extensionRoom}`);
-                     io.to(extensionRoom).emit('start-posting-vehicle', { 
-                         vehicleId: vehicle._id,
-                         vehicleData: vehicle
-                     });
-                 }, DELAY_MS);
+            if (vehicle) {
+                console.log(`[Socket] Orchestrating posting flow for vehicle ${vehicle.stockNumber || vehicle._id}`);
+
+                // Step 1: Launch Browser (Desktop App)
+                console.log(`[Socket] Step 1: Requesting browser launch for profile ${profileId} in room ${desktopRoom}`);
+                io.to(desktopRoom).emit('launch-browser-profile', {
+                    profileId: profileId
+                });
+
+                // Step 2: Wait for browser to open and extension to connect
+                const DELAY_MS = 15000; // 15 seconds wait for browser launch
+                console.log(`[Socket] Step 2: Waiting ${DELAY_MS}ms for extension to be ready...`);
+
+                setTimeout(() => {
+                    // Step 3: Trigger Posting (Extension)
+                    // We send to the extension-specific room
+                    console.log(`[Socket] Step 3: Triggering posting on extension in room ${extensionRoom}`);
+                    io.to(extensionRoom).emit('start-posting-vehicle', {
+                        vehicleId: vehicle._id,
+                        vehicleData: vehicle
+                    });
+                }, DELAY_MS);
             }
         } catch (error) {
             console.error('[Socket] Error fetching vehicle for posting:', error);
@@ -214,7 +214,7 @@ io.on('connection', (socket) => {
              });
         });
     });
-    
+
     socket.on('disconnect', () => {
         console.log(`[Socket.IO] Client disconnected: ${socket.id}`);
     });

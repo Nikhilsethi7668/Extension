@@ -62,6 +62,16 @@ const Inventory = () => {
     });
     const [progressDialogOpen, setProgressDialogOpen] = useState(false);
 
+    // AI Edit & Queue State
+    const [selectedDetailImages, setSelectedDetailImages] = useState([]);
+    const [aiEditDialogOpen, setAiEditDialogOpen] = useState(false);
+    const [queueDialogOpen, setQueueDialogOpen] = useState(false);
+    const [prompts, setPrompts] = useState([]);
+    const [selectedPromptId, setSelectedPromptId] = useState('');
+    const [customPrompt, setCustomPrompt] = useState('');
+    const [queueSchedule, setQueueSchedule] = useState({ intervalMinutes: 15, randomize: true, stealth: true });
+    const [processingAi, setProcessingAi] = useState(false);
+
     useEffect(() => {
         const userStr = localStorage.getItem('user');
         if (userStr) {
@@ -290,13 +300,13 @@ const Inventory = () => {
             message: 'Initializing scrape...',
             status: 'scraping'
         });
-        
+
         try {
             const urls = scrapeUrl.split('\n').filter(u => u.trim());
             if (urls.length === 0) return;
             const limit = parseInt(maxVehicles) || null;
             const { data } = await apiClient.post('/vehicles/scrape-bulk', { urls, limit });
-            
+
             // Final update will come via socket, but handle edge case
             if (!scrapingProgress.active || scrapingProgress.status !== 'complete') {
                 setScrapingProgress(prev => ({
@@ -306,7 +316,7 @@ const Inventory = () => {
                     message: `Import complete! ${data.success} succeeded, ${data.failed} failed.`
                 }));
             }
-            
+
             setOpen(false);
             setScrapeUrl('');
             setMaxVehicles('');
@@ -319,6 +329,77 @@ const Inventory = () => {
                 status: 'error',
                 message: 'Scraping process failed: ' + (err.response?.data?.message || err.message)
             }));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // AI Edit Handlers
+    const handleOpenAiDialog = async () => {
+        if (selectedDetailImages.length === 0) return alert('Select at least one image first.');
+        setProcessingAi(true);
+        try {
+            const { data } = await apiClient.get(`/vehicles/${selectedVehicle._id}/recommend-prompts`);
+            setPrompts(data || []);
+            setAiEditDialogOpen(true);
+        } catch (error) {
+            console.error(error);
+            alert('Failed to load prompts');
+        } finally {
+            setProcessingAi(false);
+        }
+    };
+
+    const handleAiEditSubmit = async () => {
+        if (!selectedPromptId && !customPrompt) return alert('Select a prompt or enter a custom one.');
+        setProcessingAi(true);
+        try {
+            const { data } = await apiClient.post(`/vehicles/${selectedVehicle._id}/batch-edit-images`, {
+                images: selectedDetailImages,
+                promptId: selectedPromptId || undefined,
+                prompt: customPrompt || undefined
+            });
+
+            alert(`Processed ${data.processedCount} images successfully!`);
+
+            // Refresh Vehicle
+            const updatedVehicle = await apiClient.get(`/vehicles/${selectedVehicle._id}`);
+            setSelectedVehicle(updatedVehicle.data);
+            fetchVehicles(); // update list too
+
+            setAiEditDialogOpen(false);
+            setSelectedDetailImages([]); // Clear selection
+            setCustomPrompt('');
+            setSelectedPromptId('');
+        } catch (error) {
+            console.error(error);
+            alert('AI Edit failed: ' + (error.response?.data?.message || error.message));
+        } finally {
+            setProcessingAi(false);
+        }
+    };
+
+    // Queue Handler (Detail View)
+    const handleOpenQueueDialog = () => {
+        fetchChromeProfiles();
+        setQueueDialogOpen(true);
+    };
+
+    const handleQueueSubmit = async () => {
+        if (!selectedProfileId) return alert('Select a profile');
+        setLoading(true);
+        try {
+            await apiClient.post('/vehicles/queue-posting', {
+                vehicleIds: [selectedVehicle._id],
+                profileId: selectedProfileId,
+                schedule: queueSchedule
+            });
+            alert('Vehicle queued successfully!');
+            setQueueDialogOpen(false);
+            fetchVehicles();
+        } catch (error) {
+            console.error(error);
+            alert('Queue failed: ' + (error.response?.data?.message || error.message));
         } finally {
             setLoading(false);
         }
@@ -478,9 +559,9 @@ const Inventory = () => {
     const confirmBulkPost = async () => {
         setLoading(true);
         try {
-            const { data } = await apiClient.post('/vehicles/queue-posting', { 
+            const { data } = await apiClient.post('/vehicles/queue-posting', {
                 vehicleIds: selectedIds,
-                profileId: selectedProfileId 
+                profileId: selectedProfileId
             });
             alert(data.message);
             setSelectedIds([]);
@@ -526,7 +607,7 @@ const Inventory = () => {
                         return (
                             <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: 'primary.dark', color: 'white', px: 2, mr: 2, borderRadius: 1, height: 40, gap: 1 }}>
                                 <Typography variant="body2" sx={{ mr: 1 }}>{selectedIds.length} Selected</Typography>
-                                
+
                                 <Button
                                     size="small"
                                     variant="contained"
@@ -721,7 +802,7 @@ const Inventory = () => {
                                                     <Eye size={18} />
                                                 </IconButton>
                                             </Tooltip>
-                                            
+
                                             {v.status !== 'sold' ? (
                                                 <Tooltip title="Mark as Sold">
                                                     <IconButton
@@ -910,32 +991,85 @@ const Inventory = () => {
                             </Box>
                         </DialogTitle>
                         <DialogContent dividers>
-                            {/* Filter Control */}
+                            {/* Filter Control & Actions */}
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                                <Typography variant="subtitle1" fontWeight={600}>Vehicle Images</Typography>
-                                <FormControl size="small" sx={{ minWidth: 150 }}>
-                                    <Select
-                                        value={imageFilter}
-                                        onChange={(e) => setImageFilter(e.target.value)}
-                                        displayEmpty
+                                <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                                    <Typography variant="subtitle1" fontWeight={600}>Vehicle Images</Typography>
+                                    <FormControl size="small" sx={{ minWidth: 150 }}>
+                                        <Select
+                                            value={imageFilter}
+                                            onChange={(e) => setImageFilter(e.target.value)}
+                                            displayEmpty
+                                        >
+                                            <MenuItem value="all">All Images</MenuItem>
+                                            <MenuItem value="original">Original Only</MenuItem>
+                                            <MenuItem value="ai">AI Generated</MenuItem>
+                                        </Select>
+                                    </FormControl>
+                                </Box>
+                                <Box sx={{ display: 'flex', gap: 1 }}>
+                                    {selectedDetailImages.length > 0 && (
+                                        <Button
+                                            variant="contained"
+                                            color="secondary"
+                                            size="small"
+                                            startIcon={<Zap size={16} />}
+                                            onClick={handleOpenAiDialog}
+                                        >
+                                            AI Edit ({selectedDetailImages.length})
+                                        </Button>
+                                    )}
+                                    <Button
+                                        variant="contained"
+                                        color="primary"
+                                        size="small"
+                                        startIcon={<ExternalLink size={16} />}
+                                        onClick={handleOpenQueueDialog}
                                     >
-                                        <MenuItem value="all">All Images</MenuItem>
-                                        <MenuItem value="original">Original Only</MenuItem>
-                                        <MenuItem value="ai">AI Generated</MenuItem>
-                                    </Select>
-                                </FormControl>
+                                        Queue Post
+                                    </Button>
+                                </Box>
                             </Box>
 
                             {/* Images Grid */}
                             <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', pb: 2, mb: 2 }}>
                                 {getFilteredImages().length > 0 ? (
                                     getFilteredImages().map((img, idx) => (
-                                        <Box key={idx} sx={{ position: 'relative', flexShrink: 0, width: 200, height: 150, borderRadius: 2, overflow: 'hidden', group: 'group' }}>
+                                        <Box key={idx} sx={{ position: 'relative', flexShrink: 0, width: 200, height: 150, borderRadius: 2, overflow: 'hidden', group: 'group', border: selectedDetailImages.includes(img.url) ? '2px solid #2196f3' : '1px solid #ddd' }}>
                                             <img
                                                 src={img.url}
                                                 alt=""
                                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                onClick={() => {
+                                                    if (selectedDetailImages.includes(img.url)) {
+                                                        setSelectedDetailImages(prev => prev.filter(u => u !== img.url));
+                                                    } else {
+                                                        setSelectedDetailImages(prev => [...prev, img.url]);
+                                                    }
+                                                }}
                                             />
+                                            {/* Selection Checkbox (Visual) */}
+                                            <Box sx={{ position: 'absolute', top: 5, right: 5, zIndex: 2 }}>
+                                                <Checkbox
+                                                    checked={selectedDetailImages.includes(img.url)}
+                                                    onChange={(e) => {
+                                                        e.stopPropagation();
+                                                        if (selectedDetailImages.includes(img.url)) {
+                                                            setSelectedDetailImages(prev => prev.filter(u => u !== img.url));
+                                                        } else {
+                                                            setSelectedDetailImages(prev => [...prev, img.url]);
+                                                        }
+                                                    }}
+                                                    sx={{
+                                                        color: 'white',
+                                                        '&.Mui-checked': { color: '#2196f3' },
+                                                        bgcolor: 'rgba(0,0,0,0.5)',
+                                                        borderRadius: '50%',
+                                                        p: 0.5
+                                                    }}
+                                                />
+                                            </Box>
+
                                             {/* Badge for AI images */}
                                             {img.type === 'ai' && (
                                                 <Chip
@@ -1226,10 +1360,10 @@ const Inventory = () => {
             </Dialog>
 
             {/* Progress Dialog */}
-            <Dialog 
-                open={progressDialogOpen} 
+            <Dialog
+                open={progressDialogOpen}
                 onClose={() => scrapingProgress.status === 'complete' && setProgressDialogOpen(false)}
-                maxWidth="sm" 
+                maxWidth="sm"
                 fullWidth
                 disableEscapeKeyDown={scrapingProgress.active}
             >
@@ -1263,10 +1397,10 @@ const Inventory = () => {
                                     {scrapingProgress.scraped} / {scrapingProgress.total}
                                 </Typography>
                             </Box>
-                            <LinearProgress 
-                                variant="determinate" 
-                                value={scrapingProgress.total > 0 
-                                    ? (scrapingProgress.scraped / scrapingProgress.total) * 100 
+                            <LinearProgress
+                                variant="determinate"
+                                value={scrapingProgress.total > 0
+                                    ? (scrapingProgress.scraped / scrapingProgress.total) * 100
                                     : 0}
                                 sx={{ height: 6, borderRadius: 3 }}
                             />
@@ -1282,11 +1416,11 @@ const Inventory = () => {
                                     {scrapingProgress.prepared} / {scrapingProgress.total}
                                 </Typography>
                             </Box>
-                            <LinearProgress 
-                                variant="determinate" 
+                            <LinearProgress
+                                variant="determinate"
                                 color="secondary"
-                                value={scrapingProgress.total > 0 
-                                    ? (scrapingProgress.prepared / scrapingProgress.total) * 100 
+                                value={scrapingProgress.total > 0
+                                    ? (scrapingProgress.prepared / scrapingProgress.total) * 100
                                     : 0}
                                 sx={{ height: 6, borderRadius: 3 }}
                             />
@@ -1294,13 +1428,13 @@ const Inventory = () => {
                     </Box>
 
                     <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-                        <Chip 
+                        <Chip
                             label={`✓ Success: ${scrapingProgress.success}`}
                             color="success"
                             size="small"
                             variant="outlined"
                         />
-                        <Chip 
+                        <Chip
                             label={`✗ Failed: ${scrapingProgress.failed}`}
                             color="error"
                             size="small"
@@ -1309,10 +1443,10 @@ const Inventory = () => {
                     </Box>
 
                     {scrapingProgress.message && (
-                        <Alert 
+                        <Alert
                             severity={
                                 scrapingProgress.status === 'complete' ? 'success' :
-                                scrapingProgress.status === 'error' ? 'error' : 'info'
+                                    scrapingProgress.status === 'error' ? 'error' : 'info'
                             }
                             sx={{ wordBreak: 'break-word' }}
                         >
@@ -1325,8 +1459,8 @@ const Inventory = () => {
                             <Typography variant="caption" color="text.secondary" display="block">
                                 Current URL:
                             </Typography>
-                            <Typography variant="body2" sx={{ 
-                                fontFamily: 'monospace', 
+                            <Typography variant="body2" sx={{
+                                fontFamily: 'monospace',
                                 fontSize: '0.75rem',
                                 wordBreak: 'break-all',
                                 mt: 0.5
@@ -1337,7 +1471,7 @@ const Inventory = () => {
                     )}
                 </DialogContent>
                 <DialogActions>
-                    <Button 
+                    <Button
                         onClick={() => setProgressDialogOpen(false)}
                         disabled={scrapingProgress.active}
                     >
@@ -1345,7 +1479,143 @@ const Inventory = () => {
                     </Button>
                 </DialogActions>
             </Dialog>
-        </Layout>
+
+            {/* AI Edit Dialog */}
+            <Dialog open={aiEditDialogOpen} onClose={() => setAiEditDialogOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>AI Image Editor ({selectedDetailImages.length} images)</DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                        Select a prompt to apply to your selected images. Processing happens in parallel.
+                    </Typography>
+
+                    <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <FormControl fullWidth size="small">
+                            <InputLabel>Recommended Prompts</InputLabel>
+                            <Select
+                                value={selectedPromptId}
+                                label="Recommended Prompts"
+                                onChange={(e) => {
+                                    setSelectedPromptId(e.target.value);
+                                    setCustomPrompt('');
+                                }}
+                            >
+                                <MenuItem value="">-- Select a Prompt --</MenuItem>
+                                {prompts.map((p) => (
+                                    <MenuItem key={p._id} value={p._id}>
+                                        <Box>
+                                            <Typography variant="body2" fontWeight={600}>{p.title}</Typography>
+                                            <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', maxWidth: 400 }}>
+                                                {p.prompt}
+                                            </Typography>
+                                        </Box>
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+
+                        <TextField
+                            label="Or Custom Prompt"
+                            multiline
+                            rows={3}
+                            value={customPrompt}
+                            onChange={(e) => {
+                                setCustomPrompt(e.target.value);
+                                setSelectedPromptId('');
+                            }}
+                            placeholder="e.g. Enhance lighting and remove background clutter..."
+                            fullWidth
+                            variant="outlined"
+                        />
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setAiEditDialogOpen(false)}>Cancel</Button>
+                    <Button
+                        onClick={handleAiEditSubmit}
+                        variant="contained"
+                        color="secondary"
+                        disabled={processingAi || (!selectedPromptId && !customPrompt)}
+                        startIcon={processingAi ? <Loader className="animate-spin" size={16} /> : <Zap size={16} />}
+                    >
+                        {processingAi ? 'Processing...' : 'Apply AI Edit'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Queue Post Dialog */}
+            <Dialog open={queueDialogOpen} onClose={() => setQueueDialogOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>Queue Post</DialogTitle>
+                <DialogContent>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+                        <FormControl fullWidth size="small">
+                            <InputLabel>Chrome Profile</InputLabel>
+                            <Select
+                                value={selectedProfileId}
+                                label="Chrome Profile"
+                                onChange={(e) => setSelectedProfileId(e.target.value)}
+                            >
+                                {chromeProfiles.map((p) => (
+                                    <MenuItem key={p.uniqueId} value={p.uniqueId}>
+                                        {p.name}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+
+                        <Box sx={{ bgcolor: 'background.paper', p: 2, borderRadius: 1, border: '1px solid #eee' }}>
+                            <Typography variant="subtitle2" gutterBottom>Scheduler Options</Typography>
+
+                            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 2 }}>
+                                <TextField
+                                    label="Delay (Minutes)"
+                                    type="number"
+                                    size="small"
+                                    value={queueSchedule.intervalMinutes}
+                                    onChange={(e) => setQueueSchedule({ ...queueSchedule, intervalMinutes: parseInt(e.target.value) || 0 })}
+                                />
+                                <FormControlLabel
+                                    control={
+                                        <Checkbox
+                                            checked={queueSchedule.randomize}
+                                            onChange={(e) => setQueueSchedule({ ...queueSchedule, randomize: e.target.checked })}
+                                        />
+                                    }
+                                    label="Randomize Delay"
+                                />
+                            </Box>
+
+                            <FormControlLabel
+                                control={
+                                    <Checkbox
+                                        checked={queueSchedule.stealth}
+                                        onChange={(e) => setQueueSchedule({ ...queueSchedule, stealth: e.target.checked })}
+                                    />
+                                }
+                                label={
+                                    <Box>
+                                        <Typography variant="body2" fontWeight={600}>Enable Stealth Mode</Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            Generates unique images for this post to avoid detection.
+                                        </Typography>
+                                    </Box>
+                                }
+                            />
+                        </Box>
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setQueueDialogOpen(false)}>Cancel</Button>
+                    <Button
+                        onClick={handleQueueSubmit}
+                        variant="contained"
+                        color="primary"
+                        disabled={loading || !selectedProfileId}
+                    >
+                        {loading ? 'Queueing...' : 'Add to Queue'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+        </Layout >
     );
 };
 
