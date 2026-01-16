@@ -21,10 +21,27 @@ const postingSchema = new mongoose.Schema({
         required: false, // Optional for now, but used if selected
         default: null
     },
+    selectedImages: {
+        type: [String],
+        default: []
+    },
+    prompt: {
+        type: String,
+        required: false
+    },
+    customDescription: {
+        type: String,
+        required: false
+    },
+    scheduledTime: {
+        type: Date,
+        default: Date.now,
+        index: true
+    },
     status: {
         type: String,
-        enum: ['queued', 'processing', 'completed', 'failed', 'timeout'],
-        default: 'queued'
+        enum: ['scheduled', 'completed', 'failed', 'timeout'],
+        default: 'scheduled'
     },
     jobId: {
         type: String // BullMQ Job ID

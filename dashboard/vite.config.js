@@ -9,7 +9,7 @@ export default defineConfig({
     port: 3682,
     proxy: {
       '/api': {
-        target: 'http://localhost:5573',
+        target: 'https://api-flash.adaptusgroup.ca',
         changeOrigin: true,
       }
     }

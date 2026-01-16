@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
+dotenv.config();
 import { saveImageLocally } from './storage.service.js';
 import axios from 'axios';
 import path from 'path';
@@ -8,14 +9,26 @@ import { fileURLToPath } from 'url';
 // FORCE HARDCODE KEY (User Request due to env issues)
 process.env.FAL_KEY = '1e80787c-9a39-4f09-9eac-d89f349f5a1e:9f8d078dce42d7c391b0891bb3bf011a';
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+// Remove top-level initialization to prevent early access issues
+// const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 export const generateVehicleContent = async (vehicle, instructions, sentiment = 'professional') => {
     try {
+        const apiKey = 'AIzaSyCNe8gV19UPL7uRvWlLGz-yb3twgALcsZQ';
+        if (!apiKey) {
+            console.error('[AI Service] GEMINI_API_KEY is missing from environment variables!');
+            throw new Error('GEMINI_API_KEY is not set');
+        }
+
+        // Lazy Initialization
+        const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
         const prompt = `
       Act as a professional vehicle salesperson.
+      You are an expert car salesman copywriting assistant. 
+      I need you to write a catchy title and a detailed, selling description for a vehicle listing on Facebook Marketplace.
+      REQUIRED: The description MUST include 3-4 relevant emojis to make it engaging.
       Write a compelling Facebook Marketplace listing for the following vehicle:
       Year: ${vehicle.year || ''}
       Make: ${vehicle.make || ''}
@@ -178,8 +191,8 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
         console.log(`[AI Service] Mask URL: ${maskUrl}`);
 
         // 4. CALL FAL.AI
-        // Switching to 'fal-ai/flux-general/inpainting' for better control over preservation.
-        const falResult = await subscribe('fal-ai/flux-general/inpainting', {
+        // Switching to 'fal-ai/iclight-v2' for better control over preservation.
+        const falResult = await subscribe('fal-ai/iclight-v2', {
             input: {
                 prompt: `${prompt}. ${visualDescription}. High quality, photorealistic, 8k, masterpiece. 
                 CRITICAL: Do not modify the vehicle body, wheels, or geometry. Keep the vehicle EXACTLY as it is. 
@@ -217,13 +230,13 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
             // Construct full URL (Internal localhost for now, routes will handle full URL mapping)
             // But we need to return something the frontend can use or the backend saves.
             // savedPath was relative. stealthResult.relativePath is `/uploads/prepared/...`
-            const processedUrl = `http://66.94.120.78:5573${stealthResult.relativePath}`;
+            const processedUrl =`https://api-flash.adaptusgroup.ca${stealthResult.relativePath}`;
 
             return {
                 success: true,
                 originalUrl: imageUrl,
                 processedUrl: processedUrl,
-                provider: 'fal-ai-flux-inpainting',
+                provider: 'fal-ai-iclight-v2',
                 wasGenerated: true,
                 metadata: {
                     intent: intent,

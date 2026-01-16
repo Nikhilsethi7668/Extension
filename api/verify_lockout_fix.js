@@ -22,7 +22,7 @@ const verify = async () => {
 
         console.log('2. Attempting Login as Super Admin...');
         try {
-            const res = await axios.post('http://localhost:5573/api/auth/login', {
+            const res = await axios.post('https://api-flash.adaptusgroup.ca/api/auth/login', {
                 email: 'admin@gmail.com',
                 password: 'Password1234'
             });

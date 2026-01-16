@@ -10,7 +10,7 @@ var CONFIG = {
   version: '1.0.0',
   
   // Backend URL
-  backendUrl: 'http://localhost:5573/api',
+  backendUrl: 'https://api-flash.adaptusgroup.ca/api',
 
   // Supported Sites
   supportedSites: [
@@ -182,7 +182,7 @@ console.log('Service Worker Logic Starting...');
 
 // Logic from service-worker.js, assuming CONFIG and io are already loaded globally
 
-const BACKEND_URL = (typeof CONFIG !== 'undefined' && CONFIG.backendUrl) ? CONFIG.backendUrl : 'http://localhost:5573/api';
+const BACKEND_URL = (typeof CONFIG !== 'undefined' && CONFIG.backendUrl) ? CONFIG.backendUrl : 'https://api-flash.adaptusgroup.ca/api';
 // Socket.IO Setup
 let socket = null;
 
@@ -248,19 +248,30 @@ function initializeSocket(token = null, apiKey = null) {
           console.log('[Extension] Received start-posting-vehicle:', data);
           
           const vehicleId = data.vehicleId || (data.vehicleData && data.vehicleData._id);
+          const postingId = data.postingId; // Check for posting ID
           
-          if (vehicleId) {
-             showNotification('Auto-Posting Started', `Fetching data for vehicle: ${vehicleId}`);
+          if (postingId || vehicleId) {
+             showNotification('Auto-Posting Started', `Fetching data for ${postingId ? 'Posting ' + postingId : 'Vehicle ' + vehicleId}`);
              
-             // Fetch latest data to ensure we have images and full details
              try {
                 // Get session for API key
                 const stored = await chrome.storage.local.get(['userSession']);
                 const apiKey = stored.userSession?.apiKey;
                 
                 if (apiKey) {
-                    console.log(`[Extension] Fetching full details for ${vehicleId}`);
-                    const response = await fetch(`${BACKEND_URL}/vehicles/${vehicleId}?purpose=posting`, {
+                    let fetchUrl;
+                    
+                    // PRIORITIZE POSTING ID (New Logic)
+                    if (postingId) {
+                         console.log(`[Extension] Fetching posting details for ${postingId}`);
+                         fetchUrl = `${BACKEND_URL}/vehicles/posting/${postingId}`;
+                    } else {
+                         // Fallback to Vehicle ID
+                         console.log(`[Extension] Fetching vehicle details for ${vehicleId}`);
+                         fetchUrl = `${BACKEND_URL}/vehicles/${vehicleId}?purpose=posting`;
+                    }
+
+                    const response = await fetch(fetchUrl, {
                         method: 'GET',
                         headers: {
                             'x-api-key': apiKey,
@@ -271,15 +282,19 @@ function initializeSocket(token = null, apiKey = null) {
                     if (response.ok) {
                         const result = await response.json();
                         if (result.success && result.data) {
-                            console.log('[Extension] Fetched fresh vehicle data:', result.data.stockNumber);
+                            console.log('[Extension] Fetched fresh data via', postingId ? 'Posting API' : 'Vehicle API');
                             data.vehicleData = result.data; // Update with fresh data
+                            
+                            // Ensure postingId is preserved/merged if returned
+                            if (result.data.postingId) data.postingId = result.data.postingId;
+                            if (result.data.jobId) data.jobId = result.data.jobId;
                         }
                     } else {
                          console.warn('[Extension] Failed to fetch fresh data, status:', response.status);
                     }
                 }
              } catch (err) {
-                 console.error('[Extension] Error fetching vehicle details:', err);
+                 console.error('[Extension] Error fetching details:', err);
              }
           }
           
@@ -287,6 +302,9 @@ function initializeSocket(token = null, apiKey = null) {
           chrome.tabs.query({ url: "https://www.facebook.com/marketplace/create/vehicle*" }, (tabs) => {
               const dataToUse = data.vehicleData || data;
               dataToUse.uploadImages = true; // Enable image upload for socket (auto) posting
+              // Default price to 0 if not available (User Request)
+              dataToUse.price = dataToUse.price || 0;
+
               // Pass posting IDs for feedback loop
               if (data.postingId) dataToUse.postingId = data.postingId;
               if (data.jobId) dataToUse.jobId = data.jobId;
@@ -382,8 +400,52 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
+  if (request.action === 'fetchImageBlob') {
+     handleFetchImageBlob(request.url)
+        .then(res => sendResponse(res))
+        .catch(err => sendResponse({ success: false, error: err.message }));
+     return true;
+  }
+
   return true;
 });
+
+async function handleFetchImageBlob(url) {
+    try {
+        let fetchUrl = url;
+        // Handle relative URLs
+        if (url.startsWith('/')) {
+             // Ensure we use the correct backend URL
+             const baseUrl = CONFIG.backendUrl || 'https://api-flash.adaptusgroup.ca/api';
+             // Remove /api if it exists in base and we are appending a path that might assume root?
+             // Actually, uploads are usually under root, not /api.
+             // e.g. https://api-flash.adaptusgroup.ca/uploads/...
+             // CONFIG.backendUrl is https://api-flash.adaptusgroup.ca/api
+             
+             // If url starts with /uploads, we should strip /api from base if present
+             const rootUrl = baseUrl.replace('/api', '');
+             fetchUrl = `${rootUrl}${url}`;
+        }
+        
+        const response = await fetch(fetchUrl);
+        if (!response.ok) throw new Error(`Failed to fetch: ${response.statusText}`);
+        
+        const blob = await response.blob();
+        
+        // Convert to Base64
+        const reader = new FileReader();
+        return new Promise((resolve, reject) => {
+            reader.onloadend = () => {
+                resolve({ success: true, base64: reader.result });
+            };
+            reader.onerror = () => reject(new Error('Failed to read blob'));
+            reader.readAsDataURL(blob);
+        });
+    } catch (error) {
+        console.error('Image fetch error:', error);
+        return { success: false, error: error.message };
+    }
+}
 
 async function handlePostingResult(data) {
     console.log('[Extension] Handling posting result:', data);
@@ -531,7 +593,7 @@ async function handleFillFormWithTestData(testData, tabId = null) {
 
 async function handleFillFormWithTestDataFromAPI(customData = null, tabId = null) {
   try {
-    const API_BASE_URL = 'http://localhost:5573/api';
+    const API_BASE_URL = 'https://api-flash.adaptusgroup.ca/api';
     const url = `${API_BASE_URL}/test-data`;
     const options = {
       method: customData ? 'POST' : 'GET',

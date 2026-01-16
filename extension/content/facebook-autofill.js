@@ -306,7 +306,7 @@
         if (vinFilled) filledFields.add('vin');
       }
 
-      if (!filledFields.has('price') && postData?.price) {
+      if (!filledFields.has('price') && postData?.price !== undefined) {
         const priceFilled = await fillPrice();
         if (priceFilled) filledFields.add('price');
       }
@@ -1053,7 +1053,7 @@
       'input[name*="year" i]'
     ];
 
-    return await fillInput(selectors, postData.year);
+    return await fillInput(selectors, String(postData.year));
   }
 
   /**
@@ -1579,11 +1579,33 @@
     for (const selector of existingMakeSelectors) {
       const el = document.querySelector(selector);
       if (el && isVisible(el)) {
-        const currentValue = el.textContent?.trim() || el.value?.trim() || '';
-        // Check if field has a non-placeholder value
-        if (currentValue && currentValue !== 'Make' && currentValue !== 'Vehicle Make' && currentValue.length > 0) {
-          console.log(`⏭️ Make field already has value: "${currentValue}", skipping fill`);
-          return true; // Return true since field is already filled
+        let currentValue = el.value;
+        
+        // If element is a container, look for input inside
+        if ((!currentValue) && (el.tagName === 'LABEL' || el.tagName === 'DIV')) {
+            const input = el.querySelector('input');
+            if (input) {
+                currentValue = input.value;
+            } else {
+                currentValue = el.textContent;
+            }
+        }
+        
+        currentValue = (currentValue || '').trim();
+
+        // 1. Strict check: does it match our target?
+        if (currentValue.toLowerCase() === makeValue.toLowerCase() || 
+            currentValue.toLowerCase().includes(makeValue.toLowerCase())) {
+            console.log(`⏭️ Make field already has correct value: "${currentValue}", skipping fill`);
+            return true;
+        }
+
+        // 2. Loose check: is it filled with *something* meaningful?
+        if (currentValue && currentValue.length > 1 && 
+            currentValue !== 'Make' && currentValue !== 'Vehicle Make' && 
+            !currentValue.includes('Select')) {
+          console.log(`⏭️ Make field has existing value: "${currentValue}", skipping fill`);
+          return true; 
         }
       }
     }
@@ -2001,6 +2023,15 @@
       console.log(`✅ Make selection complete. Value: "${selectedValue}"`);
       return true;
     } else {
+      // Fallback: If no option found, check if the input simply accepted the text (User Request)
+      if (input && input.value && (
+          input.value.toLowerCase() === makeValue.toLowerCase() || 
+          input.value.toLowerCase().includes(makeValue.toLowerCase())
+      )) {
+          console.log(`⚠️ No option found, but input has correct value "${input.value}". Treating as success.`);
+          return true;
+      }
+
       console.error(`❌ Could not find matching Make option for "${makeValue}"`);
       console.log('Available options might not include this make, or filtering failed');
       return false;
@@ -2053,15 +2084,59 @@
 
     // Strategy 1: Find input by label containing "Model"
     // Reuse allLabels from line 1935 - no need to redeclare
+    let modelInput = null;
+
     for (const label of allLabels) {
       const labelText = label.textContent || '';
       if (labelText.toLowerCase().includes('model') && !labelText.toLowerCase().includes('body')) {
         const input = label.querySelector('input[type="text"], input:not([type="file"])');
         if (input && isVisible(input)) {
+          modelInput = input;
           console.log('Found model input via label');
-          return await fillInput([input], postData.model);
+          break;
         }
       }
+    }
+
+    // Strategy 2: Find input near span if not found
+    if (!modelInput) {
+        const modelSpansForFill = Array.from(document.querySelectorAll('span')).filter(span => {
+          const text = span.textContent || '';
+          return text.toLowerCase().trim() === 'model';
+        });
+    
+        for (const span of modelSpansForFill) {
+          const parent = span.closest('label, div');
+          if (parent) {
+            const input = parent.querySelector('input[type="text"], input:not([type="file"])');
+            if (input && isVisible(input)) {
+               modelInput = input;
+               console.log('Found model input near Model span');
+               break;
+            }
+          }
+        }
+    }
+
+    if (modelInput) {
+        // Wait for input to be enabled (it might be disabled while fetching models)
+        if (modelInput.disabled) {
+            console.log('Model input is disabled, waiting for it to be enabled...');
+            for (let i = 0; i < 20; i++) { // Wait up to 10 seconds
+                if (!modelInput.disabled) {
+                    console.log('Model input became enabled');
+                    break;
+                }
+                await sleep(500);
+            }
+        }
+        
+        if (modelInput.disabled) {
+            console.error('Model input is still disabled after waiting');
+            return false;
+        }
+        
+        return await fillInput([modelInput], postData.model);
     }
 
     // Strategy 2: Find input near span containing "Model"
@@ -2099,7 +2174,7 @@
 
     console.log('=== Starting fillMileage ===');
 
-    const mileage = postData.mileage.replace(/[^\d]/g, '');
+    const mileage = String(postData.mileage).replace(/[^\d]/g, '');
 
     // Strategy 1: Find input by label containing "Mileage"
     const allLabels = document.querySelectorAll('label');
@@ -2157,9 +2232,9 @@
   }
 
   async function fillPrice() {
-    if (!pendingPost || !pendingPost.price) return false;
+    if (!pendingPost || pendingPost.price === undefined || pendingPost.price === null) return false;
 
-    const price = pendingPost.price.replace(/[^\d]/g, '');
+    const price = String(pendingPost.price).replace(/[^\d]/g, '');
 
     // Strategy 1: Find input by label containing "Price"
     const allLabels = document.querySelectorAll('label');
@@ -3350,40 +3425,42 @@
     let dropdown = null;
 
     // Strategy 1: Find label[role="combobox"] directly that contains "Condition" text
-    const allComboboxLabels = document.querySelectorAll('label[role="combobox"][aria-haspopup="listbox"]');
-    for (const label of allComboboxLabels) {
-      const labelText = label.textContent || '';
-      const ariaLabel = label.getAttribute('aria-label') || '';
+    // Strategy 1: Find any [role="combobox"] that contains "Condition" text or aria-label
+    // Changed from just label[role="combobox"] to all comboboxes (User Request)
+    const allComboboxes = document.querySelectorAll('[role="combobox"]');
+    for (const combobox of allComboboxes) {
+      if (!isVisible(combobox)) continue;
+
+      const labelText = combobox.textContent || '';
+      const ariaLabel = combobox.getAttribute('aria-label') || '';
+      
+      const textLower = labelText.toLowerCase();
+      const ariaLower = ariaLabel.toLowerCase();
 
       // Check both text and aria-label
-      if ((labelText.toLowerCase().includes('condition') && labelText.toLowerCase().includes('vehicle')) ||
-        (ariaLabel.toLowerCase().includes('condition') && ariaLabel.toLowerCase().includes('vehicle'))) {
-        dropdown = label;
-        console.log('Found "Vehicle condition" label combobox directly');
-        break;
-      }
+      // Must include 'condition' and NOT 'air matching' (air conditioning)
+      const hasCondition = (textLower.includes('condition') || ariaLower.includes('condition'));
+      const notAir = (!textLower.includes('air') && !ariaLower.includes('air'));
 
-      // Fallback: just "condition" if strict match fails (but prioritize stricter matches first)
-      if (!dropdown && (labelText.toLowerCase().trim() === 'condition' || ariaLabel.toLowerCase().trim() === 'condition')) {
-        // Store potential match but verify strict ones first
-        // Actually, let's just use it if we haven't found a better one by the end of loop
+      if (hasCondition && notAir) {
+         // Prioritize "Vehicle condition" (stricter match)
+         if (textLower.includes('vehicle') || ariaLower.includes('vehicle')) {
+             dropdown = combobox;
+             console.log('Found "Vehicle condition" combobox directly');
+             break;
+         }
+         
+         // If no strict match found yet, accept this relaxed match (but keep looking for better?)
+         // For now, let's just take it if we haven't found one. 
+         // Actually, let's look for strict first, then relaxed.
+         if (!dropdown) {
+             dropdown = combobox; // Temporary candidate
+         }
       }
     }
-
-    // Strategy 1.5: Retry with just "Condition" if not found
-    if (!dropdown) {
-      for (const label of allComboboxLabels) {
-        const labelText = label.textContent || '';
-        const ariaLabel = label.getAttribute('aria-label') || '';
-        if (labelText.toLowerCase().includes('condition') || ariaLabel.toLowerCase().includes('condition')) {
-          // Exclude "Air conditioning" or unrelated
-          if (!labelText.toLowerCase().includes('air') && !ariaLabel.toLowerCase().includes('air')) {
-            dropdown = label;
-            console.log('Found "Condition" label combobox (relaxed match)');
-            break;
-          }
-        }
-      }
+    
+    if (dropdown) {
+        console.log('Found condition combobox:', dropdown);
     }
 
     // Strategy 2: Find span with "Condition" text and look for nearby combobox/dropdown
@@ -3594,13 +3671,14 @@
   }
 
   async function fillCondition() {
-    if (!pendingPost || !pendingPost.condition) return false;
+    // FIX: Don't return early if condition is missing, so we can use default
+    if (!pendingPost) return false;
 
     console.log('=== Starting fillCondition ===');
 
     // Try index-based selection first (dropdown approach)
-    // Default to 'Very Good' if condition is missing, as requested
-    const conditionValue = pendingPost.condition || 'Very Good';
+    // Default to 'Good' if condition is missing, as requested
+    const conditionValue = pendingPost.condition || 'Good';
     const conditionSelected = await selectCondition(conditionValue);
 
     if (conditionSelected) {
@@ -3609,7 +3687,7 @@
 
     // Fallback to text-based selection
     console.log('Dropdown selection failed, trying text-based selection...');
-    const condition = pendingPost.condition ? pendingPost.condition.toLowerCase() : 'very good';
+    const condition = pendingPost.condition ? pendingPost.condition.toLowerCase() : 'good';
 
     const isNew = condition.includes('new');
     const targetTexts = [
@@ -3623,9 +3701,9 @@
     ];
 
     // Fallback for default
-    if (condition === 'very good') {
-      targetTexts.unshift('Very Good');
-      targetTexts.unshift('very good');
+    if (condition === 'good') {
+      targetTexts.unshift('Good');
+      targetTexts.unshift('good');
     }
 
     const conditionElement = findElementByText(targetTexts);
@@ -3934,10 +4012,12 @@
   // ============ Image Handling ============
 
   async function handleImages() {
-    // Prioritize preparedImages (stealth) if available, otherwise use original images
+    // Prioritize preparedImages (stealth) or selectedImages if available, otherwise use original images
     const imagesToUse = (pendingPost.preparedImages && pendingPost.preparedImages.length > 0)
       ? pendingPost.preparedImages
-      : pendingPost.images;
+      : (pendingPost.selectedImages && pendingPost.selectedImages.length > 0)
+        ? pendingPost.selectedImages
+        : pendingPost.images;
 
     if (!imagesToUse || imagesToUse.length === 0) return;
 
@@ -3962,12 +4042,24 @@
 
   async function uploadImage(fileInput, imageUrl, index) {
     try {
-      // Fetch the image
-      const response = await fetch(imageUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image: ${response.statusText}`);
+      // Send message to background script to fetch image (avoids CORS/Mixed Content)
+      const response = await new Promise((resolve, reject) => {
+          chrome.runtime.sendMessage({ 
+              action: 'fetchImageBlob', 
+              url: imageUrl 
+          }, (res) => {
+              if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+              resolve(res);
+          });
+      });
+
+      if (!response || !response.success) {
+          throw new Error(response.error || 'Failed to fetch image via background script');
       }
-      const blob = await response.blob();
+
+      // Convert Base64/DataURL to Blob
+      const res = await fetch(response.base64);
+      const blob = await res.blob();
 
       // Create a File object
       const file = new File([blob], `vehicle_image_${index}.jpg`, { type: 'image/jpeg' });

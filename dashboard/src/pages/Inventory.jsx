@@ -22,7 +22,7 @@ const Inventory = () => {
     const [imageFilter, setImageFilter] = useState('all');
 
     // Profile Selection Setup
-    const [profileDialogOpen, setProfileDialogOpen] = useState(false);
+    // const [profileDialogOpen, setProfileDialogOpen] = useState(false); // Bulk dialog removed
     const [chromeProfiles, setChromeProfiles] = useState([]);
     const [selectedProfileId, setSelectedProfileId] = useState('');
     const [postingVehicle, setPostingVehicle] = useState(null); // The vehicle being posted
@@ -93,8 +93,6 @@ const Inventory = () => {
         }
     };
 
-
-
     const fetchChromeProfiles = async () => {
         try {
             const { data } = await apiClient.get('/chrome-profiles');
@@ -103,6 +101,10 @@ const Inventory = () => {
             console.error('Failed to fetch chrome profiles:', error);
         }
     };
+
+
+
+
 
     // Socket.IO Setup
     useEffect(() => {
@@ -363,8 +365,14 @@ const Inventory = () => {
             alert(`Processed ${data.processedCount} images successfully!`);
 
             // Refresh Vehicle
-            const updatedVehicle = await apiClient.get(`/vehicles/${selectedVehicle._id}`);
-            setSelectedVehicle(updatedVehicle.data);
+            // Refresh Vehicle
+            const { data: refreshedData } = await apiClient.get(`/vehicles/${selectedVehicle._id}`);
+            if (refreshedData.success && refreshedData.data) {
+                setSelectedVehicle(refreshedData.data);
+            } else {
+                 // Fallback if structure is flat (though backend shows nested)
+                 setSelectedVehicle(refreshedData);
+            }
             fetchVehicles(); // update list too
 
             setAiEditDialogOpen(false);
@@ -392,11 +400,13 @@ const Inventory = () => {
             await apiClient.post('/vehicles/queue-posting', {
                 vehicleIds: [selectedVehicle._id],
                 profileId: selectedProfileId,
-                schedule: queueSchedule
+                schedule: queueSchedule,
+                selectedImages: selectedDetailImages
             });
             alert('Vehicle queued successfully!');
             setQueueDialogOpen(false);
             fetchVehicles();
+            setSelectedDetailImages([]);
         } catch (error) {
             console.error(error);
             alert('Queue failed: ' + (error.response?.data?.message || error.message));
@@ -549,31 +559,7 @@ const Inventory = () => {
         }
     };
 
-    // Post to Marketplace Handler (Bulk Queue) - Trigger Dialog
-    const handleBulkPost = () => {
-        if (!selectedIds || selectedIds.length === 0) return;
-        fetchChromeProfiles();
-        setProfileDialogOpen(true);
-    };
 
-    const confirmBulkPost = async () => {
-        setLoading(true);
-        try {
-            const { data } = await apiClient.post('/vehicles/queue-posting', {
-                vehicleIds: selectedIds,
-                profileId: selectedProfileId
-            });
-            alert(data.message);
-            setSelectedIds([]);
-            setProfileDialogOpen(false);
-            fetchVehicles();
-        } catch (error) {
-            console.error('Queue failed:', error);
-            alert('Failed to queue vehicles: ' + (error.response?.data?.message || error.message));
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const isAdmin = currentUser && ['org_admin', 'super_admin'].includes(currentUser.role);
     const canSelect = true; // Allow everyone to select for bulk actions
@@ -607,16 +593,6 @@ const Inventory = () => {
                         return (
                             <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: 'primary.dark', color: 'white', px: 2, mr: 2, borderRadius: 1, height: 40, gap: 1 }}>
                                 <Typography variant="body2" sx={{ mr: 1 }}>{selectedIds.length} Selected</Typography>
-
-                                <Button
-                                    size="small"
-                                    variant="contained"
-                                    color="success"
-                                    startIcon={<ExternalLink size={16} />}
-                                    onClick={handleBulkPost}
-                                >
-                                    Post
-                                </Button>
 
                                 {isAdmin && (
                                     <Button
@@ -928,42 +904,7 @@ const Inventory = () => {
 
 
 
-            {/* Profile Selection Dialog */}
-            <Dialog open={profileDialogOpen} onClose={() => setProfileDialogOpen(false)} maxWidth="xs" fullWidth>
-                <DialogTitle>Select Chrome Profile</DialogTitle>
-                <DialogContent>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        Choose a Chrome profile to launch for posting:
-                    </Typography>
-                    <FormControl fullWidth size="small">
-                        <Select
-                            value={selectedProfileId}
-                            onChange={(e) => setSelectedProfileId(e.target.value)}
-                            displayEmpty
-                        >
-                            <MenuItem value="" disabled>Select Profile</MenuItem>
-                            {chromeProfiles.map((p) => (
-                                <MenuItem key={p.uniqueId} value={p.uniqueId}>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                        {p.avatarIcon && <img src={p.avatarIcon} alt="" style={{ width: 20, height: 20, borderRadius: '50%' }} />}
-                                        {p.name}
-                                    </Box>
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setProfileDialogOpen(false)}>Cancel</Button>
-                    <Button
-                        onClick={confirmBulkPost}
-                        variant="contained"
-                        disabled={!selectedProfileId || loading}
-                    >
-                        🚀 Queue & Post
-                    </Button>
-                </DialogActions>
-            </Dialog>
+
 
             {/* Detail Dialog */}
             <Dialog open={detailOpen} onClose={() => setDetailOpen(false)} maxWidth="md" fullWidth>
@@ -1084,14 +1025,14 @@ const Inventory = () => {
                                             <Box
                                                 sx={{
                                                     position: 'absolute',
-                                                    top: 0,
+                                                    bottom: 0,
                                                     right: 0,
                                                     p: 0.5,
                                                     opacity: 0,
                                                     transition: 'opacity 0.2s',
                                                     '&:hover': { opacity: 1 },
-                                                    bgcolor: 'rgba(0,0,0,0.5)',
-                                                    borderRadius: '0 0 0 8px'
+                                                    bgcolor: 'rgba(0,0,0,0.6)',
+                                                    borderRadius: '8px 0 0 0'
                                                 }}
                                                 className="delete-overlay"
                                             >
@@ -1561,6 +1502,39 @@ const Inventory = () => {
                                 ))}
                             </Select>
                         </FormControl>
+
+                        {/* AI Description Prompt */}
+                        <Box sx={{ bgcolor: 'background.paper', p: 2, borderRadius: 1, border: '1px solid #eee' }}>
+                            <Typography variant="subtitle2" gutterBottom>AI Description Generation</Typography>
+                            <TextField
+                                label="Custom Description Prompt (Optional)"
+                                placeholder="e.g. Urgent sale (Title is fixed, Desc. approx 60-80 words)..."
+                                multiline
+                                rows={2}
+                                fullWidth
+                                size="small"
+                                value={queueSchedule.prompt || ''}
+                                onChange={(e) => setQueueSchedule({ ...queueSchedule, prompt: e.target.value })}
+                                sx={{ mb: 1 }}
+                            />
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                {[
+                                    { label: 'Urgent Sale', value: 'Write an urgent sale listing. Emphasize "Must Go" and "Negotiable".' },
+                                    { label: 'Short & Concise', value: 'Keep it extremely short and punchy. Bullet points only. Focus on key specs.' },
+                                    { label: 'Emphasize Features', value: 'Highlight the premium features, technology, and comfort options in detail.' },
+                                    { label: 'Family Friendly', value: 'Focus on safety, reliability, and space for families. Mention safety ratings.' },
+                                    { label: 'Luxury Tone', value: 'Use sophisticated, premium language. Emphasize elegance, status, and condition.' }
+                                ].map((suggestion) => (
+                                    <Chip
+                                        key={suggestion.label}
+                                        label={suggestion.label}
+                                        size="small"
+                                        onClick={() => setQueueSchedule({ ...queueSchedule, prompt: suggestion.value })}
+                                        sx={{ cursor: 'pointer' }}
+                                    />
+                                ))}
+                            </Box>
+                        </Box>
 
                         <Box sx={{ bgcolor: 'background.paper', p: 2, borderRadius: 1, border: '1px solid #eee' }}>
                             <Typography variant="subtitle2" gutterBottom>Scheduler Options</Typography>

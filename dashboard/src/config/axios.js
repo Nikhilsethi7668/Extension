@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Get base URL from environment variable or use default
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL+'/api';
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api-flash.adaptusgroup.ca') + '/api';
 
 // Create axios instance with base URL
 const apiClient = axios.create({

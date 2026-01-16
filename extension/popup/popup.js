@@ -980,7 +980,7 @@ async function testConnection() {
     }
   } catch (error) {
     statusDiv.className = 'error';
-    statusDiv.innerHTML = '❌ Cannot connect to backend. Make sure server is running on http://localhost:5573';
+    statusDiv.innerHTML = '❌ Cannot connect to backend. Make sure server is running on https://api-flash.adaptusgroup.ca';
     showNotification('Backend connection failed', 'error');
   } finally {
     testBtn.disabled = false;

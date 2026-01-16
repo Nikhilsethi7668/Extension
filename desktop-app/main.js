@@ -16,7 +16,7 @@ const SESSION_PATH = path.join(app.getPath('userData'), 'session.json');
 
 // Default configuration
 const DEFAULT_CONFIG = {
-  apiUrl: 'http://localhost:5573/api',
+  apiUrl: 'https://api-flash.adaptusgroup.ca/api',
   apiToken: '',
   pollingInterval: 5, // minutes
   autoStart: false,
@@ -397,7 +397,7 @@ function launchChromeProfile(profileDir) {
       }
     }
 
-    const child = spawn(executable, [`--profile-directory=${profileDir}`, 'https://www.facebook.com'], {
+    const child = spawn(executable, [`--profile-directory=${profileDir}`], {
       detached: true,
       stdio: 'ignore'
     });

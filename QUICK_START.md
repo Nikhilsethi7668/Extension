@@ -51,7 +51,7 @@ After login, you can:
 ## ⚙️ Configuration
 
 ### API Setup
-Ensure your local API is running on `http://localhost:5573` for full functionality.
+Ensure your local API is running on `https://api-flash.adaptusgroup.ca` for full functionality.
 
 ### Dashboard
 Manage your inventory and users at `http://localhost:5173`.

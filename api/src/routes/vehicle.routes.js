@@ -3,7 +3,7 @@ import Vehicle from '../models/Vehicle.js';
 import AuditLog from '../models/AuditLog.js';
 import User from '../models/User.js';
 import Posting from '../models/posting.model.js';
-import { postingQueue } from '../config/queue.js';
+
 import { protect, admin } from '../middleware/auth.js';
 import { generateVehicleContent, processImageWithGemini } from '../services/ai.service.js';
 import { prepareImageBatch, getAvailableCameras, DEFAULT_GPS } from '../services/image-processor.service.js';
@@ -11,28 +11,25 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { scrapeVehicle } from '../services/scraper.service.js';
 import promptUsed from '../models/promptUsed.js';
 import ImagePrompts from '../models/ImagePrompts.js';
+import mongoose from 'mongoose';
 
 
 const router = express.Router();
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // @desc    Clear all queues and postings
 // @route   GET /api/vehicles/clear-queues
 // @access  Protected/Admin
 router.get('/clear-queues', protect, admin, async (req, res) => {
     try {
-        console.log('--- Clearing All Queues and Postings ---');
+        console.log('--- Clearing Posting Data (Cron System) ---');
 
-        // 1. Clear BullMQ Queue
-        console.log('Draining BullMQ queue...');
-        await postingQueue.drain();
-
-        // Force obliterate to ensure everything is gone (active, delayed, etc)
-        await postingQueue.obliterate({ force: true });
-        console.log('Queue obliterated.');
-
-        // 2. Clear MongoDB Records
+        // 1. Clear MongoDB Records
         console.log('Deleting ALL postings from MongoDB...');
         const result = await Posting.deleteMany({});
         console.log(`Deleted ${result.deletedCount} postings.`);
@@ -48,43 +45,132 @@ router.get('/clear-queues', protect, admin, async (req, res) => {
     }
 });
 
-// @desc    Sync Prompts from JSON to DB
-// @route   POST /api/vehicles/sync-prompts
-// @access  Protected (Admin only really, but strict protect for now)
-router.post('/sync-prompts', protect, async (req, res) => {
+// @desc    Seed Image Prompts from prompts.json (First 50)
+// @route   POST /api/vehicles/seed-prompts
+// @access  Public (for debugging/seeding)
+router.post('/seed-prompts', async (req, res) => {
     try {
-        const promptsPath = path.join(process.cwd(), 'prompts.json'); // Root of API
-        // If file not in root, try current dir
-        let finalPath = promptsPath;
-        if (!fs.existsSync(finalPath)) {
-            finalPath = path.join(process.cwd(), 'src/prompts.json');
-        }
+        console.log('[Seed] Starting prompt seeding...');
 
-        if (!fs.existsSync(finalPath)) {
-            // Fallback to absolute path known from tool usage if needed, or error
-            // Try relative to this file? No, process.cwd() is safest in node
-            return res.status(404).json({ message: 'prompts.json not found' });
-        }
+        // Take first 50 as requested
+        const promptsToSeed = [
+    {
+        "title": "Ocean Pier (Golden Hour)",
+        "prompt": "A realistic photo of a car parked near the White Rock pier with the ocean visible in the background. three-quarter front view. golden hour sunlight hitting the side of the car. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "City Center (Misty)",
+        "prompt": "A realistic photo of a car parked on King George Boulevard with the Surrey Central tower in the background. side profile view from a pedestrian perspective. grey misty morning, soft flat lighting. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Industrial Park (Standard)",
+        "prompt": "A realistic photo of a car on an industrial road in Annacis Island, Delta with warehouses behind. low angle shot from the road surface. grey misty morning, soft flat lighting. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Suburban Avenue (Rainy)",
+        "prompt": "A realistic photo of a car parked on 152nd Street in Surrey near Guildford Town Centre. slightly high angle looking down at the hood. rainy evening with streetlights reflecting on the wet ground. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Ocean Pier (Rainy)",
+        "prompt": "A realistic photo of a car parked near the White Rock pier with the ocean visible in the background. low angle shot from the road surface. rainy evening with streetlights reflecting on the wet ground. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Country Road (Rainy)",
+        "prompt": "A realistic photo of a car on a gravel road near the Fraser Valley farmland in Langley. eye-level perspective from the sidewalk. rainy evening with streetlights reflecting on the wet ground. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Suburban Avenue (Golden Hour)",
+        "prompt": "A realistic photo of a car parked on 152nd Street in Surrey near Guildford Town Centre. eye-level perspective from the sidewalk. golden hour sunlight hitting the side of the car. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "City Center (Golden Hour)",
+        "prompt": "A realistic photo of a car parked on King George Boulevard with the Surrey Central tower in the background. slightly high angle looking down at the hood. golden hour sunlight hitting the side of the car. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Rooftop Deck (Overcast)",
+        "prompt": "A realistic photo of a car parked on the rooftop deck of Metrotown mall, Burnaby with condo towers behind. slightly high angle looking down at the hood. heavy overcast sky, wet pavement reflections. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Ocean Pier (Dusk)",
+        "prompt": "A realistic photo of a car parked near the White Rock pier with the ocean visible in the background. three-quarter front view. dusk lighting, slightly grainy low-light quality. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Lakefront (Golden Hour)",
+        "prompt": "A realistic photo of a car parked near Lafarge Lake in Coquitlam with the fountain in background. eye-level perspective from the sidewalk. golden hour sunlight hitting the side of the car. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "River Road (Overcast)",
+        "prompt": "A realistic photo of a car on River Road in Richmond near the dyke, with the Fraser River in background. three-quarter front view. heavy overcast sky, wet pavement reflections. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Lakefront (Overcast)",
+        "prompt": "A realistic photo of a car parked near Lafarge Lake in Coquitlam with the fountain in background. slightly high angle looking down at the hood. heavy overcast sky, wet pavement reflections. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "City Center (Overcast)",
+        "prompt": "A realistic photo of a car parked on King George Boulevard with the Surrey Central tower in the background. slightly high angle looking down at the hood. heavy overcast sky, wet pavement reflections. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Riverfront Market (Overcast)",
+        "prompt": "A realistic photo of a car parked in front of the New Westminster Quay market with the river behind. low angle shot from the road surface. heavy overcast sky, wet pavement reflections. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Country Road (Sunny)",
+        "prompt": "A realistic photo of a car on a gravel road near the Fraser Valley farmland in Langley. low angle shot from the road surface. sunny afternoon with harsh realistic shadows. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Mountain Highway (Sunny)",
+        "prompt": "A realistic photo of a car on the side of the road on the Sea-to-Sky highway with mountains behind. slightly high angle looking down at the hood. sunny afternoon with harsh realistic shadows. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Suburban Street (Sunny)",
+        "prompt": "A realistic photo of a car on a quiet residential street in Kitsilano with cherry blossom trees. eye-level perspective from the sidewalk. sunny afternoon with harsh realistic shadows. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Ocean Pier (Overcast)",
+        "prompt": "A realistic photo of a car parked near the White Rock pier with the ocean visible in the background. side profile view from a pedestrian perspective. heavy overcast sky, wet pavement reflections. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "Ocean Pier (Dusk)",
+        "prompt": "A realistic photo of a car parked near the White Rock pier with the ocean visible in the background. eye-level perspective from the sidewalk. dusk lighting, slightly grainy low-light quality. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },
+    {
+        "title": "River Road (Dusk)",
+        "prompt": "A realistic photo of a car on River Road in Richmond near the dyke, with the Fraser River in background. slightly high angle looking down at the hood. dusk lighting, slightly grainy low-light quality. Maintain photorealistic quality. Focus on updating the background and lighting. Keep the vehicle exactly as is in terms of geometry and perspective."
+    },];
+        
+        // Clear existing to avoid duplicates during dev
+        await ImagePrompts.deleteMany({});
+        console.log('[Seed] Cleared existing prompts.');
 
-        const rawData = fs.readFileSync(finalPath);
-        const prompts = JSON.parse(rawData);
+        // Insert
+        const result = await ImagePrompts.insertMany(promptsToSeed);
+        console.log(`[Seed] Inserted ${result.length} prompts.`);
 
-        // Bulk Write to avoid timeout
-        // Strategy: Clear all? Or Upsert? 
-        // User wants "summary of what prompt will do". If we updated JSON, we should probably clear and reload or upsert.
-        // Let's upsert based on title/prompt combo to avoid duplicates.
+        res.json({
+            success: true,
+            message: `Successfully seeded ${result.length} prompts`,
+            seededCount: result.length
+        });
+    } catch (error) {
+        console.error('[Seed] Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
 
-        const operations = prompts.map(p => ({
-            updateOne: {
-                filter: { title: p.title, prompt: p.prompt },
-                update: { $set: { title: p.title, prompt: p.prompt } },
-                upsert: true
-            }
-        }));
-
-        const result = await ImagePrompts.bulkWrite(operations);
-
-        res.json({ success: true, message: `Synced ${result.upsertedCount + result.modifiedCount} prompts` });
+// @desc    Check Count of Image Prompts
+// @route   GET /api/vehicles/prompts-count
+// @access  Public
+router.get('/prompts-count', async (req, res) => {
+    try {
+        const count = await ImagePrompts.countDocuments();
+        const sample = await ImagePrompts.findOne().select('title');
+        res.json({ 
+            count, 
+            sample: sample ? sample.title : 'None',
+            dbName: mongoose.connection.name,
+            host: mongoose.connection.host
+        });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
@@ -1437,12 +1523,24 @@ router.delete('/', protect, async (req, res) => {
 // @access  Protected
 router.post('/:id/batch-edit-images', protect, async (req, res) => {
     try {
-        const { images, prompt } = req.body;
+        let { images, prompt, promptId } = req.body;
         const vehicleId = req.params.id;
 
         if (!images || !Array.isArray(images) || images.length === 0) {
             res.status(400);
             throw new Error('No images provided');
+        }
+
+        // Fix: If no prompt text provided but promptId is present, fetch it
+        if (!prompt && promptId) {
+            const promptDoc = await ImagePrompts.findById(promptId);
+            if (promptDoc) {
+                prompt = promptDoc.prompt;
+                console.log(`[Batch Edit] Resolved promptId ${promptId} to: "${prompt.substring(0, 50)}..."`);
+            } else {
+                res.status(404);
+                throw new Error('Selected prompt not found');
+            }
         }
 
         if (!prompt) {
@@ -2041,8 +2139,11 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
 // @desc    Queue multiple vehicles for posting with scheduling options
 // @route   POST /api/vehicles/queue-posting
 // @access  Protected
+// @desc    Queue multiple vehicles for posting with scheduling options
+// @route   POST /api/vehicles/queue-posting
+// @access  Protected
 router.post('/queue-posting', protect, async (req, res) => {
-    const { vehicleIds, profileId, schedule } = req.body;
+    const { vehicleIds, profileId, schedule, selectedImages } = req.body;
     // schedule: { intervalMinutes: number, randomize: boolean, stealth: boolean }
 
     if (!vehicleIds || !Array.isArray(vehicleIds) || vehicleIds.length === 0) {
@@ -2050,110 +2151,114 @@ router.post('/queue-posting', protect, async (req, res) => {
     }
 
     try {
-        const jobs = [];
         const orgId = req.user.organization._id || req.user.organization;
         const results = { queued: 0, skipped: 0 };
 
         // Default scheduler settings
-        const intervalMinutes = schedule?.intervalMinutes || 15; // default 15 mins
+        const intervalMinutes = schedule?.intervalMinutes; // default 10 mins (for 10-15 min range with variance)
         const randomize = schedule?.randomize !== false; // default true
         const useStealth = schedule?.stealth === true;
 
-        console.log(`[Queue] Scheduling ${vehicleIds.length} vehicles. Interval: ${intervalMinutes}m, Random: ${randomize}, Stealth: ${useStealth}`);
+        console.log(`[Scheduler] Scheduling ${vehicleIds.length} vehicles. Interval: ${intervalMinutes}m, Random: ${randomize}, Stealth: ${useStealth}`);
 
-        // Create Posting records and Jobs
+        const now = new Date(); // Reference 'Now'
+        
+        // Find the last scheduled post for this user to append to the end of their queue
+        const lastScheduledPost = await Posting.findOne({
+            userId: req.user._id,
+            status: 'scheduled'
+        }).sort({ scheduledTime: -1 });
+
+        // Base time calculation
+        // If queue exists: Start from the last scheduled time
+        // If queue empty: Start from Now
+        let runningTime = lastScheduledPost ? new Date(lastScheduledPost.scheduledTime) : new Date();
+
+        // Create Posting records
         for (let i = 0; i < vehicleIds.length; i++) {
             const vehicleId = vehicleIds[i];
 
-            // Check if already processing (strict skip)
+            // Check if already scheduled (prevent duplicate/overwrite)
             const activePosting = await Posting.findOne({
-                vehicleId,
-                status: 'processing'
+                vehicleId: vehicleId,
+                status: 'scheduled'
             });
 
             if (activePosting) {
-                console.log(`Skipping vehicle ${vehicleId}, currently processing`);
+                console.log(`[Scheduler] Skipping vehicle ${vehicleId}, already has a scheduled posting.`);
                 results.skipped++;
                 continue;
             }
 
-            // Calculate Delay
-            let delayMs = 0;
-            if (intervalMinutes > 0) {
-                // Base delay
-                delayMs = i * intervalMinutes * 60 * 1000;
+            // Calculate New Time: Always ADD the interval/delay
+            // "if he dont have any sheduled post then follow delay directly" -> Now + Delay
+            // "check the most resent ... and add th delay" -> Last + Delay
+            let delayToAdd = intervalMinutes * 60000;
+            
+            // Add Randomization
+            if (randomize) {
+                const variance = Math.floor(Math.random() * 1 * 60000); // 0-1 mins
+                delayToAdd += variance;
+            }
 
-                // Add randomization (±20% variance) if requested, but preserve order roughly
-                // actually, just adding explicit random padding (0-5 mins) is safer for "human-like"
-                if (randomize && i > 0) {
-                    const variance = Math.floor(Math.random() * 300000); // 0-5 mins
-                    delayMs += variance;
+            // Update running time
+            runningTime = new Date(runningTime.getTime() + delayToAdd);
+
+            // Determine Status
+            // Always schedule. The Cron job runs every minute and handles "Now" or "Past".
+            let postingStatus = 'scheduled';
+            
+            // Generate Custom Description if prompt is provided
+            let customDescription = null;
+            if (schedule?.prompt) {
+                try {
+                    console.log(`[Scheduler] Generating AI description for vehicle ${vehicleId} with prompt: "${schedule.prompt}"`);
+                    const vehicleData = await Vehicle.findById(vehicleId);
+                    if (vehicleData) {
+                        const aiContent = await generateVehicleContent(vehicleData, schedule.prompt);
+                        if (aiContent && aiContent.description) {
+                            customDescription = aiContent.description;
+                        }
+                        console.log(aiContent);
+                        
+                    }
+                } catch (aiError) {
+                    console.error('[Scheduler] AI Generation Failed:', aiError);
+                    // Continue without custom description
                 }
             }
 
-            // Check if active in queue (we will update/restart it)
-            let posting = await Posting.findOne({
-                vehicleId,
-                status: 'queued'
-            });
-
-            if (posting) {
-                // Update existing queued posting
-                posting.profileId = profileId || null;
-                posting.logs.push({ message: `Re-queued by user ${req.user._id}`, timestamp: new Date() });
-                posting.schedulerOptions = {
-                    delay: Math.round(delayMs / 60000), // store in minutes
-                    stealth: useStealth
-                };
-                await posting.save();
-            } else {
-                // Create new posting
-                posting = await Posting.create({
-                    vehicleId,
-                    userId: req.user._id,
-                    orgId: orgId,
-                    profileId: profileId || null,
-                    status: 'queued',
-                    schedulerOptions: {
-                        delay: Math.round(delayMs / 60000), // minutes
-                        stealth: useStealth
-                    },
-                    logs: [{ message: `Queued by user ${req.user._id}`, timestamp: new Date() }]
-                });
-            }
-
-            // Add to BullMQ
-            const job = await postingQueue.add('post-vehicle', {
-                // postingId is now just a placeholder or job.id since we don't have a DB record
-                postingId: `ephemeral_${Date.now()}_${vehicleId}`,
+            // Create new posting
+             const postingRecord = await Posting.create({
                 vehicleId,
                 userId: req.user._id,
                 orgId: orgId,
-                profileId: profileId,
-                stealth: useStealth // Pass stealth flag to worker
-            }, {
-                delay: delayMs, // BullMQ handles the delay
-                attempts: 50,
-                backoff: {
-                    type: 'fixed',
-                    delay: 10000
+                profileId: profileId || null,
+                status: postingStatus, 
+                scheduledTime: runningTime,
+                selectedImages: selectedImages || [], 
+                prompt: schedule?.prompt || null,
+                customDescription: customDescription,
+                schedulerOptions: {
+                    delay: 0, 
+                    stealth: useStealth
                 },
-                removeOnComplete: true,
-                removeOnFail: true
+                completedAt: null,
+                logs: [{ message: `Scheduled by user ${req.user._id}`, timestamp: new Date() }]
             });
-
-            // We can't easily check for duplicates without DB, 
-            // but we could check queue.getJobs() if really needed. 
-            // For now, we trust the user or just let it queue.
-
-            jobs.push({ id: job.id, vehicleId, status: 'queued' });
+            
             results.queued++;
         }
 
-        res.json({ success: true, count: jobs.length, message: `Queued ${jobs.length} vehicles`, results });
+        res.json({ 
+            success: true, 
+            count: results.queued, 
+            message: `Scheduled ${results.queued} vehicles. First post at ${new Date().toLocaleTimeString()}, last at ${runningTime.toLocaleTimeString()}` 
+        });
+
     } catch (error) {
-        console.error('Queue error:', error);
-        res.status(500).json({ message: 'Failed to queue vehicles' });
+        console.error('Scheduling error:', error);
+        res.status(500).json({ message: 'Failed to schedule vehicles' });
     }
 });
 
@@ -2214,6 +2319,76 @@ router.post('/posting-result', async (req, res) => {
     } catch (err) {
         console.error('Posting result error:', err);
         res.status(500).json({ message: err.message });
+    }
+});
+
+// @desc    Get Scheduled Posting details (for Extension)
+// @route   GET /api/vehicles/posting/:id
+// @access  Public (protected by API Key logic ideally, or open if strictly needed)
+router.get('/posting/:id', async (req, res) => {
+    try {
+        const posting = await Posting.findById(req.params.id).populate('vehicleId');
+        
+        if (!posting) {
+            return res.status(404).json({ success: false, message: 'Posting job not found' });
+        }
+
+        const vehicle = posting.vehicleId;
+        if (!vehicle) {
+             return res.status(404).json({ success: false, message: 'Associated vehicle not found' });
+        }
+
+        // Merge vehicle data with specific posting data (selected images)
+        // If selectedImages is empty, we fall back to all vehicle images to be safe, 
+        // OR we trust that empty means "use all" or "none selected" -> probably "use all" is a better default for now.
+        const imagesToUse = (posting.selectedImages && posting.selectedImages.length > 0) 
+            ? posting.selectedImages 
+            : vehicle.images;
+
+        const responseData = {
+            ...vehicle.toObject(),
+            images: imagesToUse, // Strictly usage: Overwrite images with selected ones
+            selectedImages: imagesToUse,
+            preparedImages: imagesToUse, // Map to preparedImages for extension compatibility
+            postingId: posting._id, // Explicitly ensure posting ID is there
+            jobId: posting._id
+        };
+
+        // Override description if custom one exists
+        if (posting.customDescription) {
+            responseData.description = posting.customDescription;
+        }
+
+        res.json({
+            success: true,
+            data: responseData
+        });
+
+    } catch (error) {
+        console.error('Error fetching posting details:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// @desc    Clear all scheduled postings for the user
+// @route   DELETE /api/vehicles/postings/scheduled
+// @access  Protected
+router.delete('/postings/scheduled', async (req, res) => {
+    try {
+        const result = await Posting.find({
+            // userId: req.user._id,
+            // status: 'scheduled'
+        });
+        
+        res.json({
+            success: true,
+            message: `Cleared ${result.deletedCount} scheduled postings.`,
+            deletedCount: result.deletedCount,
+            data: result
+        });
+    } catch (error) {
+        console.error('Error clearing schedule:', error);
+        res.status(500).json({ success: false, message: error.message });
     }
 });
 
