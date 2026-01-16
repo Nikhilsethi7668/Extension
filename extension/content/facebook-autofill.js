@@ -2803,10 +2803,27 @@
   }
 
   async function fillCondition() {
-    if (!pendingPost || !pendingPost.condition) return false;
+    // Get local copy to prevent null reference
+    const postData = pendingPost;
+    if (!postData || !postData.condition) {
+      console.log('No condition data provided, defaulting to "Good"');
+      // Default to "Good" if no condition specified
+      return await selectCondition('Good');
+    }
 
-    // Look for condition dropdown/radio buttons
-    const condition = pendingPost.condition.toLowerCase();
+    console.log('=== Starting fillCondition ===');
+    console.log('Condition value:', postData.condition);
+
+    // Try index-based selection first (dropdown approach)
+    const conditionSelected = await selectCondition(postData.condition);
+
+    if (conditionSelected) {
+      return true;
+    }
+
+    // Fallback to text-based selection for New/Used
+    console.log('Dropdown selection failed, trying text-based selection...');
+    const condition = postData.condition.toLowerCase();
     const isNew = condition.includes('new');
 
     const conditionElement = findElementByText([
