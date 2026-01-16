@@ -54,26 +54,16 @@ export const initPostingCron = (io) => {
                 const desktopRoom = `org:${orgId}:desktop`;
                 const extensionRoom = `org:${orgId}:extension`;
 
+                // IMPORTANT: Mark as processing immediately to prevent duplicate triggers
+                posting.status = 'processing';
+                posting.logs.push({ message: 'Processing started', timestamp: new Date() });
+                await posting.save();
+
                 // 1. Launch/Focus Profile (if specified)
                 // We fire this to Desktop
                 if (profileId) {
                     console.log(`[Cron] Emitting launch-browser-profile to ${desktopRoom} for profile ${profileId}`);
                     io.to(desktopRoom).emit('launch-browser-profile', { profileId });
-                    
-                    // Simple delay to ensure browser opens before extension command? 
-                    // Socket emission is async and 'fire and forget' here. 
-                    // The user said "trigger posting by calling the desktop socker... and just after sheduling mark status completed"
-                    // Wait 5-10 seconds? The cron loop continues. 
-                    // We can't blocking wait easily in a loop without delaying others too much 
-                    // UNLESS we use Promise.all or just fire them.
-                    // Let's add a small artificial delay or just assume Desktop handles queueing.
-                    // But we need to send the 'start-posting-vehicle' to the EXTENSION. 
-                    // If the browser isn't open, extension isn't connected.
-                    
-                    // The old worker waited 15s. Here we might need a staggered approach?
-                    // "run a cron job... trigger posting... mark status completed"
-                    // If we just emit, and extension isn't there, it fails.
-                    // BUT checking existing worker logic: It sends 'launch-browser-profile', then waits, then sends to extension.
                     
                     // We can emulate this async logic without blocking the main loop.
                     processPostingAsync(io, posting, extensionRoom, vehicle);
