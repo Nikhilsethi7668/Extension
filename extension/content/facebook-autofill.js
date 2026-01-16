@@ -337,7 +337,7 @@
         await sleep(500);
       }
 
-      if (!filledFields.has('condition') && postData?.condition) {
+      if (!filledFields.has('condition')) {
         console.log('Attempting to fill condition...');
         window.scrollBy(0, 200);
         await sleep(500);
@@ -2805,14 +2805,18 @@
   async function fillCondition() {
     // Get local copy to prevent null reference
     const postData = pendingPost;
+    
+    console.log('=== fillCondition called ===');
+    console.log('pendingPost exists:', !!postData);
+    console.log('pendingPost.condition:', postData?.condition);
+    
     if (!postData || !postData.condition) {
       console.log('No condition data provided, defaulting to "Good"');
       // Default to "Good" if no condition specified
       return await selectCondition('Good');
     }
 
-    console.log('=== Starting fillCondition ===');
-    console.log('Condition value:', postData.condition);
+    console.log('Condition value from data:', postData.condition);
 
     // Try index-based selection first (dropdown approach)
     const conditionSelected = await selectCondition(postData.condition);

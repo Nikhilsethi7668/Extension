@@ -2375,7 +2375,7 @@ router.get('/posting/:id', async (req, res) => {
 // @access  Protected
 router.delete('/postings/scheduled', async (req, res) => {
     try {
-        const result = await Posting.find({
+        const result = await Posting.deleteMany({
             // userId: req.user._id,
             // status: 'scheduled'
         });
