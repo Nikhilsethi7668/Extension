@@ -27,7 +27,9 @@
       "target": [
         "nsis"
       ],
-      "icon": "assets/icon.ico"
+      "verifyUpdateCodeSignature": false,
+      "sign": null,
+      "forceCodeSigning": false
     },
     "nsis": {
       "oneClick": false,

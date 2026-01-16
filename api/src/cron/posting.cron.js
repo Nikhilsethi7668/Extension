@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import Posting from '../models/posting.model.js';
 import Vehicle from '../models/Vehicle.js';
+import { queueEvent } from '../routes/events.routes.js';
 
 // Actually we don't need jobEvents here. We emit socket directly.
 
@@ -90,7 +91,8 @@ export const initPostingCron = (io) => {
                         vehiclePayload.description = posting.customDescription; // Override description
                      }
 
-                     io.to(extensionRoom).emit('start-posting-vehicle', {
+                     // Queue event instead of Socket.IO emit
+                     queueEvent(orgId, 'start-posting-vehicle', {
                         vehicleId: vehicle._id,
                         vehicleData: vehiclePayload,
                         postingId: posting._id,
@@ -131,7 +133,8 @@ async function processPostingAsync(io, posting, extensionRoom, vehicle) {
            vehiclePayload.description = posting.customDescription; // Override description
         }
 
-        io.to(extensionRoom).emit('start-posting-vehicle', {
+        // Queue event instead of Socket.IO emit
+        queueEvent(posting.orgId, 'start-posting-vehicle', {
             vehicleId: vehicle._id,
             vehicleData: vehiclePayload,
             postingId: posting._id,

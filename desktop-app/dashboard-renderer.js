@@ -218,6 +218,9 @@ ipcRenderer.on('socket-status', (event, status) => {
     socketDot.classList.remove('active');
     socketText.textContent = 'Socket: Disconnected';
     addLogEntry('Socket disconnected', 'warning');
+    if (status.error) {
+      addLogEntry(`Socket Error: ${status.error}`, 'error');
+    }
   }
 });
 

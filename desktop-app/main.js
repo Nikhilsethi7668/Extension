@@ -494,18 +494,19 @@ function connectSocket() {
   if (!config.apiToken || !session || !session.isAuthenticated) return;
   if (socket && socket.connected) return;
 
-  // Decode token to get org ID if needed, or just let server handle it via auth handshake?
-  // Usually we pass token in auth option
+  // HARDCODED: Direct socket URL to bypass config issues
+  const socketUrl = 'https://api-flash.adaptusgroup.ca';
+  console.log('DEBUG: connectSocket socketUrl (HARDCODED):', socketUrl);
+  
+  try {
+    const debugPath = path.join(app.getPath('userData'), 'debug.txt');
+    fs.appendFileSync(debugPath, `${new Date().toISOString()} - Socket URL (HARDCODED): ${socketUrl}\n`);
+    console.log('Debug log written to:', debugPath);
+  } catch (e) {
+    console.error('Failed to write debug log:', e);
+  }
 
-  // Extract user info from token (naive decoding or just let server handle it)
-  // For joining room, we need to emit 'join-organization'. 
-  // We can decode the JWT locally without verification just to get the payload if needed, 
-  // OR we can make a request to /api/auth/me to get the user details first.
-  // Actually, let's just connect and wait for connect event, then fetch user details or assume main process knows?
-  // We don't have user details in session unfortunately, only isAuthenticated.
-
-  // Let's rely on the token being passed in auth
-  socket = io(config.apiUrl.replace('/api', ''), { // Remove /api suffix for base URL
+  socket = io(socketUrl, { // Hardcoded URL
     withCredentials: true,
     transports: ['websocket', 'polling'],
     reconnection: true,
@@ -516,6 +517,13 @@ function connectSocket() {
     },
     extraHeaders: {
       'Authorization': `Bearer ${config.apiToken}`
+    }
+  });
+
+  socket.on('connect_error', (error) => {
+    console.error('[Socket] Connection Error:', error);
+    if (mainWindow) {
+      mainWindow.webContents.send('socket-status', { connected: false, error: error.message });
     }
   });
 
@@ -534,7 +542,8 @@ function connectSocket() {
     // Quick fetch of user details to get Org ID
     // Quick fetch of user details to get Org ID
     const axios = require('axios');
-    axios.get(`${config.apiUrl}/auth/validate-key`, {
+    const apiUrl = 'https://api-flash.adaptusgroup.ca/api';
+    axios.get(`${apiUrl}/auth/validate-key`, {
       headers: { 'Authorization': `Bearer ${config.apiToken}` }
     }).then(response => {
       const user = response.data; // validate-key returns user object directly, not wrapped in data.data usually?
@@ -607,8 +616,9 @@ async function syncProfiles() {
   if (profiles.length === 0) return;
 
   const axios = require('axios');
+  const apiUrl = 'https://api-flash.adaptusgroup.ca/api';
   try {
-    await axios.post(`${config.apiUrl}/chrome-profiles/sync`, {
+    await axios.post(`${apiUrl}/chrome-profiles/sync`, {
       profiles: profiles
     }, {
       headers: {
@@ -627,7 +637,7 @@ let syncInterval = null;
 // Start sync when app is ready or login status changes
 function startSync() {
   if (syncInterval) clearInterval(syncInterval);
-  syncProfiles(); // initial run
+  if (syncInterval) clearInterval(syncInterval);
   syncProfiles(); // initial run
   syncInterval = setInterval(syncProfiles, 30 * 1000); // 30 seconds
   connectSocket();

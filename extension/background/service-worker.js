@@ -183,151 +183,196 @@ console.log('Service Worker Logic Starting...');
 // Logic from service-worker.js, assuming CONFIG and io are already loaded globally
 
 const BACKEND_URL = (typeof CONFIG !== 'undefined' && CONFIG.backendUrl) ? CONFIG.backendUrl : 'https://api-flash.adaptusgroup.ca/api';
-// Socket.IO Setup
-let socket = null;
+// Custom Polling System (Socket.IO replacement for Service Workers)
+// Service workers cannot use XMLHttpRequest, so we use fetch-based polling
+let pollingInterval = null;
+let isPolling = false;
+let sessionData = { token: null, apiKey: null, orgId: null };
 
 function initializeSocket(token = null, apiKey = null) {
-  if (socket && socket.connected) return;
-
-  const authData = {};
-  if (token) authData.token = token;
-  if (apiKey) authData.apiKey = apiKey;
-  authData.clientType = 'extension'; // Identify as extension on connection
-
-  // No auth data? Can't connect properly usually, but let's try or return
-  if (!token && !apiKey) return;
-
-  // Remove /api from BACKEND_URL for socket connection
-  const socketUrl = BACKEND_URL.replace('/api', '');
-
-  console.log('Initializing Socket.IO connection to:', socketUrl);
-
-  // Check for io availability (should be bundled now)
-  if (typeof io === 'undefined') {
-      console.error('Socket.IO library STILL not loaded. Bundling failed?');
-      return;
+  console.log('[Extension] Initializing custom polling system (Socket.IO not compatible with service workers)');
+  
+  if (!token && !apiKey) {
+    console.warn('[Extension] No auth credentials provided');
+    return;
   }
 
-  try {
-      // @ts-ignore
-      socket = io(socketUrl, {
-          transports: ['websocket', 'polling'],
-          auth: authData,
-          reconnection: true,
-          reconnectionDelay: 5000
+  sessionData.token = token;
+  sessionData.apiKey = apiKey;
+
+  // First, get the organization ID
+  fetch(`${BACKEND_URL}/auth/validate-key`, {
+      method: 'GET',
+      headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey || ''
+      }
+  })
+  .then(res => res.json())
+  .then(user => {
+      sessionData.orgId = user.organization?._id || user.organization;
+      console.log(`[Extension] Got organization ID: ${sessionData.orgId}`);
+      
+      // Start polling for events
+      startPolling();
+  })
+  .catch(err => {
+      console.error('[Extension] Failed to get organization ID:', err);
+  });
+}
+
+function startPolling() {
+  if (isPolling) {
+    console.log('[Extension] Polling already active');
+    return;
+  }
+
+  isPolling = true;
+  console.log('[Extension] Starting event polling...');
+
+  // Poll every 5 seconds
+  pollingInterval = setInterval(async () => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/events/poll`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': sessionData.apiKey || '',
+          'x-org-id': sessionData.orgId || ''
+        }
       });
 
-      socket.on('connect', () => {
-          console.log('[Extension] Socket connected:', socket.id);
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Process any pending events
+        if (data.events && data.events.length > 0) {
+          console.log(`[Extension] Received ${data.events.length} events`);
           
-          // Fetch user details to get Org ID, then register
-          fetch(`${BACKEND_URL}/auth/validate-key`, {
-              method: 'GET',
-              headers: {
-                  'Content-Type': 'application/json',
-                  'x-api-key': apiKey || (authData.token ? undefined : '')
-              }
-          })
-          .then(res => res.json())
-          .then(user => {
-              const orgId = user.organization?._id || user.organization;
-              if (orgId) {
-                  socket.emit('register-client', { orgId, clientType: 'extension' });
-                  console.log(`[Extension] Registered as extension client for org: ${orgId}`);
-              }
-          })
-          .catch(err => console.error('[Extension] Failed to fetch org ID for socket registration:', err));
-      });
-
-      socket.on('disconnect', () => {
-          console.log('[Extension] Socket disconnected');
-      });
-
-      // Listen for 'start-posting-vehicle' event
-      socket.on('start-posting-vehicle', async (data) => {
-          console.log('[Extension] Received start-posting-vehicle:', data);
-          
-          const vehicleId = data.vehicleId || (data.vehicleData && data.vehicleData._id);
-          const postingId = data.postingId; // Check for posting ID
-          
-          if (postingId || vehicleId) {
-             showNotification('Auto-Posting Started', `Fetching data for ${postingId ? 'Posting ' + postingId : 'Vehicle ' + vehicleId}`);
-             
-             try {
-                // Get session for API key
-                const stored = await chrome.storage.local.get(['userSession']);
-                const apiKey = stored.userSession?.apiKey;
-                
-                if (apiKey) {
-                    let fetchUrl;
-                    
-                    // PRIORITIZE POSTING ID (New Logic)
-                    if (postingId) {
-                         console.log(`[Extension] Fetching posting details for ${postingId}`);
-                         fetchUrl = `${BACKEND_URL}/vehicles/posting/${postingId}`;
-                    } else {
-                         // Fallback to Vehicle ID
-                         console.log(`[Extension] Fetching vehicle details for ${vehicleId}`);
-                         fetchUrl = `${BACKEND_URL}/vehicles/${vehicleId}?purpose=posting`;
-                    }
-
-                    const response = await fetch(fetchUrl, {
-                        method: 'GET',
-                        headers: {
-                            'x-api-key': apiKey,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    
-                    if (response.ok) {
-                        const result = await response.json();
-                        if (result.success && result.data) {
-                            console.log('[Extension] Fetched fresh data via', postingId ? 'Posting API' : 'Vehicle API');
-                            data.vehicleData = result.data; // Update with fresh data
-                            
-                            // Ensure postingId is preserved/merged if returned
-                            if (result.data.postingId) data.postingId = result.data.postingId;
-                            if (result.data.jobId) data.jobId = result.data.jobId;
-                        }
-                    } else {
-                         console.warn('[Extension] Failed to fetch fresh data, status:', response.status);
-                    }
-                }
-             } catch (err) {
-                 console.error('[Extension] Error fetching details:', err);
-             }
+          for (const event of data.events) {
+            handlePolledEvent(event);
           }
-          
-          // Proceed with posting logic
-          chrome.tabs.query({ url: "https://www.facebook.com/marketplace/create/vehicle*" }, (tabs) => {
-              const dataToUse = data.vehicleData || data;
-              dataToUse.uploadImages = true; // Enable image upload for socket (auto) posting
-              // Default price to 0 if not available (User Request)
-              dataToUse.price = dataToUse.price || 0;
+        }
+      }
+    } catch (error) {
+      console.error('[Extension] Polling error:', error);
+    }
+  }, 5000);
+}
 
-              // Pass posting IDs for feedback loop
-              if (data.postingId) dataToUse.postingId = data.postingId;
-              if (data.jobId) dataToUse.jobId = data.jobId;
-
-              if (tabs && tabs.length > 0) {
-                  const tabId = tabs[0].id;
-                  chrome.tabs.update(tabId, { active: true });
-                  handleFillFormWithTestData(dataToUse, tabId);
-              } else {
-                 chrome.tabs.create({ url: "https://www.facebook.com/marketplace/create/vehicle" }, (tab) => {
-                     // Wait for page load
-                     setTimeout(() => {
-                         handleFillFormWithTestData(dataToUse, tab.id);
-                     }, 5000);
-                 });
-              }
-          });
-      });
-
-  } catch (err) {
-      console.error('Socket initialization error:', err);
+function stopPolling() {
+  if (pollingInterval) {
+    clearInterval(pollingInterval);
+    pollingInterval = null;
+    isPolling = false;
+    console.log('[Extension] Stopped event polling');
   }
 }
+
+async function handlePolledEvent(event) {
+  console.log('[Extension] Handling event:', event.type);
+  
+  if (event.type === 'start-posting-vehicle') {
+    const data = event.data;
+    console.log('[Extension] Received start-posting-vehicle:', data);
+    
+    const vehicleId = data.vehicleId || (data.vehicleData && data.vehicleData._id);
+    const postingId = data.postingId;
+    
+    if (postingId || vehicleId) {
+      showNotification('Auto-Posting Started', `Fetching data for ${postingId ? 'Posting ' + postingId : 'Vehicle ' + vehicleId}`);
+      
+      try {
+        const apiKey = sessionData.apiKey;
+        
+        if (apiKey) {
+          let fetchUrl;
+          
+          if (postingId) {
+            console.log(`[Extension] Fetching posting details for ${postingId}`);
+            fetchUrl = `${BACKEND_URL}/vehicles/posting/${postingId}`;
+          } else {
+            console.log(`[Extension] Fetching vehicle details for ${vehicleId}`);
+            fetchUrl = `${BACKEND_URL}/vehicles/${vehicleId}?purpose=posting`;
+          }
+
+          const response = await fetch(fetchUrl, {
+            method: 'GET',
+            headers: {
+              'x-api-key': apiKey,
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            if (result.success && result.data) {
+              console.log('[Extension] Fetched fresh data via', postingId ? 'Posting API' : 'Vehicle API');
+              data.vehicleData = result.data;
+              
+              if (result.data.postingId) data.postingId = result.data.postingId;
+              if (result.data.jobId) data.jobId = result.data.jobId;
+            }
+          } else {
+            console.warn('[Extension] Failed to fetch fresh data, status:', response.status);
+          }
+        }
+      } catch (err) {
+        console.error('[Extension] Error fetching details:', err);
+      }
+    }
+    
+    // Proceed with posting logic
+    chrome.tabs.query({ url: "https://www.facebook.com/marketplace/create/vehicle*" }, (tabs) => {
+      const dataToUse = data.vehicleData || data;
+      dataToUse.uploadImages = true;
+      dataToUse.price = dataToUse.price || 0;
+
+      if (data.postingId) dataToUse.postingId = data.postingId;
+      if (data.jobId) dataToUse.jobId = data.jobId;
+
+      if (tabs && tabs.length > 0) {
+        const tabId = tabs[0].id;
+        chrome.tabs.update(tabId, { active: true });
+        handleFillFormWithTestData(dataToUse, tabId);
+      } else {
+        chrome.tabs.create({ url: "https://www.facebook.com/marketplace/create/vehicle" }, (tab) => {
+          setTimeout(() => {
+            handleFillFormWithTestData(dataToUse, tab.id);
+          }, 5000);
+        });
+      }
+    });
+  }
+}
+
+// Legacy socket variable for compatibility
+let socket = { 
+  connected: false,
+  emit: function(event, data) {
+    console.log('[Extension] Socket.emit called (using HTTP instead):', event, data);
+    
+    // Send via HTTP instead of Socket.IO
+    if (event === 'verify-vehicle-posting') {
+      fetch(`${BACKEND_URL}/events/verify-posting`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': sessionData.apiKey || '',
+          'x-org-id': sessionData.orgId || ''
+        },
+        body: JSON.stringify(data)
+      })
+      .then(res => res.json())
+      .then(result => {
+        console.log('[Extension] Verification sent:', result);
+      })
+      .catch(err => {
+        console.error('[Extension] Failed to send verification:', err);
+      });
+    }
+  }
+};
 
 chrome.storage.local.get(['userSession'], (result) => {
     if (result.userSession) {
@@ -341,10 +386,8 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
         if (newSession) {
             initializeSocket(newSession.token, newSession.apiKey);
         } else {
-            if (socket) {
-                socket.disconnect();
-                socket = null;
-            }
+            stopPolling();
+            sessionData = { token: null, apiKey: null, orgId: null };
         }
     }
 });

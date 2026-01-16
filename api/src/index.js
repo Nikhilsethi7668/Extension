@@ -13,6 +13,7 @@ import testDataRoutes from './routes/testData.routes.js';
 import logsRoutes from './routes/logs.routes.js';
 import dashboardRoutes from './routes/dashboard.routes.js';
 import chromeProfileRoutes from './routes/chromeProfile.routes.js';
+import eventsRoutes from './routes/events.routes.js';
 
 dotenv.config();
 
@@ -54,6 +55,7 @@ app.use('/api/test-data', testDataRoutes);
 app.use('/api/logs', logsRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/chrome-profiles', chromeProfileRoutes);
+app.use('/api/events', eventsRoutes);
 
 // Static File Serving (for generated images)
 import path from 'path';
