@@ -487,12 +487,17 @@ app.on('activate', () => {
 });
 
 // Socket.IO Logic
+let socketListenersAttached = false; // Flag to prevent duplicate listeners
+
 function connectSocket() {
   const config = loadConfig();
   const session = loadSession();
 
   if (!config.apiToken || !session || !session.isAuthenticated) return;
-  if (socket && socket.connected) return;
+  if (socket && socket.connected) {
+    console.log('[Socket] Already connected, skipping...');
+    return;
+  }
 
   // HARDCODED: Direct socket URL to bypass config issues
   const socketUrl = 'https://api-flash.adaptusgroup.ca';
@@ -504,6 +509,15 @@ function connectSocket() {
     console.log('Debug log written to:', debugPath);
   } catch (e) {
     console.error('Failed to write debug log:', e);
+  }
+
+  // Disconnect old socket if exists to prevent duplicate connections
+  if (socket) {
+    console.log('[Socket] Disconnecting old socket before creating new one...');
+    socket.removeAllListeners(); // Remove all old listeners
+    socket.disconnect();
+    socket = null;
+    socketListenersAttached = false;
   }
 
   socket = io(socketUrl, { // Hardcoded URL
@@ -520,90 +534,102 @@ function connectSocket() {
     }
   });
 
-  socket.on('connect_error', (error) => {
-    console.error('[Socket] Connection Error:', error);
-    if (mainWindow) {
-      mainWindow.webContents.send('socket-status', { connected: false, error: error.message });
-    }
-  });
+  // Only attach listeners once
+  if (!socketListenersAttached) {
+    console.log('[Socket] Attaching event listeners...');
+    socketListenersAttached = true;
 
-  socket.on('connect', () => {
-    console.log('[Socket] Connected to server');
-    if (mainWindow) {
-      mainWindow.webContents.send('socket-status', { connected: true });
-    }
-
-    // We need to join the organization room.
-    // Since we don't have the org ID readily available in config/session, 
-    // we can either fetch it or just emit an event that the server uses `req.user` to handle.
-    // The server code: `socket.on('join-organization', (orgId) => ...)`
-    // We need the orgId.
-
-    // Quick fetch of user details to get Org ID
-    // Quick fetch of user details to get Org ID
-    const axios = require('axios');
-    const apiUrl = 'https://api-flash.adaptusgroup.ca/api';
-    axios.get(`${apiUrl}/auth/validate-key`, {
-      headers: { 'Authorization': `Bearer ${config.apiToken}` }
-    }).then(response => {
-      const user = response.data; // validate-key returns user object directly, not wrapped in data.data usually?
-      // Let's check auth.routes.js: res.json({ _id, ... }) -> yes, direct object.
-      // But axios response structure is data: { ...user }
-      // Wait, previous code used response.data.data?
-      // auth.routes.js: res.json({ ... })
-      // Axios: response.data = object
-
-      const orgId = user.organization?._id || user.organization;
-      if (orgId) {
-        // Register as desktop client
-        socket.emit('register-client', { orgId, clientType: 'desktop' });
-        console.log(`[Socket] Registered as desktop client for org: ${orgId}`);
+    socket.on('connect_error', (error) => {
+      console.error('[Socket] Connection Error:', error);
+      if (mainWindow) {
+        mainWindow.webContents.send('socket-status', { connected: false, error: error.message });
       }
-    }).catch(err => console.error('[Socket] Failed to fetch user details for room join:', err.message));
-  });
+    });
 
-  socket.on('launch-browser-profile', async (data) => {
-    console.log('[Socket] Received launch-browser-profile event:', data);
-    const { profileId } = data;
+    socket.on('connect', () => {
+      console.log('[Socket] Connected to server');
+      if (mainWindow) {
+        mainWindow.webContents.send('socket-status', { connected: true });
+      }
 
-    if (!profileId) {
-      console.error('[Socket] Invalid profile data received');
-      return;
-    }
+      // We need to join the organization room.
+      // Since we don't have the org ID readily available in config/session, 
+      // we can either fetch it or just emit an event that the server uses `req.user` to handle.
+      // The server code: `socket.on('join-organization', (orgId) => ...)`
+      // We need the orgId.
 
-    // Show notification
-    if (Notification.isSupported()) {
-      new Notification({
-        title: 'Browser Launch Triggered',
-        body: `Opening Chrome Profile: ${profileId}`
-      }).show();
-    }
+      // Quick fetch of user details to get Org ID
+      // Quick fetch of user details to get Org ID
+      const axios = require('axios');
+      const apiUrl = 'https://api-flash.adaptusgroup.ca/api';
+      axios.get(`${apiUrl}/auth/validate-key`, {
+        headers: { 'Authorization': `Bearer ${config.apiToken}` }
+      }).then(response => {
+        const user = response.data; // validate-key returns user object directly, not wrapped in data.data usually?
+        // Let's check auth.routes.js: res.json({ _id, ... }) -> yes, direct object.
+        // But axios response structure is data: { ...user }
+        // Wait, previous code used response.data.data?
+        // auth.routes.js: res.json({ ... })
+        // Axios: response.data = object
 
-    try {
-      launchChromeProfile(profileId);
-    } catch (error) {
-      console.error('[Socket] Launch failed:', error);
+        const orgId = user.organization?._id || user.organization;
+        if (orgId) {
+          // Register as desktop client
+          socket.emit('register-client', { orgId, clientType: 'desktop' });
+          console.log(`[Socket] Registered as desktop client for org: ${orgId}`);
+        }
+      }).catch(err => console.error('[Socket] Failed to fetch user details for room join:', err.message));
+    });
+
+    socket.on('launch-browser-profile', async (data) => {
+      console.log('[Socket] Received launch-browser-profile event:', data);
+      const { profileId } = data;
+
+      if (!profileId) {
+        console.error('[Socket] Invalid profile data received');
+        return;
+      }
+
+      // Show notification
       if (Notification.isSupported()) {
         new Notification({
-          title: 'Launch Failed',
-          body: error.message
+          title: 'Browser Launch Triggered',
+          body: `Opening Chrome Profile: ${profileId}`
         }).show();
       }
-    }
-  });
 
-  socket.on('disconnect', () => {
-    console.log('[Socket] Disconnected');
-    if (mainWindow) {
-      mainWindow.webContents.send('socket-status', { connected: false });
-    }
-  });
+      try {
+        launchChromeProfile(profileId);
+      } catch (error) {
+        console.error('[Socket] Launch failed:', error);
+        if (Notification.isSupported()) {
+          new Notification({
+            title: 'Launch Failed',
+            body: error.message
+          }).show();
+        }
+      }
+    });
+
+    socket.on('disconnect', () => {
+      console.log('[Socket] Disconnected');
+      if (mainWindow) {
+        mainWindow.webContents.send('socket-status', { connected: false });
+      }
+      socketListenersAttached = false; // Reset flag on disconnect
+    });
+  } else {
+    console.log('[Socket] Listeners already attached, skipping...');
+  }
 }
 
 function disconnectSocket() {
   if (socket) {
+    socket.removeAllListeners();
     socket.disconnect();
     socket = null;
+    socketListenersAttached = false; // Reset flag
+    console.log('[Socket] Disconnected and listeners removed');
   }
 }
 
