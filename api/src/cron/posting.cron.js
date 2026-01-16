@@ -83,6 +83,7 @@ export const initPostingCron = (io) => {
 
                      // Queue event instead of Socket.IO emit
                      queueEvent(orgId, 'start-posting-vehicle', {
+                        profileId: profileId || null, // Include profile ID for routing
                         vehicleId: vehicle._id,
                         vehicleData: vehiclePayload,
                         postingId: posting._id,
@@ -125,6 +126,7 @@ async function processPostingAsync(io, posting, extensionRoom, vehicle) {
 
         // Queue event instead of Socket.IO emit
         queueEvent(posting.orgId, 'start-posting-vehicle', {
+            profileId: posting.profileId || null, // Include profile ID for routing
             vehicleId: vehicle._id,
             vehicleData: vehiclePayload,
             postingId: posting._id,

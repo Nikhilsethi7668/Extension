@@ -2180,6 +2180,7 @@ router.post('/queue-posting', protect, async (req, res) => {
 
             // Check if already scheduled (prevent duplicate/overwrite)
             const activePosting = await Posting.findOne({
+                userId: req.user._id,
                 vehicleId: vehicleId,
                 status: 'scheduled'
             });

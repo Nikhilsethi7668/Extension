@@ -187,7 +187,7 @@ const BACKEND_URL = (typeof CONFIG !== 'undefined' && CONFIG.backendUrl) ? CONFI
 // Service workers cannot use XMLHttpRequest, so we use fetch-based polling
 let pollingInterval = null;
 let isPolling = false;
-let sessionData = { token: null, apiKey: null, orgId: null };
+let sessionData = { token: null, apiKey: null, orgId: null, profileId: null };
 
 function initializeSocket(token = null, apiKey = null) {
   console.log('[Extension] Initializing custom polling system (Socket.IO not compatible with service workers)');
@@ -213,8 +213,18 @@ function initializeSocket(token = null, apiKey = null) {
       sessionData.orgId = user.organization?._id || user.organization;
       console.log(`[Extension] Got organization ID: ${sessionData.orgId}`);
       
-      // Start polling for events
-      startPolling();
+      // Try to get stored profile ID
+      chrome.storage.local.get(['chromeProfileId'], (result) => {
+        if (result.chromeProfileId) {
+          sessionData.profileId = result.chromeProfileId;
+          console.log(`[Extension] Using stored profile ID: ${sessionData.profileId}`);
+        } else {
+          console.log('[Extension] No profile ID configured - will accept all events');
+        }
+        
+        // Start polling for events
+        startPolling();
+      });
   })
   .catch(err => {
       console.error('[Extension] Failed to get organization ID:', err);
@@ -271,6 +281,25 @@ function stopPolling() {
 
 async function handlePolledEvent(event) {
   console.log('[Extension] Handling event:', event.type);
+  
+  // Profile-based event filtering
+  if (event.data && event.data.profileId) {
+    // Event is for a specific profile
+    if (sessionData.profileId) {
+      // We have a profile configured - check if it matches
+      if (event.data.profileId !== sessionData.profileId) {
+        console.log(`[Extension] ⏭️ Ignoring event for profile "${event.data.profileId}" (we are "${sessionData.profileId}")`);
+        return; // Skip this event
+      }
+      console.log(`[Extension] ✅ Event matches our profile: "${sessionData.profileId}"`);
+    } else {
+      // No profile configured - we'll process it anyway (backward compatible)
+      console.log(`[Extension] ⚠️ Event is for profile "${event.data.profileId}" but we have no profile configured - processing anyway`);
+    }
+  } else {
+    // No profile specified in event - broadcast to all extensions
+    console.log('[Extension] 📢 Event has no profile restriction (broadcast to all)');
+  }
   
   if (event.type === 'start-posting-vehicle') {
     const data = event.data;
