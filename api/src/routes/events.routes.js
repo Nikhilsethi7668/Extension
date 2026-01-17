@@ -1,27 +1,80 @@
 import express from 'express';
-import { protect } from '../middleware/auth.middleware.js';
+import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
 
 // In-memory event queue (consider using Redis in production)
 const eventQueues = new Map(); // orgId -> array of events
 
+// Active Profile Tracking (UserId:ProfileId -> Timestamp)
+const activeProfiles = new Map();
+
+export function updateActiveProfile(userId, profileId) {
+    if (!userId || !profileId) return;
+    const key = `${userId}:${profileId}`;
+    activeProfiles.set(key, Date.now());
+}
+
+export function isProfileActive(userId, profileId) {
+    if (!userId || !profileId) return false;
+    const key = `${userId}:${profileId}`;
+    const lastSeen = activeProfiles.get(key);
+    if (!lastSeen) return false;
+    // Consider active if seen in last 45 seconds
+    return (Date.now() - lastSeen) < 45000;
+}
+
+// Poll for events (called by extension every 5 seconds)
 // Poll for events (called by extension every 5 seconds)
 router.get('/poll', protect, async (req, res) => {
     try {
         const orgId = req.user.organization?._id || req.user.organization;
+        const profileId = req.query.profileId; // Optional profile ID
+        const userId = req.user._id;
+
+        // Track Active Profiles logic
+        if (profileId) {
+            updateActiveProfile(userId, profileId);
+        }
         
         if (!orgId) {
             return res.status(400).json({ success: false, message: 'No organization ID' });
         }
 
         // Get events for this organization
-        const events = eventQueues.get(orgId.toString()) || [];
+        const allEvents = eventQueues.get(orgId.toString()) || [];
         
-        // Clear the queue after retrieving
-        eventQueues.delete(orgId.toString());
+        // Filter events for this profile (or global events)
+        const relevantEvents = [];
+        const remainingEvents = [];
+
+        for (const event of allEvents) {
+            // Check if matches profile
+            const eventProfileId = event.data?.profileId;
+            
+            // If event is specific to a profile, only return it if we are that profile
+            // If event has NO profile, it is global -> typically we might want to broadcast, 
+            // but for a queue system, we usually want ONE worker to pick it up. 
+            // If we have multiple profiles active, who gets the global event?
+            // Current logic: If we are a specific profile, we take our specific events + global events.
+            // CAUTION: If multiple profiles poll, global events might be raced. 
+            // Ideally global events go to a "default" poller? 
+            // For now: take if matches profileId OR !eventProfileId
+            if (!eventProfileId || (profileId && eventProfileId === profileId)) {
+                relevantEvents.push(event);
+            } else {
+                remainingEvents.push(event);
+            }
+        }
         
-        res.json({ success: true, events });
+        // Update the queue with remaining events
+        if (remainingEvents.length > 0) {
+            eventQueues.set(orgId.toString(), remainingEvents);
+        } else {
+            eventQueues.delete(orgId.toString());
+        }
+        
+        res.json({ success: true, events: relevantEvents });
     } catch (error) {
         console.error('[Events] Poll error:', error);
         res.status(500).json({ success: false, message: error.message });

@@ -7,7 +7,8 @@ const API_CONFIG = {
     logActivity: '/logs',
     editImage: '/images/edit',
     generateDescription: '/openai/generate-description',
-    testData: '/test-data'
+    testData: '/test-data',
+    chromeProfiles: '/chrome-profiles'
   }
 };
 
@@ -238,7 +239,9 @@ async function login() {
 
         if (currentUser) {
           document.getElementById('statusText').textContent = `Logged in as ${currentUser.name}`;
+          document.getElementById('statusText').textContent = `Logged in as ${currentUser.name}`;
           fetchActivityLogs();
+          loadProfiles();
         }
       }
       await safeChromeCall(() => chrome.storage.local.set({ userSession: currentUser }), 'Failed to save session');
@@ -302,6 +305,115 @@ async function validateSession(session) {
     console.error('Session validation error:', error);
     return false;
   }
+}
+
+// Load Chrome Profiles
+// Load Chrome Profiles with Caching and Logging
+async function loadProfiles() {
+    console.log('[loadProfiles] Starting...');
+    const profileSelect = document.getElementById('profileSelect');
+    if (!profileSelect) return;
+
+    try {
+        // Get stored profile ID and cached list
+        const stored = await safeChromeCall(() => chrome.storage.local.get(['chromeProfileId', 'chromeProfilesList']), 'Failed to get stored data');
+        console.log('[loadProfiles] Stored data:', { 
+            hasProfileId: !!stored.chromeProfileId, 
+            cachedListSize: stored.chromeProfilesList?.length 
+        });
+        
+        const currentProfileId = stored.chromeProfileId;
+        const cachedProfiles = stored.chromeProfilesList;
+
+        // Function to render options
+        const renderOptions = (profiles, selectedId) => {
+            console.log('[loadProfiles] Rendering options:', profiles.length);
+            if (!profiles || profiles.length === 0) {
+                profileSelect.innerHTML = '<option value="">No profiles found</option>';
+                return;
+            }
+
+            profileSelect.innerHTML = '<option value="">-- Global / No Profile --</option>';
+            
+            profiles.forEach(p => {
+                const option = document.createElement('option');
+                option.value = p.uniqueId || p.id || p.name; 
+                option.textContent = `${p.name} (${p.shortcutName || 'No shortcut'})`;
+                
+                if (selectedId && (option.value === selectedId)) {
+                    option.selected = true;
+                }
+                profileSelect.appendChild(option);
+            });
+        };
+
+        // 1. Initial Render from Cache (if available)
+        if (cachedProfiles && Array.isArray(cachedProfiles) && cachedProfiles.length > 0) {
+            console.log('[loadProfiles] Rendering profiles from cache');
+            renderOptions(cachedProfiles, currentProfileId);
+        } else {
+            // Only show "Loading..." if we have nothing to show
+            console.log('[loadProfiles] No cache, showing loading state');
+            profileSelect.innerHTML = '<option value="">Loading profiles...</option>';
+        }
+
+        if (!currentUser || !currentUser.apiKey) {
+            console.error('[loadProfiles] No current user or API key', currentUser);
+            if (!cachedProfiles || cachedProfiles.length === 0) {
+                 profileSelect.innerHTML = '<option value="">Log in to view profiles</option>';
+            }
+            return;
+        }
+
+        // 2. Background Fetch to update cache
+        console.log('[loadProfiles] Fetching profiles from API...');
+        fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.chromeProfiles, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': currentUser.apiKey
+            }
+        })
+        .then(async (response) => {
+            console.log('[loadProfiles] Fetch response status:', response.status);
+            if (response.ok) {
+                const profiles = await response.json();
+                console.log('[loadProfiles] Fetched profiles:', profiles.length);
+                
+                if (profiles && Array.isArray(profiles)) {
+                    // Check if data actually changed to avoid unnecessary re-renders (which can close the dropdown)
+                    if (cachedProfiles && JSON.stringify(profiles) === JSON.stringify(cachedProfiles)) {
+                        console.log('[loadProfiles] Profiles unchanged, skipping re-render');
+                        return;
+                    }
+
+                    // Update cache
+                    await safeChromeCall(() => chrome.storage.local.set({ chromeProfilesList: profiles }), 'Failed to cache profiles');
+                    
+                    // Re-render with new data
+                    const updatedStored = await safeChromeCall(() => chrome.storage.local.get(['chromeProfileId']), 'Failed to get ID');
+                    renderOptions(profiles, updatedStored.chromeProfileId);
+                } else if (!cachedProfiles) {
+                     profileSelect.innerHTML = '<option value="">No profiles found</option>';
+                }
+            } else {
+                console.error('[loadProfiles] Failed to fetch profiles:', response.status);
+                if (!cachedProfiles || cachedProfiles.length === 0) {
+                    profileSelect.innerHTML = '<option value="">Failed to connect</option>';
+                }
+            }
+        })
+        .catch(error => {
+            console.error('[loadProfiles] Error fetching profiles in background:', error);
+            if (!cachedProfiles || cachedProfiles.length === 0) {
+                profileSelect.innerHTML = '<option value="">Error loading profiles</option>';
+            }
+        });
+
+    } catch (error) {
+        console.error('[loadProfiles] Critical error:', error);
+        profileSelect.innerHTML = '<option value="">Error loading profiles</option>';
+    }
 }
 
 // UI Functions
@@ -599,6 +711,26 @@ function attachEventListeners() {
       if (e.target === imageLargeView) {
         imageLargeView.style.display = 'none';
       }
+    });
+  }
+
+  // Profile Selection Listener
+  const profileSelect = document.getElementById('profileSelect');
+  if (profileSelect) {
+    profileSelect.addEventListener('change', async (e) => {
+        const profileId = e.target.value;
+        try {
+            if (profileId) {
+                await safeChromeCall(() => chrome.storage.local.set({ chromeProfileId: profileId }), 'Failed to save profile');
+                showNotification(`Profile set to: ${profileId}`, 'success');
+            } else {
+                await safeChromeCall(() => chrome.storage.local.remove('chromeProfileId'), 'Failed to remove profile');
+                showNotification('Profile selection cleared', 'info');
+            }
+        } catch (error) {
+            console.error('Error saving profile:', error);
+            showNotification('Failed to save profile selection', 'error');
+        }
     });
   }
 }

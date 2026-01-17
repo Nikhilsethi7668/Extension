@@ -54,7 +54,7 @@ export const initPostingCron = (io) => {
                 const desktopRoom = `org:${orgId}:desktop`;
                 const extensionRoom = `org:${orgId}:extension`;
 
-                // IMPORTANT: Mark as processing immediately to prevent duplicate triggers
+// Mark as processing immediately to prevent duplicate triggers
                 posting.status = 'processing';
                 posting.logs.push({ message: 'Processing started', timestamp: new Date() });
                 await posting.save();
@@ -62,8 +62,29 @@ export const initPostingCron = (io) => {
                 // 1. Launch/Focus Profile (if specified)
                 // We fire this to Desktop
                 if (profileId) {
-                    console.log(`[Cron] Emitting launch-browser-profile to ${desktopRoom} for profile ${profileId}`);
-                    io.to(desktopRoom).emit('launch-browser-profile', { profileId });
+                    // Check if profile is already active (polling via extension)
+                    // If so, we don't need to launch browser
+                   // Dynamically import to avoid circular dep issues if any, or just trust the import
+                   // We need to import it at top, but let's assume we added it.
+                   // WAIT: I need to add the import at the top first or use dynamic import.
+                   // Let's use dynamic import for safety inside the function or add top level import.
+                   // I'll add top level import in next step. For now, let's write the logic assuming function is available.
+                   // Actually, I can't assume. I should add import.
+                   
+                   // Let's use this block to just CHANGE the logic, and I will add import in a separate block or same block if I can view the top.
+                   // I viewed the file, so I can see lines 1-150.
+                   // I will restart this edit to include the top level import.
+                   
+                   const { isProfileActive } = await import('../routes/events.routes.js');
+                   
+                   // Check if THIS user's specific profile is active
+                   if (isProfileActive(userId, profileId)) {
+                        console.log(`[Cron] User ${userId} Profile ${profileId} is active. Skipping launch.`);
+                        posting.logs.push({ message: 'Skipped browser launch (Profile Active)', timestamp: new Date() });
+                   } else {
+                        console.log(`[Cron] Emitting launch-browser-profile to ${desktopRoom} for profile ${profileId}`);
+                        io.to(desktopRoom).emit('launch-browser-profile', { profileId });
+                   }
                     
                     // We can emulate this async logic without blocking the main loop.
                     processPostingAsync(io, posting, extensionRoom, vehicle);

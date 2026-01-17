@@ -14,14 +14,17 @@ let isQuitting = false;
 const CONFIG_PATH = path.join(app.getPath('userData'), 'config.json');
 const SESSION_PATH = path.join(app.getPath('userData'), 'session.json');
 
+const AutomationEngine = require('./automation-engine');
+
 // Default configuration
 const DEFAULT_CONFIG = {
-  apiUrl: 'https://api-flash.adaptusgroup.ca/api',
+  apiUrl: 'http://localhost:5573/api',
   apiToken: '',
   pollingInterval: 5, // minutes
   autoStart: false,
   extensionPath: '',
-  runOnStartup: false
+  runOnStartup: false,
+  activeProfileId: null // Store selected Chrome profile ID
 };
 
 // Load configuration
@@ -51,6 +54,12 @@ function loadConfig() {
 function saveConfig(config) {
   try {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+    
+    // Update automation engine config if it exists
+    if (automationEngine) {
+      automationEngine.updateConfig(config);
+    }
+    
     return true;
   } catch (error) {
     console.error('Error saving config:', error);
@@ -225,17 +234,16 @@ ipcMain.handle('validate-login', async (event, credentials) => {
       loginTime: new Date().toISOString()
     };
 
-    const config = {
+    const config = loadConfig();
+    const newConfig = {
+      ...config,
       apiUrl: credentials.apiUrl,
       apiToken: response.data.token,  // Store the JWT token, not the API key
       apiKey: credentials.apiToken,   // Also store the API key for reference
-      pollingInterval: 5,
-      autoStart: false,
-      extensionPath: ''
     };
 
     saveSession(session);
-    saveConfig(config);
+    saveConfig(newConfig);
 
     // Navigate to dashboard
     if (mainWindow) {
@@ -262,8 +270,11 @@ ipcMain.handle('check-auth', () => {
 
 ipcMain.handle('logout', () => {
   clearSession();
-
-  // Navigate to login page
+  
+  // Stop automation on logout
+  if (automationEngine) {
+    automationEngine.stop();
+  }
 
   // Navigate to login page
   if (mainWindow) {
@@ -291,7 +302,24 @@ ipcMain.handle('save-config', (event, config) => {
   return saveConfig(config);
 });
 
+// Profile Selection Handlers
+ipcMain.handle('set-active-profile', async (event, profileId) => {
+  const config = loadConfig();
+  config.activeProfileId = profileId;
+  saveConfig(config);
+  
+  if (automationEngine && automationEngine.isRunning()) {
+      // Maybe restart logic if needed, or just update config (which we did in saveConfig)
+      // automationEngine.updateConfig(config) was called in saveConfig
+  }
+  
+  return { success: true };
+});
 
+ipcMain.handle('get-active-profile', () => {
+  const config = loadConfig();
+  return config.activeProfileId;
+});
 
 ipcMain.handle('test-connection', async () => {
   const config = loadConfig();
@@ -311,29 +339,54 @@ ipcMain.handle('test-connection', async () => {
 });
 
 // Automation State
-let automationState = {
-  running: false,
-  lastCheck: null,
-  vehiclesPosted: 0,
-  errors: 0
-};
+let automationEngine = null;
 
 // Automation Handlers
 ipcMain.handle('get-status', () => {
-  return automationState;
+  if (automationEngine) {
+    return automationEngine.getStatus();
+  }
+  return { running: false, lastCheck: null, vehiclesPosted: 0, errors: 0 };
 });
 
 ipcMain.handle('start-automation', () => {
-  console.log('Starting automation (stub)...');
-  automationState.running = true;
-  // TODO: Integrate actual AutomationEngine here
+  console.log('Starting automation...');
+  const config = loadConfig();
+  
+  if (!automationEngine) {
+    automationEngine = new AutomationEngine(config);
+    
+    // Relay events to renderer
+    automationEngine.on('status', (status) => {
+      if (mainWindow) mainWindow.webContents.send('automation-status', status);
+    });
+    
+    automationEngine.on('vehicle-posted', (vehicle) => {
+      if (mainWindow) mainWindow.webContents.send('vehicle-posted', vehicle);
+    });
+    
+    automationEngine.on('error', (error) => {
+      if (mainWindow) mainWindow.webContents.send('automation-error', error);
+    });
+  }
+  
+  automationEngine.start();
   return { success: true };
 });
 
 ipcMain.handle('stop-automation', () => {
-  console.log('Stopping automation (stub)...');
-  automationState.running = false;
+  console.log('Stopping automation...');
+  if (automationEngine) {
+    automationEngine.stop();
+  }
   return { success: true };
+});
+
+ipcMain.handle('get-socket-status', () => {
+    return { 
+        connected: socket && socket.connected, 
+        error: null 
+    };
 });
 
 // Chrome Profile Management
@@ -499,9 +552,11 @@ function connectSocket() {
     return;
   }
 
-  // HARDCODED: Direct socket URL to bypass config issues
-  const socketUrl = 'https://api-flash.adaptusgroup.ca';
-  console.log('DEBUG: connectSocket socketUrl (HARDCODED):', socketUrl);
+  // Dynamic socket URL from config
+  const apiUrl = new URL(config.apiUrl);
+  // Socket.IO usually connects to the root, not /api
+  const socketUrl = `${apiUrl.protocol}//${apiUrl.hostname}${apiUrl.port ? ':' + apiUrl.port : ''}`;
+  console.log('DEBUG: connectSocket socketUrl:', socketUrl);
   
   try {
     const debugPath = path.join(app.getPath('userData'), 'debug.txt');
@@ -559,9 +614,8 @@ function connectSocket() {
       // We need the orgId.
 
       // Quick fetch of user details to get Org ID
-      // Quick fetch of user details to get Org ID
       const axios = require('axios');
-      const apiUrl = 'https://api-flash.adaptusgroup.ca/api';
+      const apiUrl = config.apiUrl;
       axios.get(`${apiUrl}/auth/validate-key`, {
         headers: { 'Authorization': `Bearer ${config.apiToken}` }
       }).then(response => {
@@ -641,9 +695,15 @@ async function syncProfiles() {
   const profiles = getChromeProfiles();
   if (profiles.length === 0) return;
 
+  if (profiles.length === 0) return;
+
   const axios = require('axios');
-  const apiUrl = 'https://api-flash.adaptusgroup.ca/api';
+  const apiUrl = config.apiUrl; // Use configured API URL
   try {
+    // Remove /api if present to avoid duplication if user added it, or ensure consistency. 
+    // The current config has apiUrl with /api possibly. 
+    // Wait, the original code had 'https://api-flash.adaptusgroup.ca/api' hardcoded.
+    // If config.apiUrl is 'http://localhost:5573/api', then we use it as is.
     await axios.post(`${apiUrl}/chrome-profiles/sync`, {
       profiles: profiles
     }, {

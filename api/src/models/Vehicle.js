@@ -68,6 +68,7 @@ const vehicleSchema = mongoose.Schema(
                 listingUrl: String,
                 action: String, // 'post', 'repost', 'renew'
                 agentName: String,
+                profileId: String, // Chrome Profile ID used for posting
                 timestamp: { type: Date, default: Date.now },
             },
         ],

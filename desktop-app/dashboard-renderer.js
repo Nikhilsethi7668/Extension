@@ -43,9 +43,24 @@ async function init() {
   
   // Load initial status
   await updateStatus();
+  await checkSocketStatus(); // Check socket status immediately
   
   // Start status polling
   setInterval(updateStatus, 5000);
+}
+
+// Check initial socket status
+async function checkSocketStatus() {
+    try {
+        const status = await ipcRenderer.invoke('get-socket-status');
+        if (status.connected) {
+            socketDot.classList.add('active');
+            socketText.textContent = 'Socket: Connected';
+            addLogEntry('Socket status synced: Connected', 'success');
+        }
+    } catch (e) {
+        console.error('Failed to check socket status:', e);
+    }
 }
 
 // Update status display
@@ -89,6 +104,8 @@ if (forceSyncBtn) {
   });
 }
 
+let currentActiveProfileId = null;
+
 // DB Profile Logic
 async function loadDbProfiles() {
   if (!dbProfilesList) return;
@@ -98,7 +115,13 @@ async function loadDbProfiles() {
   if (refreshDbProfilesBtn) refreshDbProfilesBtn.disabled = true;
 
   try {
-    const profiles = await ipcRenderer.invoke('get-db-profiles');
+    const [profiles, activeId] = await Promise.all([
+      ipcRenderer.invoke('get-db-profiles'),
+      ipcRenderer.invoke('get-active-profile')
+    ]);
+
+    currentActiveProfileId = activeId;
+
     if (profiles && profiles.length > 0) {
       renderProfiles(profiles, dbProfilesList);
     } else {
@@ -118,20 +141,33 @@ if (refreshDbProfilesBtn) {
   });
 }
 
-// Modify global init to load DB profiles too
-const originalInit = init;
-init = async function() {
-    await originalInit(); // Call original init
-    await loadDbProfiles(); // Fetch DB profiles
-};
+async function setActiveProfile(profileId) {
+    try {
+        await ipcRenderer.invoke('set-active-profile', profileId);
+        currentActiveProfileId = profileId;
+        addLogEntry(`Selected profile: ${profileId}`, 'success');
+        
+        // Re-render to update UI
+        const profiles = await ipcRenderer.invoke('get-db-profiles'); // Optionally cache this
+        renderProfiles(profiles, dbProfilesList);
+    } catch (error) {
+        addLogEntry(`Failed to set active profile: ${error.message}`, 'error');
+    }
+}
 
-// Also reuse renderProfiles for both lists if possible
+// Reuse renderProfiles for both lists if possible
 function renderProfiles(profiles, targetElement) {
   targetElement.innerHTML = '';
   
   profiles.forEach(profile => {
     const card = document.createElement('div');
     card.className = 'profile-card';
+    if (profile.id === currentActiveProfileId) {
+        card.classList.add('selected');
+    }
+
+    // Add click listener to select profile
+    card.addEventListener('click', () => setActiveProfile(profile.id));
 
     const avatar = document.createElement('div');
     avatar.className = 'profile-avatar';
@@ -141,7 +177,15 @@ function renderProfiles(profiles, targetElement) {
     name.className = 'profile-name';
     name.textContent = profile.name;
     
-    // For DB profiles, ID might be different, but we mapped it in main.js
+    // Check mark for active profile
+    if (profile.id === currentActiveProfileId) {
+        const check = document.createElement('span');
+        check.textContent = ' ✓';
+        check.style.color = '#2196F3';
+        check.style.fontWeight = 'bold';
+        name.appendChild(check);
+    }
+    
     const dir = document.createElement('div');
     dir.className = 'profile-dir';
     dir.textContent = profile.id; 
