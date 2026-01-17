@@ -325,7 +325,7 @@
         await sleep(800);
       }
 
-      if (!filledFields.has('location') && postData?.dealerAddress) {
+      if (!filledFields.has('location')) {
         console.log('Attempting to fill location...');
         const locationFilled = await fillLocation();
         if (locationFilled) {
@@ -2549,7 +2549,9 @@
   }
 
   async function fillLocation() {
-    if (!pendingPost || !pendingPost.dealerAddress) return false;
+    if (!pendingPost) return false;
+    // Allow proceeding even if dealerAddress is missing to use default
+
 
     console.log('=== Starting fillLocation ===');
 
@@ -2604,7 +2606,8 @@
     // remove zip code (e.g. 70634) and "USA"
     // Type the location value character by character
     // Clean the location value to help Facebook's autocomplete
-    let locationValue = pendingPost.dealerAddress || 'Surrey, British Columbia'; // Default to Surrey as requested
+    // Use provided address or default
+    let locationValue = pendingPost.dealerAddress || pendingPost.location ||  'Surrey, British Columbia';
 
     // Remove Zip Code (5 digits at the end)
     locationValue = locationValue.replace(/\s+\d{5}(-\d{4})?$/, '');

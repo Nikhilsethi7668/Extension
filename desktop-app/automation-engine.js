@@ -27,6 +27,12 @@ class AutomationEngine extends EventEmitter {
     };
   }
 
+  updateConfig(newConfig) {
+      console.log('Updating configuration...');
+      this.config = { ...this.config, ...newConfig };
+      console.log('Active Profile ID:', this.config.activeProfileId);
+  }
+
   isRunning() {
     return this.running;
   }
@@ -42,6 +48,11 @@ class AutomationEngine extends EventEmitter {
     if (this.running) {
       console.log('Automation already running');
       return;
+    }
+
+    if (!this.config.activeProfileId) {
+        console.warn('WARNING: No Chrome Profile selected. Automation might not work correctly.');
+        this.emit('status', { running: true, message: 'Warning: No Chrome Profile selected.' });
     }
 
     console.log('Starting automation engine...');
@@ -129,16 +140,18 @@ class AutomationEngine extends EventEmitter {
   async fetchPendingVehicles() {
     try {
       console.log('=== FETCHING VEHICLES ===');
-      console.log('API URL:', `${this.config.apiUrl}/vehicles`);
-      console.log('Has token:', !!this.config.apiToken);
-      console.log('Token length:', this.config.apiToken?.length);
-      console.log('Authorization header:', `Bearer ${this.config.apiToken?.substring(0, 20)}...`);
+      
+      const params = {
+          status: 'scraped',
+          limit: 10
+      };
+
+      if (this.config.activeProfileId) {
+          params.profileId = this.config.activeProfileId;
+      }
 
       const response = await axios.get(`${this.config.apiUrl}/vehicles`, {
-        params: {
-          status: 'scraped',
-          limit: 10 // Process up to 10 vehicles per cycle
-        },
+        params: params,
         headers: {
           'Authorization': `Bearer ${this.config.apiToken}`
         },
@@ -150,8 +163,6 @@ class AutomationEngine extends EventEmitter {
     } catch (error) {
       console.error('=== FETCH VEHICLES ERROR ===');
       console.error('Error message:', error.message);
-      console.error('Status code:', error.response?.status);
-      console.error('Response data:', error.response?.data);
       throw new Error(`Failed to fetch vehicles: ${error.message}`);
     }
   }
@@ -159,9 +170,10 @@ class AutomationEngine extends EventEmitter {
   async postVehicle(vehicle) {
     console.log(`Posting vehicle: ${vehicle.year} ${vehicle.make} ${vehicle.model}`);
 
-    // Initialize browser if not already running
+    // Initialize browser if not already running OR if we need to switch profile?
+    // For now, assume one profile active.
     if (!this.browser) {
-      await this.initBrowser();
+      await this.initBrowser(this.config.activeProfileId); // Use configured profile
     }
 
     // Navigate to Facebook Marketplace
@@ -220,7 +232,7 @@ class AutomationEngine extends EventEmitter {
     try {
       const response = await axios.get(`${this.config.apiUrl}/vehicles/${vehicleId}`, {
         headers: {
-          'Authorization': `Bearer ${this.config.apiToken}`
+            'Authorization': `Bearer ${this.config.apiToken}`
         },
         timeout: 30000
       });
@@ -233,10 +245,16 @@ class AutomationEngine extends EventEmitter {
 
   async markVehicleAsPosted(vehicleId) {
     try {
-      await axios.post(`${this.config.apiUrl}/vehicles/${vehicleId}/posted`, {
+      const payload = {
         platform: 'facebook_marketplace',
         action: 'posted_via_automation'
-      }, {
+      };
+      
+      if (this.config.activeProfileId) {
+          payload.profileId = this.config.activeProfileId;
+      }
+
+      await axios.post(`${this.config.apiUrl}/vehicles/${vehicleId}/posted`, payload, {
         headers: {
           'Authorization': `Bearer ${this.config.apiToken}`
         },
@@ -311,29 +329,19 @@ class AutomationEngine extends EventEmitter {
     this.browser = await puppeteer.launch({
       headless: false, // Must be non-headless for extensions
       executablePath: chromePath,
-      const args = [
+      userDataDir: path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data'),
+      args: [
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-blink-features=AutomationControlled',
-        '--window-size=1280,800'
-      ];
-
-      if(profileDir) {
-        const userDataDir = path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data');
-        args.push(`--user-data-dir=${userDataDir}`);
-        args.push(`--profile-directory=${profileDir}`);
-      }
-
-    this.browser = await puppeteer.launch({
-        headless: false, // Must be non-headless for extensions
-        executablePath: chromePath,
-        args: args,
-        defaultViewport: null,
-        userDataDir: profileDir ? path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data') : undefined
-      });
+        '--window-size=1280,800',
+        ...(profileDir ? [`--profile-directory=${profileDir}`] : [])
+      ],
+      defaultViewport: null
+    });
 
       console.log('Browser initialized successfully');
     }

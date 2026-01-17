@@ -32,7 +32,6 @@ services:
     command: npm run dev
     depends_on:
       - mongo
-      - redis
     env_file:
       - .env
 

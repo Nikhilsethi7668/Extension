@@ -24,7 +24,7 @@ const Inventory = () => {
     // Profile Selection Setup
     // const [profileDialogOpen, setProfileDialogOpen] = useState(false); // Bulk dialog removed
     const [chromeProfiles, setChromeProfiles] = useState([]);
-    const [selectedProfileId, setSelectedProfileId] = useState('');
+    const [selectedProfileIds, setSelectedProfileIds] = useState([]);
     const [postingVehicle, setPostingVehicle] = useState(null); // The vehicle being posted
 
     // State for Assignment Conflict
@@ -394,12 +394,12 @@ const Inventory = () => {
     };
 
     const handleQueueSubmit = async () => {
-        if (!selectedProfileId) return alert('Select a profile');
+        if (selectedProfileIds.length === 0) return alert('Select at least one profile');
         setLoading(true);
         try {
             await apiClient.post('/vehicles/queue-posting', {
                 vehicleIds: [selectedVehicle._id],
-                profileId: selectedProfileId,
+                profileIds: selectedProfileIds,
                 schedule: queueSchedule,
                 selectedImages: selectedDetailImages
             });
@@ -407,6 +407,7 @@ const Inventory = () => {
             setQueueDialogOpen(false);
             fetchVehicles();
             setSelectedDetailImages([]);
+            setSelectedProfileIds([]);
         } catch (error) {
             console.error(error);
             alert('Queue failed: ' + (error.response?.data?.message || error.message));
@@ -1491,9 +1492,26 @@ const Inventory = () => {
                         <FormControl fullWidth size="small">
                             <InputLabel>Chrome Profile</InputLabel>
                             <Select
-                                value={selectedProfileId}
+                                multiple
+                                value={selectedProfileIds}
                                 label="Chrome Profile"
-                                onChange={(e) => setSelectedProfileId(e.target.value)}
+                                onChange={(e) => {
+                                    const { target: { value } } = e;
+                                    setSelectedProfileIds(
+                                        // On autofill we get a stringified value.
+                                        typeof value === 'string' ? value.split(',') : value,
+                                    );
+                                }}
+                                renderValue={(selected) => (
+                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                        {selected.map((value) => {
+                                             const profile = chromeProfiles.find(p => p.uniqueId === value);
+                                             return (
+                                                <Chip key={value} label={profile ? profile.name : value} size="small" />
+                                             );
+                                        })}
+                                    </Box>
+                                )}
                             >
                                 {chromeProfiles.map((p) => (
                                     <MenuItem key={p.uniqueId} value={p.uniqueId}>
@@ -1583,7 +1601,7 @@ const Inventory = () => {
                         onClick={handleQueueSubmit}
                         variant="contained"
                         color="primary"
-                        disabled={loading || !selectedProfileId}
+                        disabled={loading || selectedProfileIds.length === 0}
                     >
                         {loading ? 'Queueing...' : 'Add to Queue'}
                     </Button>
