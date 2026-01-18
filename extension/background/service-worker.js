@@ -370,8 +370,16 @@ async function handlePolledEvent(event) {
 
       if (tabs && tabs.length > 0) {
         const tabId = tabs[0].id;
-        chrome.tabs.update(tabId, { active: true });
-        handleFillFormWithTestData(dataToUse, tabId);
+        // Verify it's effectively the same logic as creating new: Redirect to fresh URL
+        chrome.tabs.update(tabId, { 
+            active: true, 
+            url: "https://www.facebook.com/marketplace/create/vehicle" 
+        }, (tab) => {
+            // Wait for reload to complete (simple delay strategy matches existing create logic)
+            setTimeout(() => {
+                handleFillFormWithTestData(dataToUse, tabId);
+            }, 5000);
+        });
       } else {
         chrome.tabs.create({ url: "https://www.facebook.com/marketplace/create/vehicle" }, (tab) => {
           setTimeout(() => {
