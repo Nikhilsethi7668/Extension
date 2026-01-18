@@ -2175,7 +2175,7 @@ router.post('/queue-posting', protect, async (req, res) => {
         const now = new Date(); // Reference 'Now'
         
         // Default scheduler settings
-        const intervalMinutes = schedule?.intervalMinutes; 
+        const intervalMinutes = schedule?.intervalMinutes || 1; 
         const randomize = schedule?.randomize !== false; 
         const useStealth = schedule?.stealth === true;
 
