@@ -2270,12 +2270,10 @@ router.post('/queue-posting', protect, async (req, res) => {
                              // Actually, looking at previous `view_file` of `vehicle.routes.js`, I didn't see the imports (lines 1600+).
                              // I'll assume it's there.
                              
-                             /* 
-                              const aiContent = await generateVehicleContent(vehicleData, schedule.prompt);
-                              if (aiContent && aiContent.description) {
-                                  customDescription = aiContent.description;
-                              }
-                             */
+                            const aiContent = await generateVehicleContent(vehicleData, schedule.prompt);
+                            if (aiContent && aiContent.description) {
+                                customDescription = aiContent.description;
+                            }
                              // Re-using existing logic pattern
                         }
                     } catch (e) { console.error('AI Gen Error', e); }
