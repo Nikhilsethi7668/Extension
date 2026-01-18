@@ -430,11 +430,11 @@ const launchedProfiles = new Map();
 
 function launchChromeProfile(profileDir) {
   try {
-    // Check if already running
-    if (launchedProfiles.has(profileDir)) {
-      console.log(`Profile ${profileDir} is already running.`);
-      return { success: true, message: 'Profile already running' };
-    }
+    // Check if already running - REMOVED per user request
+    // if (launchedProfiles.has(profileDir)) {
+    //   console.log(`Profile ${profileDir} is already running.`);
+    //   return { success: true, message: 'Profile already running' };
+    // }
 
     console.log(`Launching Chrome profile: ${profileDir}`);
     // typical path for Windows
