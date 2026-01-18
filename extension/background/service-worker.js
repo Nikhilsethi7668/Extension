@@ -201,7 +201,10 @@ function initializeSocket(token = null, apiKey = null) {
   sessionData.apiKey = apiKey;
 
   // First, get the organization ID
-  fetch(`${BACKEND_URL}/auth/validate-key`, {
+  const validateUrl = `${BACKEND_URL}/auth/validate-key`;
+  console.log(`[Extension] Validating API Key at: ${validateUrl}`);
+  
+  fetch(validateUrl, {
       method: 'GET',
       headers: {
           'Content-Type': 'application/json',

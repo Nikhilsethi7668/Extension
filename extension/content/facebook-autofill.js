@@ -14,7 +14,8 @@
   let filledFields = new Set(); // Track which fields have been filled
   let isFilling = false; // Prevent concurrent fill attempts
   let lastFillTime = 0; // Debounce fills
-
+  let currentRunId = 0; // Prevent concurrent typing loops
+  
   // Helper function to check if extension context is valid
   function isExtensionContextValid() {
     try {
@@ -91,6 +92,7 @@
       filledFields.clear();
       fillAttempts = 0;
       isFilling = false;
+      currentRunId++; // Invalidate previous runs
 
       // Start observer if not already started
       if (!observer) {
@@ -2473,8 +2475,11 @@
     // Type the description character by character with human-like typing
     console.log('Starting to type description...');
     const isContentEditable = descriptionElement.contentEditable === 'true' || descriptionElement.tagName === 'DIV';
+    const thisRunId = currentRunId;
 
     for (let i = 0; i < description.length; i++) {
+      if (thisRunId !== currentRunId) return false; // Stop if new run started
+
       const char = description[i];
 
       if (isContentEditable) {
@@ -4151,6 +4156,8 @@
    * @param {boolean} isContentEditable - Whether element is contentEditable
    */
   async function humanLikeTyping(element, text, isContentEditable = false) {
+    const thisRunId = currentRunId;
+
     // Check again before clearing
     const currentValue = isContentEditable ? (element.textContent || '') : element.value;
     if (String(currentValue).toLowerCase().trim() === String(text).toLowerCase().trim()) {
@@ -4167,6 +4174,8 @@
 
     // Type character by character with random delays
     for (let i = 0; i < text.length; i++) {
+      if (thisRunId !== currentRunId) return; // Stop if new run started
+
       const char = text[i];
 
       if (isContentEditable) {

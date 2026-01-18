@@ -1492,26 +1492,12 @@ const Inventory = () => {
                         <FormControl fullWidth size="small">
                             <InputLabel>Chrome Profile</InputLabel>
                             <Select
-                                multiple
-                                value={selectedProfileIds}
+                                value={selectedProfileIds[0] || ''}
                                 label="Chrome Profile"
                                 onChange={(e) => {
-                                    const { target: { value } } = e;
-                                    setSelectedProfileIds(
-                                        // On autofill we get a stringified value.
-                                        typeof value === 'string' ? value.split(',') : value,
-                                    );
+                                    const val = e.target.value;
+                                    setSelectedProfileIds(val ? [val] : []);
                                 }}
-                                renderValue={(selected) => (
-                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                                        {selected.map((value) => {
-                                             const profile = chromeProfiles.find(p => p.uniqueId === value);
-                                             return (
-                                                <Chip key={value} label={profile ? profile.name : value} size="small" />
-                                             );
-                                        })}
-                                    </Box>
-                                )}
                             >
                                 {chromeProfiles.map((p) => (
                                     <MenuItem key={p.uniqueId} value={p.uniqueId}>
