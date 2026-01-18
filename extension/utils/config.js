@@ -10,7 +10,7 @@ var CONFIG = {
   version: '1.0.0',
   
   // Backend URL
-  backendUrl: 'http://localhost:5573/api',
+  backendUrl: 'https://api-flash.adaptusgroup.ca/api',
 
   // Supported Sites
   supportedSites: [

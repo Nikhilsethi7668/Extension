@@ -1,7 +1,7 @@
 const { ipcRenderer } = require('electron');
 
 // Hardcoded API URL
-const API_URL = 'http://localhost:5573/api';
+const API_URL = 'https://api-flash.adaptusgroup.ca/api';
 
 // DOM Elements
 const loginForm = document.getElementById('loginForm');

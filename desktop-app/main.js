@@ -18,7 +18,7 @@ const AutomationEngine = require('./automation-engine');
 
 // Default configuration
 const DEFAULT_CONFIG = {
-  apiUrl: 'http://localhost:5573/api',
+  apiUrl: 'https://api-flash.adaptusgroup.ca/api',
   apiToken: '',
   pollingInterval: 5, // minutes
   autoStart: false,

@@ -10,7 +10,7 @@ var CONFIG = {
   version: '1.0.0',
   
   // Backend URL
-  backendUrl: 'http://localhost:5573/api',
+  backendUrl: 'https://api-flash.adaptusgroup.ca/api',
 
   // Supported Sites
   supportedSites: [
@@ -182,7 +182,7 @@ console.log('Service Worker Logic Starting...');
 
 // Logic from service-worker.js, assuming CONFIG and io are already loaded globally
 
-const BACKEND_URL = (typeof CONFIG !== 'undefined' && CONFIG.backendUrl) ? CONFIG.backendUrl : 'http://localhost:5573/api';
+const BACKEND_URL = (typeof CONFIG !== 'undefined' && CONFIG.backendUrl) ? CONFIG.backendUrl : 'https://api-flash.adaptusgroup.ca/api';
 // Custom Polling System (Socket.IO replacement for Service Workers)
 // Service workers cannot use XMLHttpRequest, so we use fetch-based polling
 let pollingInterval = null;
@@ -493,11 +493,11 @@ async function handleFetchImageBlob(url) {
         // Handle relative URLs
         if (url.startsWith('/')) {
              // Ensure we use the correct backend URL
-             const baseUrl = CONFIG.backendUrl || 'http://localhost:5573/api';
+             const baseUrl = CONFIG.backendUrl || 'https://api-flash.adaptusgroup.ca/api';
              // Remove /api if it exists in base and we are appending a path that might assume root?
              // Actually, uploads are usually under root, not /api.
              // e.g. https://api-flash.adaptusgroup.ca/uploads/...
-             // CONFIG.backendUrl is http://localhost:5573/api
+             // CONFIG.backendUrl is https://api-flash.adaptusgroup.ca/api
              
              // If url starts with /uploads, we should strip /api from base if present
              const rootUrl = baseUrl.replace('/api', '');
@@ -670,7 +670,7 @@ async function handleFillFormWithTestData(testData, tabId = null) {
 
 async function handleFillFormWithTestDataFromAPI(customData = null, tabId = null) {
   try {
-    const API_BASE_URL = BACKEND_URL || 'http://localhost:5573/api';
+    const API_BASE_URL = BACKEND_URL || 'https://api-flash.adaptusgroup.ca/api';
     const url = `${API_BASE_URL}/test-data`;
     const options = {
       method: customData ? 'POST' : 'GET',
