@@ -6,6 +6,7 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder --win --x64",
+    "build:mac": "electron-builder --mac",
     "dist": "electron-builder"
   },
   "author": "Flash Fender",
@@ -31,6 +32,12 @@
       "verifyUpdateCodeSignature": false,
       "sign": null,
       "forceCodeSigning": false
+    },
+    "mac": {
+      "target": [
+        "zip"
+      ],
+      "category": "public.app-category.business"
     },
     "nsis": {
       "oneClick": false,
