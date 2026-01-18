@@ -9,6 +9,16 @@ const eventQueues = new Map(); // orgId -> array of events
 // Active Profile Tracking (UserId:ProfileId -> Timestamp)
 const activeProfiles = new Map();
 
+// Cleanup stale active profiles every minute
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, lastSeen] of activeProfiles.entries()) {
+        if (now - lastSeen > 60000) { // 1 minute timeout
+            activeProfiles.delete(key);
+        }
+    }
+}, 60000);
+
 export function updateActiveProfile(userId, profileId) {
     if (!userId || !profileId) return;
     const key = `${userId}:${profileId}`;
@@ -48,6 +58,10 @@ router.get('/poll', protect, async (req, res) => {
         const relevantEvents = [];
         const remainingEvents = [];
 
+        // Default limit to 1 to ensure load balancing across multiple extensions
+        // Unless explicitly requested otherwise
+        const limit = parseInt(req.query.limit) || 1; 
+
         for (const event of allEvents) {
             // Check if matches profile
             const eventProfileId = event.data?.profileId;
@@ -60,7 +74,9 @@ router.get('/poll', protect, async (req, res) => {
             // CAUTION: If multiple profiles poll, global events might be raced. 
             // Ideally global events go to a "default" poller? 
             // For now: take if matches profileId OR !eventProfileId
-            if (!eventProfileId || (profileId && eventProfileId === profileId)) {
+            const isMatch = !eventProfileId || (profileId && eventProfileId === profileId);
+
+            if (isMatch && relevantEvents.length < limit) {
                 relevantEvents.push(event);
             } else {
                 remainingEvents.push(event);
@@ -71,6 +87,7 @@ router.get('/poll', protect, async (req, res) => {
         if (remainingEvents.length > 0) {
             eventQueues.set(orgId.toString(), remainingEvents);
         } else {
+            // Only delete if queue is truly empty
             eventQueues.delete(orgId.toString());
         }
         
