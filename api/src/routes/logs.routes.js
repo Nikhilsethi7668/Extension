@@ -109,4 +109,29 @@ router.delete('/', protect, async (req, res) => {
     }
 });
 
+// @desc    Log activity
+// @route   POST /api/logs/activity
+// @access  Protected
+router.post('/activity', protect, async (req, res) => {
+    try {
+        const { action, entityType, entityId, details, ...otherData } = req.body;
+
+        const log = await AuditLog.create({
+            organization: req.user.organization?._id || req.user.organization,
+            user: req.user._id,
+            action: action || 'unknown_action',
+            entityType: entityType || 'User',
+            entityId: entityId || req.user._id,
+            details: { ...details, ...otherData },
+            ipAddress: req.ip,
+            userAgent: req.headers['user-agent']
+        });
+
+        res.status(201).json({ success: true, log });
+    } catch (error) {
+        console.error('Error logging activity:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
 export default router;
