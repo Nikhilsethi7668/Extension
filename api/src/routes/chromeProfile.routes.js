@@ -6,40 +6,35 @@ import { protect } from '../middleware/auth.js';
 const router = express.Router();
 
 /**
- * @route   POST /api/chrome-profiles/sync
- * @desc    Sync Chrome profiles for the authenticated user
+ * @route   POST /api/chrome-profiles/add
+ * @desc    Add a single Chrome profile for the authenticated user
  * @access  Private
  */
-router.post('/sync', protect, async (req, res) => {
+router.post('/add', protect, async (req, res) => {
   try {
-    const profiles = req.body.profiles; // Expecting array of { id, name, shortcut_name, avatar_icon }
+    const profile = req.body; // Expecting single profile object { id, name, shortcut_name, avatar_icon }
     
-    if (!profiles || !Array.isArray(profiles)) {
-      return res.status(400).json({ message: 'Invalid data format. Expected an array of profiles.' });
+    if (!profile || !profile.id || !profile.name) {
+      return res.status(400).json({ message: 'Invalid data. ID and Name are required.' });
     }
 
-    const operations = profiles.map(profile => ({
-      updateOne: {
-        filter: { user: req.user._id, uniqueId: profile.id },
-        update: {
-          $set: {
-            name: profile.name,
-            shortcutName: profile.shortcut_name,
-            avatarIcon: profile.avatar_icon,
-            lastSynced: new Date()
-          }
-        },
-        upsert: true
-      }
-    }));
+    // Upsert single profile
+    await ChromeProfile.findOneAndUpdate(
+      { user: req.user._id, uniqueId: profile.id },
+      {
+        $set: {
+          name: profile.name,
+          shortcutName: profile.shortcut_name,
+          avatarIcon: profile.avatar_icon,
+          lastSynced: new Date()
+        }
+      },
+      { upsert: true, new: true }
+    );
 
-    if (operations.length > 0) {
-      await ChromeProfile.bulkWrite(operations);
-    }
-
-    res.json({ success: true, message: `Synced ${profiles.length} profiles.` });
+    res.json({ success: true, message: `Added profile: ${profile.name}` });
   } catch (error) {
-    console.error('Error syncing Chrome profiles:', error);
+    console.error('Error adding Chrome profile:', error);
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
 });

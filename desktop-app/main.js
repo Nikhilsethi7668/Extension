@@ -507,13 +507,9 @@ ipcMain.handle('get-db-profiles', async () => {
   }
 });
 
-ipcMain.handle('force-sync-profiles', async () => {
-  await syncProfiles();
-  return { success: true };
-});
 
 ipcMain.handle('upload-profiles', async (event, profiles) => {
-  await syncProfiles(profiles);
+  await uploadProfiles(profiles);
   return { success: true };
 });
 
@@ -712,30 +708,34 @@ function disconnectSocket() {
 }
 
 // Profile Sync Logic
-async function syncProfiles(profilesToSync = null) {
+// Profile Upload Logic (Explicit)
+async function uploadProfiles(profiles) {
   const config = loadConfig();
-  if (!config.apiToken) return; // not logged in
+  if (!config.apiToken) return;
 
-  const profiles = profilesToSync || getChromeProfiles();
-  if (profiles.length === 0) return;
+  if (!profiles || !Array.isArray(profiles) || profiles.length === 0) {
+      console.error('[Upload] No profiles provided for upload.');
+      return;
+  }
+
+  console.log(`[Upload] Uploading ${profiles.length} profiles:`, profiles.map(p => p.name).join(', '));
 
   const axios = require('axios');
-  const apiUrl = config.apiUrl; // Use configured API URL
+  const apiUrl = config.apiUrl;
+  
   try {
-    // Remove /api if present to avoid duplication if user added it, or ensure consistency. 
-    // The current config has apiUrl with /api possibly. 
-    // Wait, the original code had 'https://api-flash.adaptusgroup.ca/api' hardcoded.
-    // If config.apiUrl is 'http://localhost:5573/api', then we use it as is.
-    await axios.post(`${apiUrl}/chrome-profiles/sync`, {
-      profiles: profiles
-    }, {
-      headers: {
-        'Authorization': `Bearer ${config.apiToken}`
-      }
-    });
-    console.log(`[Sync] Synced ${profiles.length} Chrome profiles.`);
+    // Backend now accepts ONLY one profile at a time at /add
+    // We must loop and send individually
+    for (const profile of profiles) {
+        await axios.post(`${apiUrl}/chrome-profiles/add`, profile, {
+          headers: {
+            'Authorization': `Bearer ${config.apiToken}`
+          }
+        });
+        console.log(`[Upload] Successfully uploaded: ${profile.name}`);
+    }
   } catch (error) {
-    console.error('[Sync] Failed to sync profiles:', error.message);
+    console.error('[Upload] Failed to upload profiles:', error.message);
   }
 }
 
@@ -757,6 +757,9 @@ function stopSync() {
 }
 
 // Hook into app lifecycle and auth
+// REMOVED: Automatic startSync() triggers to prevent auto-upload
+// All sync/upload operations must now be explicitly triggered by user action
+/*
 const originalCreateWindow = createWindow;
 createWindow = function () {
   originalCreateWindow();
@@ -765,10 +768,6 @@ createWindow = function () {
   }
 }
 
-// ... but wait, createWindow is called inside app.whenReady ... 
-// Better to adding listeners or checks.
-
-// Let's attach to where session is saved/cleared
 const originalSaveSession = saveSession;
 saveSession = function (session) {
   const res = originalSaveSession(session);
@@ -785,9 +784,9 @@ clearSession = function () {
   return res;
 };
 
-// Also start on app ready if authenticated
 app.on('ready', () => {
   if (isAuthenticated()) {
     startSync();
   }
 });
+*/
