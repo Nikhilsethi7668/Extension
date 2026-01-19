@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import ChromeProfile from '../models/ChromeProfile.js';
 import { protect } from '../middleware/auth.js';
 
@@ -64,11 +65,16 @@ router.get('/', protect, async (req, res) => {
  */
 router.delete('/:id', protect, async (req, res) => {
   try {
-    // Try to delete by _id first, then uniqueId if not found or invalid format
-    let profile = await ChromeProfile.findOneAndDelete({ _id: req.params.id, user: req.user._id });
+    let profile;
+    const isObjectId = mongoose.Types.ObjectId.isValid(req.params.id);
+
+    // Try to delete by _id if it's a valid ObjectId
+    if (isObjectId) {
+        profile = await ChromeProfile.findOneAndDelete({ _id: req.params.id, user: req.user._id });
+    }
     
+    // If not found by _id (or not an ObjectId), try uniqueId
     if (!profile) {
-      // Try uniqueId
        profile = await ChromeProfile.findOneAndDelete({ uniqueId: req.params.id, user: req.user._id });
     }
 
