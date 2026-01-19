@@ -6,7 +6,7 @@ import {
 } from '@mui/material';
 import {
     LayoutDashboard, CarFront, Users, FileText, Settings, LogOut, Building2,
-    ChevronLeft, ChevronRight, Bell, Search
+    ChevronLeft, ChevronRight, Bell, Search, CalendarClock
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -22,6 +22,7 @@ const Layout = ({ children, title, actions }) => {
     const menuItems = [
         { text: 'Dashboard', icon: <LayoutDashboard size={20} />, path: '/' },
         { text: 'Inventory', icon: <CarFront size={20} />, path: '/inventory' },
+        { text: 'Scheduled Posts', icon: <CalendarClock size={20} />, path: '/scheduled-posts' },
         { text: 'User Posts', icon: <FileText size={20} />, path: '/user-posts' },
         ...(user?.role !== 'agent' ? [{ text: 'Users', icon: <Users size={20} />, path: '/users' }] : []),
         { text: 'Activity Logs', icon: <FileText size={20} />, path: '/logs' },

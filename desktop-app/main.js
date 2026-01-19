@@ -512,6 +512,30 @@ ipcMain.handle('force-sync-profiles', async () => {
   return { success: true };
 });
 
+ipcMain.handle('upload-profiles', async (event, profiles) => {
+  await syncProfiles(profiles);
+  return { success: true };
+});
+
+ipcMain.handle('delete-db-profile', async (event, profileId) => {
+  const config = loadConfig();
+  if (!config.apiToken) return { success: false, message: 'Not authenticated' };
+
+  const axios = require('axios');
+  try {
+    await axios.delete(`${config.apiUrl}/chrome-profiles/${profileId}`, {
+      headers: {
+        'Authorization': `Bearer ${config.apiToken}`
+      },
+      timeout: 5000
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('Error deleting profile:', error.message);
+    return { success: false, message: error.message };
+  }
+});
+
 // App lifecycle
 app.whenReady().then(() => {
   createWindow();
@@ -688,13 +712,11 @@ function disconnectSocket() {
 }
 
 // Profile Sync Logic
-async function syncProfiles() {
+async function syncProfiles(profilesToSync = null) {
   const config = loadConfig();
   if (!config.apiToken) return; // not logged in
 
-  const profiles = getChromeProfiles();
-  if (profiles.length === 0) return;
-
+  const profiles = profilesToSync || getChromeProfiles();
   if (profiles.length === 0) return;
 
   const axios = require('axios');

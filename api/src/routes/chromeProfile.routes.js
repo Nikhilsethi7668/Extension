@@ -57,4 +57,30 @@ router.get('/', protect, async (req, res) => {
   }
 });
 
+/**
+ * @route   DELETE /api/chrome-profiles/:id
+ * @desc    Delete a profile
+ * @access  Private
+ */
+router.delete('/:id', protect, async (req, res) => {
+  try {
+    // Try to delete by _id first, then uniqueId if not found or invalid format
+    let profile = await ChromeProfile.findOneAndDelete({ _id: req.params.id, user: req.user._id });
+    
+    if (!profile) {
+      // Try uniqueId
+       profile = await ChromeProfile.findOneAndDelete({ uniqueId: req.params.id, user: req.user._id });
+    }
+
+    if (!profile) {
+      return res.status(404).json({ message: 'Profile not found' });
+    }
+
+    res.json({ success: true, message: 'Profile removed' });
+  } catch (error) {
+    console.error('Error deleting profile:', error);
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
+
 export default router;

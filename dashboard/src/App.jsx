@@ -17,6 +17,7 @@ import UpdatePassword from './pages/UpdatePassword';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import UserPosts from './pages/UserPosts';
+import ScheduledPosts from './pages/ScheduledPosts';
 
 // --- Theme Configuration Function ---
 const getTheme = (mode) => createTheme({
@@ -196,6 +197,7 @@ const ThemedApp = () => {
                   <Routes>
                     <Route path="/" element={<Dashboard />} />
                     <Route path="/inventory" element={<Inventory />} />
+                    <Route path="/scheduled-posts" element={<ScheduledPosts />} />
                     <Route path="/user-posts" element={<UserPosts />} />
                     <Route path="/organizations" element={<Organizations />} />
                     <Route

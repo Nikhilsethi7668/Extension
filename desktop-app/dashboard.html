@@ -30,19 +30,34 @@
         <main>
 
 
-            <!-- Chrome Profiles Section -->
+            <!-- Local Profiles Section -->
             <section class="card">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <h2 style="margin: 0;">Chrome Profiles</h2>
+                    <h2 style="margin: 0;">Local Profiles <small style="font-size: 0.6em; color: #666;">(On this
+                            device)</small></h2>
                     <div>
-                        <button id="forceSyncBtn" class="btn btn-secondary" style="margin-right: 5px;">☁️ Upload to
-                            Cloud</button>
+                        <button id="refreshLocalProfilesBtn" class="btn btn-secondary">🔄 Refresh List</button>
+                        <button id="uploadSelectedBtn" class="btn btn-primary">☁️ Upload Selected</button>
+                    </div>
+                </div>
+
+                <div id="localProfilesList" class="profiles-grid">
+                    <div class="empty-state">Click Refresh to scan for profiles...</div>
+                </div>
+            </section>
+
+            <!-- Cloud Profiles Section -->
+            <section class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2 style="margin: 0;">Cloud Saved Profiles</h2>
+                    <div>
+                        <!-- forceSyncBtn removed as we use selective upload now, or kept as "Sync All" if needed. User asked for selective. I'll hide/remove forceSyncBtn or repurpose it? The user said "give option to refresh... select... upload". I will keep forceSyncBtn hidden or remove it to avoid confusion, or keep it as "Force Full Sync" -->
                         <button id="refreshDbProfilesBtn" class="btn btn-secondary">🔄 Refresh</button>
                     </div>
                 </div>
 
                 <div id="dbProfilesList" class="profiles-grid">
-                    <div class="empty-state">Loading synced profiles...</div>
+                    <div class="empty-state">Loading saved profiles...</div>
                 </div>
             </section>
 
@@ -64,6 +79,8 @@
             <p>Flash Fender Auto-Poster v1.0.0 | Running in background when minimized</p>
         </footer>
     </div>
+
+    <div id="toastContainer" class="toast-container"></div>
 
     <script src="dashboard-renderer.js"></script>
     <style>
@@ -141,7 +158,82 @@
             color: #888;
             font-style: italic;
         }
-    </style>
-</body>
 
-</html>
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .toast {
+            background-color: #333;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 4px;
+            margin-top: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.3s, transform 0.3s;
+            display: flex;
+            align-items: center;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .toast.success {
+            background-color: #4CAF50;
+        }
+
+        .toast.error {
+            background-color: #F44336;
+        }
+
+        .toast.info {
+            background-color: #2196F3;
+        }
+
+        /* Profile Card Actions */
+        .profile-actions {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 10px;
+            gap: 5px;
+        }
+
+        .btn-remove {
+            background: #ff5252;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+
+        .btn-remove:hover {
+            background: #d32f2f;
+        }
+
+        .profile-select-container {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+        }
+
+        .profile-checkbox {
+            transform: scale(1.5);
+            cursor: pointer;
+        }
+
+        .profile-card {
+            position: relative;
+            /* For absolute positioning of checkbox */
+        }
+
+        </body></html>
