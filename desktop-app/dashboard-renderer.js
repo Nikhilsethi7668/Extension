@@ -155,16 +155,6 @@ function renderCloudProfiles(profiles, targetElement) {
     profiles.forEach(profile => {
       const card = document.createElement('div');
       card.className = 'profile-card';
-      if (profile.id === currentActiveProfileId) {
-          card.classList.add('selected');
-      }
-  
-      // Add click listener to select profile as ACTIVE
-      card.addEventListener('click', (e) => {
-          // If clicking buttons, don't set active
-          if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
-          setActiveProfile(profile.id);
-      });
   
       const avatar = document.createElement('div');
       avatar.className = 'profile-avatar';
@@ -173,15 +163,6 @@ function renderCloudProfiles(profiles, targetElement) {
       const name = document.createElement('div');
       name.className = 'profile-name';
       name.textContent = profile.name;
-      
-      // Check mark for active profile
-      if (profile.id === currentActiveProfileId) {
-          const check = document.createElement('span');
-          check.textContent = ' ✓';
-          check.style.color = '#2196F3';
-          check.style.fontWeight = 'bold';
-          name.appendChild(check);
-      }
       
       const dir = document.createElement('div');
       dir.className = 'profile-dir';
@@ -268,17 +249,6 @@ function renderLocalProfiles(profiles) {
         const card = document.createElement('div');
         card.className = 'profile-card';
         
-        // Checkbox container
-        const selectContainer = document.createElement('div');
-        selectContainer.className = 'profile-select-container';
-        
-        const checkbox = document.createElement('input');
-        checkbox.type = 'checkbox';
-        checkbox.className = 'profile-checkbox';
-        checkbox.value = profile.id;
-        
-        selectContainer.appendChild(checkbox);
-        
         // Avatar
         const avatar = document.createElement('div');
         avatar.className = 'profile-avatar';
@@ -293,17 +263,37 @@ function renderLocalProfiles(profiles) {
         dir.className = 'profile-dir';
         dir.textContent = profile.id;
 
-        card.appendChild(selectContainer);
+        // Actions
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'profile-actions';
+
+        const uploadBtn = document.createElement('button');
+        uploadBtn.className = 'btn-launch';
+        uploadBtn.textContent = '☁️ Upload';
+        uploadBtn.title = 'Upload this profile to cloud';
+        uploadBtn.onclick = async (e) => {
+            e.stopPropagation();
+            uploadBtn.disabled = true;
+            uploadBtn.textContent = 'Uploading...';
+            
+            try {
+                await ipcRenderer.invoke('upload-profiles', [profile]);
+                showToast(`Successfully uploaded ${profile.name}`, 'success');
+                await loadDbProfiles(); // Refresh cloud profiles
+            } catch (error) {
+                showToast(`Upload failed: ${error.message}`, 'error');
+            } finally {
+                uploadBtn.disabled = false;
+                uploadBtn.textContent = '☁️ Upload';
+            }
+        };
+
+        actionsDiv.appendChild(uploadBtn);
+
         card.appendChild(avatar);
         card.appendChild(name);
         card.appendChild(dir);
-        
-        // Click card to toggle checkbox
-        card.addEventListener('click', (e) => {
-            if (e.target !== checkbox) {
-                checkbox.checked = !checkbox.checked;
-            }
-        });
+        card.appendChild(actionsDiv);
 
         localProfilesList.appendChild(card);
     });
@@ -313,42 +303,6 @@ if (refreshLocalProfilesBtn) {
     refreshLocalProfilesBtn.addEventListener('click', async () => {
         await loadLocalProfiles();
         showToast('Local profiles refreshed', 'info');
-    });
-}
-
-if (uploadSelectedBtn) {
-    uploadSelectedBtn.addEventListener('click', async () => {
-        const selectedCheckboxes = document.querySelectorAll('.profile-checkbox:checked');
-        if (selectedCheckboxes.length === 0) {
-            showToast('Please select at least one profile to upload', 'error');
-            return;
-        }
-
-        uploadSelectedBtn.disabled = true;
-        uploadSelectedBtn.textContent = 'Uploading...';
-
-        const profilesToUpload = [];
-        selectedCheckboxes.forEach(cb => {
-            const profileId = cb.value;
-            const profile = localProfilesData.find(p => p.id === profileId);
-            if (profile) profilesToUpload.push(profile);
-        });
-
-        try {
-            await ipcRenderer.invoke('upload-profiles', profilesToUpload);
-            showToast(`Successfully uploaded ${profilesToUpload.length} profiles`, 'success');
-            
-            // Clear selections
-            selectedCheckboxes.forEach(cb => cb.checked = false);
-            
-            // Refresh Cloud List
-            await loadDbProfiles();
-        } catch (error) {
-            showToast(`Upload failed: ${error.message}`, 'error');
-        } finally {
-            uploadSelectedBtn.disabled = false;
-            uploadSelectedBtn.textContent = '☁️ Upload Selected';
-        }
     });
 }
 
@@ -411,11 +365,11 @@ ipcRenderer.on('error', (event, message) => {
 ipcRenderer.on('socket-status', (event, status) => {
   if (status.connected) {
     socketDot.classList.add('active');
-    socketText.textContent = 'Socket: Connected';
+    socketText.textContent = 'Connected';
     addLogEntry('Socket connected', 'success');
   } else {
     socketDot.classList.remove('active');
-    socketText.textContent = 'Socket: Disconnected';
+    socketText.textContent = 'Disconnected';
     addLogEntry('Socket disconnected', 'warning');
     if (status.error) {
       addLogEntry(`Socket Error: ${status.error}`, 'error');

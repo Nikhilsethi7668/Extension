@@ -36,7 +36,7 @@ body {
 }
 
 header {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #6366f1;
     color: white;
     padding: 1.5rem 2rem;
     box-shadow: var(--shadow-lg);
