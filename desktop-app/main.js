@@ -536,8 +536,23 @@ ipcMain.handle('delete-db-profile', async (event, profileId) => {
   }
 });
 
-// App lifecycle
-app.whenReady().then(() => {
+// Single Instance Lock
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Someone tried to run a second instance, we should focus our window.
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+
+  // App lifecycle
+  app.whenReady().then(() => {
   createWindow();
   createTray();
 
@@ -565,6 +580,7 @@ app.on('activate', () => {
     createWindow();
   }
 });
+}
 
 // Socket.IO Logic
 let socketListenersAttached = false; // Flag to prevent duplicate listeners
