@@ -26,6 +26,7 @@
     "appId": "com.flashfender.autoposter",
     "productName": "Flash Fender Auto-Poster",
     "win": {
+      "icon": "icon.png",
       "target": [
         "nsis"
       ],

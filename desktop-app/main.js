@@ -115,7 +115,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
-    icon: path.join(__dirname, 'assets', 'icon.png'),
+    icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -155,7 +155,7 @@ function createWindow() {
 
 // Create system tray
 function createTray() {
-  const iconPath = path.join(__dirname, 'assets', 'tray-icon.png');
+  const iconPath = path.join(__dirname, 'icon.png');
   const trayIcon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
 
   tray = new Tray(trayIcon);
@@ -245,6 +245,9 @@ ipcMain.handle('validate-login', async (event, credentials) => {
     saveSession(session);
     saveConfig(newConfig);
 
+    // Initialize socket connection
+    startSync();
+
     // Navigate to dashboard
     if (mainWindow) {
       mainWindow.loadFile('dashboard.html');
@@ -270,6 +273,7 @@ ipcMain.handle('check-auth', () => {
 
 ipcMain.handle('logout', () => {
   clearSession();
+  stopSync();
   
   // Stop automation on logout
   if (automationEngine) {
@@ -539,9 +543,12 @@ app.whenReady().then(() => {
 
   // Auto-start if configured
   const config = loadConfig();
-  /* if (config.autoStart) {
-     // Removed automation start
-  } */
+  
+  // Re-enable socket connection on startup if authenticated
+  if (isAuthenticated()) {
+    console.log('User authenticated on startup, connecting socket...');
+    startSync();
+  }
 });
 
 app.on('window-all-closed', (event) => {
