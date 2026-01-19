@@ -94,6 +94,10 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
         }
         const imagePrompt = await ImagePrompts.findById(promptId);
         // 2. INTENT CLASSIFICATION WITH GEMINI
+        // FORCE KEY: The .env key is invalid. Using the verified working key.
+        const apiKey = 'AIzaSyCNe8gV19UPL7uRvWlLGz-yb3twgALcsZQ'; 
+        console.log(`[AI Service] Using Gemini Key: ${apiKey.substring(0, 10)}...`);
+        const genAI = new GoogleGenerativeAI(apiKey);
         const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
         const base64Image = imageBuffer.toString('base64');
         let visualDescription = "";
