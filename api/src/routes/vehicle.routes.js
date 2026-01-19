@@ -833,6 +833,81 @@ router.post('/:id/generate-ai', protect, async (req, res) => {
     }
 });
 
+// @desc    Update vehicle details
+// @route   PUT /api/vehicles/:id
+// @access  Protected
+router.put('/:id', protect, async (req, res) => {
+    try {
+        const vehicle = await Vehicle.findById(req.params.id);
+
+        if (!vehicle) {
+            res.status(404);
+            throw new Error('Vehicle not found');
+        }
+
+        // Authorization Check
+        const userOrgId = req.user.organization._id ? req.user.organization._id.toString() : req.user.organization.toString();
+        const vehicleOrgId = vehicle.organization._id ? vehicle.organization._id.toString() : vehicle.organization.toString();
+
+        if (userOrgId !== vehicleOrgId) {
+            res.status(403);
+            throw new Error('Not authorized to update this vehicle');
+        }
+
+        // Agent Access Check
+        if (req.user.role === 'agent') {
+            const isAssigned = vehicle.assignedUsers && vehicle.assignedUsers.some(u =>
+                (u._id ? u._id.toString() : u.toString()) === req.user._id.toString()
+            );
+
+            if (!isAssigned) {
+                res.status(403);
+                throw new Error('Not authorized to access this vehicle');
+            }
+        }
+
+        // Fields to update
+        const editableFields = [
+            'year', 'make', 'model', 'trim', 'vin', 'stockNumber',
+            'price', 'mileage', 'description', 'exteriorColor',
+            'interiorColor', 'transmission', 'engine', 'fuelType',
+            'drivetrain', 'bodyStyle'
+        ];
+
+        // Apply updates
+        editableFields.forEach(field => {
+            if (req.body[field] !== undefined) {
+                vehicle[field] = req.body[field];
+            }
+        });
+
+        // Handle Features array specifically
+        if (req.body.features && Array.isArray(req.body.features)) {
+            vehicle.features = req.body.features;
+        }
+
+        await vehicle.save();
+
+        // Audit Log: Update Vehicle
+        await AuditLog.create({
+            action: 'Update Vehicle',
+            entityType: 'Vehicle',
+            entityId: vehicle._id,
+            user: req.user._id,
+            organization: req.user.organization._id,
+            details: {
+                updatedFields: Object.keys(req.body).filter(k => editableFields.includes(k) || k === 'features')
+            },
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+        });
+
+        res.json(vehicle);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
 // @desc    Remove background from a vehicle image (Nano Banana Integration)
 // @route   POST /api/vehicles/:id/remove-bg
 // @access  Protected

@@ -6,7 +6,7 @@ import {
     IconButton, Tooltip, FormControl, Select, MenuItem, Checkbox, InputLabel, RadioGroup, FormControlLabel, Radio,
     LinearProgress, Alert
 } from '@mui/material';
-import { Plus, Search, RefreshCw, X, Eye, ExternalLink, Image as ImageIcon, Trash2, UserPlus, Users, AlertTriangle, DollarSign, RotateCcw, Zap, CheckCircle, Loader } from 'lucide-react';
+import { Plus, Search, RefreshCw, X, Eye, ExternalLink, Image as ImageIcon, Trash2, UserPlus, Users, AlertTriangle, DollarSign, RotateCcw, Zap, CheckCircle, Loader, Edit } from 'lucide-react';
 import apiClient from '../config/axios';
 import Layout from '../components/Layout';
 import { io as socketIO } from 'socket.io-client';
@@ -71,6 +71,7 @@ const Inventory = () => {
     const [customPrompt, setCustomPrompt] = useState('');
     const [queueSchedule, setQueueSchedule] = useState({ intervalMinutes: 15, randomize: true, stealth: true });
     const [processingAi, setProcessingAi] = useState(false);
+    const [editDialogOpen, setEditDialogOpen] = useState(false); // New state for edit dialog
 
     useEffect(() => {
         const userStr = localStorage.getItem('user');
@@ -414,6 +415,34 @@ const Inventory = () => {
         } finally {
             setLoading(false);
         }
+    };
+
+    // New Handler for Edit Submission
+    const handleEditSubmit = async (formData) => {
+        setLoading(true);
+        try {
+            const { data } = await apiClient.put(`/vehicles/${selectedVehicle._id}`, formData);
+            
+            // Update local state
+            setSelectedVehicle(data); // Update detail view
+            
+            // Update list state (find and replace)
+            setVehicles(prev => prev.map(v => v._id === data._id ? data : v));
+            
+            alert('Vehicle updated successfully'); // Replaced toast with alert
+            setEditDialogOpen(false);
+        } catch (error) {
+            console.error('Update Error:', error);
+            alert(error.response?.data?.message || 'Failed to update vehicle'); // Replaced toast with alert
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleEditClick = (vehicle, e) => {
+        if (e) e.stopPropagation();
+        setSelectedVehicle(vehicle);
+        setEditDialogOpen(true);
     };
 
     const handleViewVehicle = (vehicle) => {
@@ -801,6 +830,15 @@ const Inventory = () => {
                                                     </IconButton>
                                                 </Tooltip>
                                             )}
+                                            <Tooltip title="Edit Vehicle">
+                                                <IconButton
+                                                    size="small"
+                                                    color="primary"
+                                                    onClick={(e) => handleEditClick(v, e)}
+                                                >
+                                                    <Edit size={18} />
+                                                </IconButton>
+                                            </Tooltip>
                                             <Tooltip title="Delete Vehicle">
                                                 <IconButton
                                                     size="small"
@@ -950,6 +988,14 @@ const Inventory = () => {
                                     </FormControl>
                                 </Box>
                                 <Box sx={{ display: 'flex', gap: 1 }}>
+                                    <Button
+                                        variant="outlined"
+                                        size="small"
+                                        startIcon={<Edit size={16} />}
+                                        onClick={() => setEditDialogOpen(true)}
+                                    >
+                                        Edit Details
+                                    </Button>
                                     {selectedDetailImages.length > 0 && (
                                         <Button
                                             variant="contained"
@@ -1609,7 +1655,100 @@ const Inventory = () => {
                     </Button>
                 </DialogActions>
             </Dialog>
+
+            {/* Edit Vehicle Dialog */}
+            <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="md" fullWidth>
+                <DialogTitle>Edit Vehicle Details</DialogTitle>
+                <DialogContent>
+                    {selectedVehicle && (
+                        <EditVehicleForm 
+                            vehicle={selectedVehicle} 
+                            onSubmit={handleEditSubmit} 
+                            onCancel={() => setEditDialogOpen(false)} 
+                            loading={loading}
+                        />
+                    )}
+                </DialogContent>
+            </Dialog>
+
         </Layout >
+    );
+};
+
+// Sub-component for Edit Form to keep main component cleaner
+const EditVehicleForm = ({ vehicle, onSubmit, onCancel, loading }) => {
+    const [formData, setFormData] = useState({
+        year: vehicle.year || '',
+        make: vehicle.make || '',
+        model: vehicle.model || '',
+        trim: vehicle.trim || '',
+        vin: vehicle.vin || '',
+        stockNumber: vehicle.stockNumber || '',
+        price: vehicle.price || '',
+        mileage: vehicle.mileage || '',
+        exteriorColor: vehicle.exteriorColor || '',
+        interiorColor: vehicle.interiorColor || '',
+        transmission: vehicle.transmission || '',
+        drivetrain: vehicle.drivetrain || '',
+        engine: vehicle.engine || '',
+        fuelType: vehicle.fuelType || '',
+        bodyStyle: vehicle.bodyStyle || '',
+        description: vehicle.description || ''
+    });
+
+    const handleChange = (e) => {
+        setFormData({ ...formData, [e.target.name]: e.target.value });
+    };
+
+    return (
+        <Box component="form" sx={{ mt: 1 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, mb: 3 }}>
+                <TextField label="Year" name="year" value={formData.year} onChange={handleChange} size="small" fullWidth type="number" />
+                <TextField label="Make" name="make" value={formData.make} onChange={handleChange} size="small" fullWidth />
+                <TextField label="Model" name="model" value={formData.model} onChange={handleChange} size="small" fullWidth />
+                
+                <TextField label="Trim" name="trim" value={formData.trim} onChange={handleChange} size="small" fullWidth />
+                <TextField label="VIN" name="vin" value={formData.vin} onChange={handleChange} size="small" fullWidth />
+                <TextField label="Stock #" name="stockNumber" value={formData.stockNumber} onChange={handleChange} size="small" fullWidth />
+                
+                <TextField label="Price" name="price" value={formData.price} onChange={handleChange} size="small" fullWidth type="number" />
+                <TextField label="Mileage" name="mileage" value={formData.mileage} onChange={handleChange} size="small" fullWidth type="number" />
+                <TextField label="Body Style" name="bodyStyle" value={formData.bodyStyle} onChange={handleChange} size="small" fullWidth />
+            </Box>
+
+            <Typography variant="overline" color="text.secondary">Specs & Colors</Typography>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 2, mb: 3, mt: 1 }}>
+                <TextField label="Exterior Color" name="exteriorColor" value={formData.exteriorColor} onChange={handleChange} size="small" fullWidth />
+                <TextField label="Interior Color" name="interiorColor" value={formData.interiorColor} onChange={handleChange} size="small" fullWidth />
+                <TextField label="Transmission" name="transmission" value={formData.transmission} onChange={handleChange} size="small" fullWidth />
+                
+                <TextField label="Drivetrain" name="drivetrain" value={formData.drivetrain} onChange={handleChange} size="small" fullWidth />
+                <TextField label="Engine" name="engine" value={formData.engine} onChange={handleChange} size="small" fullWidth />
+                <TextField label="Fuel Type" name="fuelType" value={formData.fuelType} onChange={handleChange} size="small" fullWidth />
+            </Box>
+
+            <TextField
+                label="Description"
+                name="description"
+                value={formData.description}
+                onChange={handleChange}
+                multiline
+                rows={6}
+                fullWidth
+                variant="outlined"
+            />
+
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2, mt: 3 }}>
+                <Button onClick={onCancel} disabled={loading}>Cancel</Button>
+                <Button 
+                    variant="contained" 
+                    onClick={() => onSubmit(formData)} 
+                    disabled={loading}
+                >
+                    {loading ? 'Saving...' : 'Save Changes'}
+                </Button>
+            </Box>
+        </Box>
     );
 };
 
