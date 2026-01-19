@@ -223,24 +223,61 @@ function renderCloudProfiles(profiles, targetElement) {
 }
 
 // Local Profile Logic
+const showAllProfilesCheckbox = document.getElementById('showAllProfilesCheckbox');
+let allLocalProfiles = [];
+let dbProfileIds = new Set();
+
 async function loadLocalProfiles() {
     if (!localProfilesList) return;
     localProfilesList.innerHTML = '<div class="empty-state">Scanning local profiles...</div>';
     
     try {
-        const profiles = await ipcRenderer.invoke('get-chrome-profiles');
-        localProfilesData = profiles; // Store for lookup
+        // Fetch both local and db profiles to filter
+        const [localProfiles, dbProfiles] = await Promise.all([
+            ipcRenderer.invoke('get-chrome-profiles'),
+            ipcRenderer.invoke('get-db-profiles')
+        ]);
         
-        if (profiles && profiles.length > 0) {
-            renderLocalProfiles(profiles);
-        } else {
-            localProfilesList.innerHTML = '<div class="empty-state">No Chrome profiles found on this computer.</div>';
-        }
+        allLocalProfiles = localProfiles || [];
+        dbProfileIds = new Set(dbProfiles.map(p => p.id)); // Assuming ID matches the local profile unique ID/dir
+        
+        renderFilteredLocalProfiles();
+
     } catch (error) {
         console.error('Error loading local profiles:', error);
         localProfilesList.innerHTML = '<div class="empty-state error">Failed to scan profiles</div>';
         showToast('Failed to scan local profiles', 'error');
     }
+}
+
+function renderFilteredLocalProfiles() {
+    const showAll = showAllProfilesCheckbox ? showAllProfilesCheckbox.checked : false;
+    
+    let profilesToShow = [];
+    if (showAll) {
+        profilesToShow = allLocalProfiles;
+    } else {
+        // Only show profiles that match a DB profile ID
+        // The ID in localProfiles is the directory name (e.g. "Profile 1")
+        // The ID in dbProfiles (from get-db-profiles) comes from uniqueId which should match.
+        profilesToShow = allLocalProfiles.filter(p => dbProfileIds.has(p.id));
+    }
+
+    if (profilesToShow && profilesToShow.length > 0) {
+        renderLocalProfiles(profilesToShow);
+    } else {
+        if (!showAll && allLocalProfiles.length > 0) {
+            localProfilesList.innerHTML = '<div class="empty-state">No synced profiles found on this computer.<br><small>Check "Show All" to see other profiles.</small></div>';
+        } else {
+            localProfilesList.innerHTML = '<div class="empty-state">No Chrome profiles found on this computer.</div>';
+        }
+    }
+}
+
+if (showAllProfilesCheckbox) {
+    showAllProfilesCheckbox.addEventListener('change', () => {
+        renderFilteredLocalProfiles();
+    });
 }
 
 function renderLocalProfiles(profiles) {
@@ -267,26 +304,36 @@ function renderLocalProfiles(profiles) {
         const actionsDiv = document.createElement('div');
         actionsDiv.className = 'profile-actions';
 
+        const isSynced = dbProfileIds.has(profile.id);
+
         const uploadBtn = document.createElement('button');
         uploadBtn.className = 'btn-launch';
-        uploadBtn.textContent = '☁️ Upload';
-        uploadBtn.title = 'Upload this profile to cloud';
-        uploadBtn.onclick = async (e) => {
-            e.stopPropagation();
+        
+        if (isSynced) {
+            uploadBtn.textContent = '✅ Synced';
             uploadBtn.disabled = true;
-            uploadBtn.textContent = 'Uploading...';
-            
-            try {
-                await ipcRenderer.invoke('upload-profiles', [profile]);
-                showToast(`Successfully uploaded ${profile.name}`, 'success');
-                await loadDbProfiles(); // Refresh cloud profiles
-            } catch (error) {
-                showToast(`Upload failed: ${error.message}`, 'error');
-            } finally {
-                uploadBtn.disabled = false;
-                uploadBtn.textContent = '☁️ Upload';
-            }
-        };
+            uploadBtn.style.background = '#4CAF50'; // Green
+            uploadBtn.style.cursor = 'default';
+        } else {
+            uploadBtn.textContent = '☁️ Upload';
+            uploadBtn.title = 'Upload this profile to cloud';
+            uploadBtn.onclick = async (e) => {
+                e.stopPropagation();
+                uploadBtn.disabled = true;
+                uploadBtn.textContent = 'Uploading...';
+                
+                try {
+                    await ipcRenderer.invoke('upload-profiles', [profile]);
+                    showToast(`Successfully uploaded ${profile.name}`, 'success');
+                    await loadDbProfiles(); // Refresh cloud profiles
+                    await loadLocalProfiles(); // Refresh local list to update "Synced" status
+                } catch (error) {
+                    showToast(`Upload failed: ${error.message}`, 'error');
+                    uploadBtn.disabled = false;
+                    uploadBtn.textContent = '☁️ Upload';
+                }
+            };
+        }
 
         actionsDiv.appendChild(uploadBtn);
 

@@ -743,11 +743,9 @@ async function syncProfiles(profilesToSync = null) {
 let syncInterval = null;
 
 // Start sync when app is ready or login status changes
+// Start sync when app is ready or login status changes
 function startSync() {
   if (syncInterval) clearInterval(syncInterval);
-  if (syncInterval) clearInterval(syncInterval);
-  syncProfiles(); // initial run
-  syncInterval = setInterval(syncProfiles, 30 * 1000); // 30 seconds
   connectSocket();
 }
 
