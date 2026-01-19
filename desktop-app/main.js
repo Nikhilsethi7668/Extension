@@ -553,33 +553,33 @@ if (!gotTheLock) {
 
   // App lifecycle
   app.whenReady().then(() => {
-  createWindow();
-  createTray();
-
-  // Auto-start if configured
-  const config = loadConfig();
-  
-  // Re-enable socket connection on startup if authenticated
-  if (isAuthenticated()) {
-    console.log('User authenticated on startup, connecting socket...');
-    startSync();
-  }
-});
-
-app.on('window-all-closed', (event) => {
-  // Don't quit on window close, keep running in tray
-  event.preventDefault();
-});
-
-app.on('before-quit', () => {
-  isQuitting = true;
-});
-
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
-  }
-});
+    createTray();
+
+    // Auto-start if configured
+    const config = loadConfig();
+    
+    // Re-enable socket connection on startup if authenticated
+    if (isAuthenticated()) {
+      console.log('User authenticated on startup, connecting socket...');
+      startSync();
+    }
+  });
+
+  app.on('window-all-closed', (event) => {
+    // Don't quit on window close, keep running in tray
+    event.preventDefault();
+  });
+
+  app.on('before-quit', () => {
+    isQuitting = true;
+  });
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
+  });
 }
 
 // Socket.IO Logic
