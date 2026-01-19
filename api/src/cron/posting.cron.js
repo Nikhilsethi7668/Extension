@@ -8,8 +8,8 @@ import { queueEvent } from '../routes/events.routes.js';
 export const initPostingCron = (io) => {
     console.log('[Cron] Initializing Posting Scheduler...');
 
-    // Run every minute
-    cron.schedule('* * * * *', async () => {
+    // Run every 30 seconds
+    cron.schedule('*/30 * * * * *', async () => {
         const now = new Date();
         console.log(`[Cron] Post Scheduler running at ${now.toLocaleTimeString()}`);
         // Check for postings scheduled in the past 2 minutes or next 1 minute (window)

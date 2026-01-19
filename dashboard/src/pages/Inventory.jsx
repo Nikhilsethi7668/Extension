@@ -1490,17 +1490,33 @@ const Inventory = () => {
                 <DialogContent>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
                         <FormControl fullWidth size="small">
-                            <InputLabel>Chrome Profile</InputLabel>
+                            <InputLabel>Chrome Profiles</InputLabel>
                             <Select
-                                value={selectedProfileIds[0] || ''}
-                                label="Chrome Profile"
+                                multiple
+                                value={selectedProfileIds}
+                                label="Chrome Profiles"
                                 onChange={(e) => {
-                                    const val = e.target.value;
-                                    setSelectedProfileIds(val ? [val] : []);
+                                    const value = e.target.value;
+                                    setSelectedProfileIds(typeof value === 'string' ? value.split(',') : value);
                                 }}
+                                renderValue={(selected) => (
+                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                        {selected.map((profileId) => {
+                                            const profile = chromeProfiles.find(p => p.uniqueId === profileId);
+                                            return (
+                                                <Chip
+                                                    key={profileId}
+                                                    label={profile?.name || profileId}
+                                                    size="small"
+                                                />
+                                            );
+                                        })}
+                                    </Box>
+                                )}
                             >
                                 {chromeProfiles.map((p) => (
                                     <MenuItem key={p.uniqueId} value={p.uniqueId}>
+                                        <Checkbox checked={selectedProfileIds.indexOf(p.uniqueId) > -1} />
                                         {p.name}
                                     </MenuItem>
                                 ))}

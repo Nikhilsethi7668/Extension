@@ -2220,9 +2220,14 @@ router.post('/queue-posting', protect, async (req, res) => {
                 // Calculate New Time: Add interval/delay
                 let delayToAdd = intervalMinutes * 60000;
                 
-                // Add Randomization
+                // Add random 2-5 minute delay
+                const randomMinutes = 2 + Math.random() * 3; // Random between 2 and 5 minutes
+                const randomDelay = Math.floor(randomMinutes * 60000);
+                delayToAdd += randomDelay;
+                
+                // Add additional randomization if enabled
                 if (randomize) {
-                    const variance = Math.floor(Math.random() * 4 * 60000); // 0-1 mins
+                    const variance = Math.floor(Math.random() * 1 * 60000); // 0-1 min extra variance
                     delayToAdd += variance;
                 }
 
@@ -2230,11 +2235,11 @@ router.post('/queue-posting', protect, async (req, res) => {
                 // If this is the FIRST item and no queue existed (fresh start), we should start immediately (or near immediately).
                 // Otherwise (appending to queue or subsequent items), we add the delay.
                 if (!lastScheduledPost && i === 0) {
-                     // Fresh queue, first item -> Start roughly Now (no delay added)
-                     // We keep runningTime as 'Now' (initialized above)
-                     console.log(`[Scheduler] First item in fresh queue for profile ${targetProfileId}. Scheduling immediately.`);
+                     // Fresh queue, first item -> Start with just the random delay (2-5 min from now)
+                     runningTime = new Date(runningTime.getTime() + randomDelay);
+                     console.log(`[Scheduler] First item in fresh queue for profile ${targetProfileId}. Scheduling in ${Math.floor(randomDelay/60000)} minutes.`);
                 } else {
-                     // Add delay
+                     // Add full delay
                      runningTime = new Date(runningTime.getTime() + delayToAdd);
                 }
 
