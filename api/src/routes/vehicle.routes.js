@@ -2273,32 +2273,29 @@ router.post('/queue-posting', protect, async (req, res) => {
             let runningTime = lastScheduledPost ? new Date(lastScheduledPost.scheduledTime) : new Date();
 
             // Create Posting records for this profile
-            for (let i = 0; i < vehicleIds.length; i++) {
-                const vehicleId = vehicleIds[i];
-
-                // Fetch Vehicle Data explicitly
+            // 1. Process all vehicles in PARALLEL (Heavy lifting: Images + AI)
+            const vehiclePromises = vehicleIds.map(async (vehicleId, index) => {
+                // A. Fetch Data
                 const vehicleData = await Vehicle.findById(vehicleId);
                 if (!vehicleData) {
                     console.error(`Vehicle ${vehicleId} not found, skipping.`);
-                    continue;
+                    return { skipped: true, reason: 'not_found' };
                 }
 
-                // Check if already scheduled for this specific profile (prevent duplicate/overwrite)
+                // B. Duplicate Check (Read-only, safe for parallel)
                 const activePosting = await Posting.findOne({
                     userId: req.user._id,
                     vehicleId: vehicleId,
                     profileId: targetProfileId,
-                    status: 'scheduled' // Check for active schedule
+                    status: 'scheduled'
                 });
 
                 if (activePosting) {
                     console.log(`[Scheduler] Skipping vehicle ${vehicleId} for profile ${targetProfileId}, already scheduled.`);
-                    results.skipped++;
-                    continue; 
+                    return { skipped: true, reason: 'duplicate' };
                 }
 
-                // --- STEALTH IMAGE LOGIC ---
-                // If user selected images, use them. If not, take first 8 of vehicle images.
+                // C. Stealth Image Processing
                 let sourceImages = [];
                 if (selectedImages && selectedImages.length > 0) {
                     sourceImages = selectedImages;
@@ -2307,26 +2304,23 @@ router.post('/queue-posting', protect, async (req, res) => {
                 }
 
                 let finalImages = [];
-                
-                // Process images with Stealth (Metadata + Unique Pixel)
                 if (sourceImages.length > 0) {
                     try {
                         const gps = (req.user.organization && req.user.organization.settings && req.user.organization.settings.gpsLocation) 
                                     ? req.user.organization.settings.gpsLocation 
                                     : DEFAULT_GPS;
                         
-                        console.log(`[Queue] applying stealth to ${sourceImages.length} images for vehicle ${vehicleId}`);
+                        console.log(`[Queue] applying stealth to ${sourceImages.length} images for vehicle ${vehicleId} (Folder: stealth)`);
                         
-                        // Reuse functionality from autoPrepareStealth (via prepareImageBatch)
                         const stealthResult = await prepareImageBatch(sourceImages, {
                             gps: gps,
-                            camera: null // Random
+                            camera: null, // Random
+                            folder: 'stealth' // Custom folder!
                         });
 
                         if (stealthResult.success || stealthResult.successCount > 0) {
                             finalImages = stealthResult.results.map(r => r.preparedUrl);
                         } else {
-                            // Fallback if stealth fails
                             console.warn('[Queue] Stealth failed, using original images');
                             finalImages = sourceImages;
                         }
@@ -2335,37 +2329,11 @@ router.post('/queue-posting', protect, async (req, res) => {
                         finalImages = sourceImages;
                     }
                 }
-                // ---------------------------
 
-                // Calculate New Time: Add interval/delay
-                let delayToAdd = intervalMinutes * 60000;
-                
-                // Add random 2-5 minute delay
-                const randomMinutes = 2 + Math.random() * 3; // Random between 2 and 5 minutes
-                const randomDelay = Math.floor(randomMinutes * 60000);
-                delayToAdd += randomDelay;
-                
-                // Add additional randomization if enabled
-                if (randomize) {
-                    const variance = Math.floor(Math.random() * 1 * 60000); // 0-1 min extra variance
-                    delayToAdd += variance;
-                }
-
-                // Update running time
-                if (!lastScheduledPost && i === 0) {
-                     // Fresh queue, first item -> Start with just the random delay
-                     runningTime = new Date(runningTime.getTime() + randomDelay);
-                     console.log(`[Scheduler] First item in fresh queue for profile ${targetProfileId}. Scheduling in ${Math.floor(randomDelay/60000)} minutes.`);
-                } else {
-                     // Add full delay
-                     runningTime = new Date(runningTime.getTime() + delayToAdd);
-                }
-
-                // Generate AI Description
+                // D. AI Description Generation
                 let customDescription = null;
                 if (schedule?.prompt) {
                     try {
-                        // Use the already fetched vehicleData
                         const aiContent = await generateVehicleContent(vehicleData, schedule.prompt);
                         if (aiContent && aiContent.description) {
                             customDescription = aiContent.description;
@@ -2373,17 +2341,65 @@ router.post('/queue-posting', protect, async (req, res) => {
                     } catch (e) { console.error('AI Gen Error', e); }
                 }
 
-                // Create Posting
-                 const postingRecord = await Posting.create({
+                return {
+                    skipped: false,
                     vehicleId,
+                    vehicleData,
+                    finalImages,
+                    customDescription,
+                    originalIndex: index // Keep track of order just in case
+                };
+            });
+
+            const processedVehicles = await Promise.all(vehiclePromises);
+
+            // 2. Schedule and Create Records SEQUENTIALLY (to maintain time order)
+            for (let i = 0; i < processedVehicles.length; i++) {
+                const item = processedVehicles[i];
+
+                if (item.skipped) {
+                    if (item.reason === 'duplicate') results.skipped++;
+                    continue;
+                }
+
+                // Calculate New Time: Add interval/delay
+                let delayToAdd = intervalMinutes * 60000;
+                
+                const randomMinutes = 2 + Math.random() * 3; // 2-5 min
+                const randomDelay = Math.floor(randomMinutes * 60000);
+                delayToAdd += randomDelay;
+                
+                if (randomize) {
+                    const variance = Math.floor(Math.random() * 1 * 60000);
+                    delayToAdd += variance;
+                }
+
+                // Update running time
+                // Logic: If freshness (index 0 effectively of effective queue)
+                // We use the loop index 'i' here. 
+                // Note: 'i' is the index in processedVehicles, which matches vehicleIds length.
+                // However, we only care about effective additions. 
+                // But for simplicity, we space them out based on their batch order.
+                
+                if (!lastScheduledPost && results.queued === 0) {
+                     // Very First Item in a fresh queue
+                     runningTime = new Date(runningTime.getTime() + randomDelay);
+                     console.log(`[Scheduler] First item in fresh queue for profile ${targetProfileId}. Scheduling in ${Math.floor(randomDelay/60000)} minutes.`);
+                } else {
+                     runningTime = new Date(runningTime.getTime() + delayToAdd);
+                }
+
+                // Create Posting
+                 await Posting.create({
+                    vehicleId: item.vehicleId,
                     userId: req.user._id,
                     orgId: orgId,
                     profileId: targetProfileId,
                     status: 'scheduled', 
                     scheduledTime: runningTime,
-                    selectedImages: finalImages, // Use the Stealthed Images!
+                    selectedImages: item.finalImages,
                     prompt: schedule?.prompt || null,
-                    customDescription: customDescription,
+                    customDescription: item.customDescription,
                     schedulerOptions: {
                         delay: 0, 
                         stealth: useStealth

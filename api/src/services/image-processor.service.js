@@ -221,6 +221,10 @@ export const injectMetadata = async (imageBuffer, options = {}) => {
  * Full image preparation pipeline
  * Fetches image, resizes, makes unique, injects metadata, and saves
  */
+/**
+ * Full image preparation pipeline
+ * Fetches image, resizes, makes unique, injects metadata, and saves
+ */
 export const prepareImage = async (imageUrl, options = {}) => {
     try {
         console.log(`[Image Processor] Starting preparation for: ${imageUrl}`);
@@ -256,9 +260,10 @@ export const prepareImage = async (imageUrl, options = {}) => {
 
         // Step 5: Generate human-like filename and save
         const filename = options.filename || `prepared_${generateHumanFilename('jpg')}`;
+        const folderName = options.folder || 'prepared';
 
         // Ensure prepared directory exists
-        const preparedDir = path.join(__dirname, '../../public/uploads/prepared');
+        const preparedDir = path.join(__dirname, `../../public/uploads/${folderName}`);
         if (!fs.existsSync(preparedDir)) {
             fs.mkdirSync(preparedDir, { recursive: true });
         }
@@ -266,7 +271,7 @@ export const prepareImage = async (imageUrl, options = {}) => {
         const filePath = path.join(preparedDir, filename);
         fs.writeFileSync(filePath, imageBuffer);
 
-        const savedUrl = `/uploads/prepared/${filename}`;
+        const savedUrl = `/uploads/${folderName}/${filename}`;
         console.log(`[Image Processor] ✅ Saved prepared image: ${savedUrl}`);
 
         return {
@@ -297,52 +302,49 @@ export const prepareImage = async (imageUrl, options = {}) => {
  * Ensures each image has different timestamps, slight variations, etc.
  */
 export const prepareImageBatch = async (imageUrls, options = {}) => {
-    const results = [];
-    const errors = [];
-
-    // Use a consistent camera for the batch (simulates same phone)
+    // defaults
     const batchCamera = options.camera || getRandomCamera();
     const baseTime = new Date();
     const gps = options.gps || DEFAULT_GPS;
+    const folder = options.folder || 'prepared';
 
-    console.log(`[Image Processor] Starting batch preparation of ${imageUrls.length} images`);
+    console.log(`[Image Processor] Starting batch preparation of ${imageUrls.length} images (Parallel)`);
     console.log(`[Image Processor] Using camera: ${batchCamera.make} ${batchCamera.model}`);
 
-    for (let i = 0; i < imageUrls.length; i++) {
-        const imageUrl = imageUrls[i];
-
+    // Parallel Processing with Promise.all
+    const promises = imageUrls.map(async (imageUrl, i) => {
         try {
-            const result = await prepareImage(imageUrl, {
+            return await prepareImage(imageUrl, {
                 camera: batchCamera,
                 gps: gps,
                 index: i,
                 datetime: generateUniqueDateTime(i, baseTime),
-                maxSize: options.maxSize || 2048
+                maxSize: options.maxSize || 2048,
+                folder: folder
             });
-
-            if (result.success) {
-                results.push(result);
-            } else {
-                errors.push({ url: imageUrl, error: result.error });
-            }
-
-            // Small delay between processing to avoid overwhelming resources
-            await new Promise(resolve => setTimeout(resolve, 100));
-
         } catch (error) {
-            errors.push({ url: imageUrl, error: error.message });
+            return {
+                success: false,
+                originalUrl: imageUrl,
+                error: error.message
+            };
         }
-    }
+    });
 
-    console.log(`[Image Processor] Batch complete: ${results.length} success, ${errors.length} failed`);
+    const allResults = await Promise.all(promises);
+
+    const successResults = allResults.filter(r => r.success);
+    const errorResults = allResults.filter(r => !r.success);
+
+    console.log(`[Image Processor] Batch complete: ${successResults.length} success, ${errorResults.length} failed`);
 
     return {
-        success: errors.length === 0,
+        success: errorResults.length === 0,
         totalProcessed: imageUrls.length,
-        successCount: results.length,
-        errorCount: errors.length,
-        results,
-        errors,
+        successCount: successResults.length,
+        errorCount: errorResults.length,
+        results: successResults,
+        errors: errorResults,
         batchMetadata: {
             camera: `${batchCamera.make} ${batchCamera.model}`,
             gps: gps,

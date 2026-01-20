@@ -1535,39 +1535,48 @@ const Inventory = () => {
                 <DialogTitle>Queue Post</DialogTitle>
                 <DialogContent>
                     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-                        <FormControl fullWidth size="small">
-                            <InputLabel>Chrome Profiles</InputLabel>
-                            <Select
-                                multiple
-                                value={selectedProfileIds}
-                                label="Chrome Profiles"
-                                onChange={(e) => {
-                                    const value = e.target.value;
-                                    setSelectedProfileIds(typeof value === 'string' ? value.split(',') : value);
-                                }}
-                                renderValue={(selected) => (
-                                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                                        {selected.map((profileId) => {
-                                            const profile = chromeProfiles.find(p => p.uniqueId === profileId);
-                                            return (
-                                                <Chip
-                                                    key={profileId}
-                                                    label={profile?.name || profileId}
-                                                    size="small"
-                                                />
-                                            );
-                                        })}
-                                    </Box>
-                                )}
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                            <FormControl fullWidth size="small">
+                                <InputLabel>Chrome Profiles</InputLabel>
+                                <Select
+                                    multiple
+                                    value={selectedProfileIds}
+                                    label="Chrome Profiles"
+                                    onChange={(e) => {
+                                        const value = e.target.value;
+                                        setSelectedProfileIds(typeof value === 'string' ? value.split(',') : value);
+                                    }}
+                                    renderValue={(selected) => (
+                                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                            {selected.map((profileId) => {
+                                                const profile = chromeProfiles.find(p => p.uniqueId === profileId);
+                                                return (
+                                                    <Chip
+                                                        key={profileId}
+                                                        label={profile?.name || profileId}
+                                                        size="small"
+                                                    />
+                                                );
+                                            })}
+                                        </Box>
+                                    )}
+                                >
+                                    {chromeProfiles.map((p) => (
+                                        <MenuItem key={p.uniqueId} value={p.uniqueId}>
+                                            <Checkbox checked={selectedProfileIds.indexOf(p.uniqueId) > -1} />
+                                            {p.name}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                            <Button 
+                                variant="outlined" 
+                                sx={{ height: 40, minWidth: 'fit-content' }} 
+                                onClick={() => setSelectedProfileIds(chromeProfiles.map(p => p.uniqueId))}
                             >
-                                {chromeProfiles.map((p) => (
-                                    <MenuItem key={p.uniqueId} value={p.uniqueId}>
-                                        <Checkbox checked={selectedProfileIds.indexOf(p.uniqueId) > -1} />
-                                        {p.name}
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
+                                Select All
+                            </Button>
+                        </Box>
 
                         {/* AI Description Prompt */}
                         <Box sx={{ bgcolor: 'background.paper', p: 2, borderRadius: 1, border: '1px solid #eee' }}>
