@@ -5,6 +5,14 @@ import { queueEvent } from '../routes/events.routes.js';
 
 // Actually we don't need jobEvents here. We emit socket directly.
 
+const BASE_URL = process.env.API_URL || (process.env.NODE_ENV === 'production' ? 'https://api-flash.adaptusgroup.ca' : 'http://localhost:5573');
+
+const toFullUrl = (url) => {
+    if (!url) return url;
+    if (url.startsWith('http')) return url;
+    return `${BASE_URL}${url}`;
+};
+
 export const initPostingCron = (io) => {
     console.log('[Cron] Initializing Posting Scheduler...');
 
@@ -94,8 +102,9 @@ export const initPostingCron = (io) => {
                      const vehiclePayload = vehicle.toObject ? vehicle.toObject() : { ...vehicle };
                      if (posting.selectedImages && posting.selectedImages.length > 0) {
                         console.log(`[Cron] Using ${posting.selectedImages.length} selected images for posting.`);
-                        vehiclePayload.preparedImages = posting.selectedImages;
-                        vehiclePayload.images = posting.selectedImages; // Strict override
+                        const fullUrls = posting.selectedImages.map(toFullUrl);
+                        vehiclePayload.preparedImages = fullUrls;
+                        vehiclePayload.images = fullUrls; // Strict override
                      }
                      
                      // Also attach custom description/prompt if present
@@ -138,8 +147,9 @@ async function processPostingAsync(io, posting, extensionRoom, vehicle) {
         const vehiclePayload = vehicle.toObject ? vehicle.toObject() : { ...vehicle };
         if (posting.selectedImages && posting.selectedImages.length > 0) {
            console.log(`[Cron] Using ${posting.selectedImages.length} selected images for posting.`);
-           vehiclePayload.preparedImages = posting.selectedImages;
-           vehiclePayload.images = posting.selectedImages; // Strict override
+           const fullUrls = posting.selectedImages.map(toFullUrl);
+           vehiclePayload.preparedImages = fullUrls;
+           vehiclePayload.images = fullUrls; // Strict override
         }
         
         // Also attach custom description/prompt if present
