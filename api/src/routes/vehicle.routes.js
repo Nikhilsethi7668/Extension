@@ -2319,7 +2319,11 @@ router.post('/queue-posting', protect, async (req, res) => {
                         });
 
                         if (stealthResult.success || stealthResult.successCount > 0) {
-                            finalImages = stealthResult.results.map(r => r.preparedUrl);
+                            finalImages = stealthResult.results.map(r => {
+                                const url = r.preparedUrl;
+                                if (url.startsWith('http')) return url;
+                                return `${'https://api-flash.adaptusgroup.ca'}${url}`;
+                            });
                         } else {
                             console.warn('[Queue] Stealth failed, using original images');
                             finalImages = sourceImages;
@@ -2329,6 +2333,14 @@ router.post('/queue-posting', protect, async (req, res) => {
                         finalImages = sourceImages;
                     }
                 }
+
+                // Ensure Final Images are Full URLs
+                const BASE_URL = 'https://api-flash.adaptusgroup.ca';
+                finalImages = finalImages.map(url => {
+                     if (!url) return url;
+                     if (url.startsWith('http')) return url;
+                     return `${BASE_URL}${url}`;
+                });
 
                 // D. AI Description Generation
                 let customDescription = null;
