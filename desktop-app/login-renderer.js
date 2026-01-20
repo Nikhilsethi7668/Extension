@@ -12,11 +12,21 @@ const errorMessage = document.getElementById('errorMessage');
 const btnText = loginBtn.querySelector('.btn-text');
 const btnLoader = loginBtn.querySelector('.btn-loader');
 
-// Initialize - don't auto-fill credentials
+// Initialize - auto-fill credentials if saved
 async function init() {
   // Token field starts empty for security
   apiTokenInput.value = '';
   rememberMeCheckbox.checked = false;
+
+  try {
+    const credentials = await ipcRenderer.invoke('get-saved-credentials');
+    if (credentials.rememberMe && credentials.apiToken) {
+      apiTokenInput.value = credentials.apiToken;
+      rememberMeCheckbox.checked = true;
+    }
+  } catch (error) {
+    console.error('Failed to load saved credentials:', error);
+  }
 }
 
 // Show error message

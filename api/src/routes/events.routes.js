@@ -38,42 +38,34 @@ export function isProfileActive(userId, profileId) {
 // Poll for events (called by extension every 5 seconds)
 router.get('/poll', protect, async (req, res) => {
     try {
-        const orgId = req.user.organization?._id || req.user.organization;
-        const profileId = req.query.profileId; // Optional profile ID
         const userId = req.user._id;
+        const profileId = req.query.profileId; // Optional profile ID
 
         // Track Active Profiles logic
         if (profileId) {
             updateActiveProfile(userId, profileId);
         }
-        
-        if (!orgId) {
-            return res.status(400).json({ success: false, message: 'No organization ID' });
+
+        if (!userId) {
+            return res.status(400).json({ success: false, message: 'No User ID found' });
         }
 
-        // Get events for this organization
-        const allEvents = eventQueues.get(orgId.toString()) || [];
+        // Get events for this USER (Strict Isolation)
+        const allEvents = eventQueues.get(userId.toString()) || [];
         
         // Filter events for this profile (or global events)
         const relevantEvents = [];
         const remainingEvents = [];
 
-        // Default limit to 1 to ensure load balancing across multiple extensions
-        // Unless explicitly requested otherwise
+        // Default limit to 1
         const limit = parseInt(req.query.limit) || 1; 
 
         for (const event of allEvents) {
             // Check if matches profile
             const eventProfileId = event.data?.profileId;
             
-            // If event is specific to a profile, only return it if we are that profile
-            // If event has NO profile, it is global -> typically we might want to broadcast, 
-            // but for a queue system, we usually want ONE worker to pick it up. 
-            // If we have multiple profiles active, who gets the global event?
-            // Current logic: If we are a specific profile, we take our specific events + global events.
-            // CAUTION: If multiple profiles poll, global events might be raced. 
-            // Ideally global events go to a "default" poller? 
-            // For now: take if matches profileId OR !eventProfileId
+            // Match if no profile specified OR profile matches
+            // We already matched userId by pulling from the user's queue
             const isMatch = !eventProfileId || (profileId && eventProfileId === profileId);
 
             if (isMatch && relevantEvents.length < limit) {
@@ -85,10 +77,9 @@ router.get('/poll', protect, async (req, res) => {
         
         // Update the queue with remaining events
         if (remainingEvents.length > 0) {
-            eventQueues.set(orgId.toString(), remainingEvents);
+            eventQueues.set(userId.toString(), remainingEvents);
         } else {
-            // Only delete if queue is truly empty
-            eventQueues.delete(orgId.toString());
+            eventQueues.delete(userId.toString());
         }
         
         res.json({ success: true, events: relevantEvents });
@@ -98,21 +89,25 @@ router.get('/poll', protect, async (req, res) => {
     }
 });
 
-// Queue an event for an organization (called by backend/cron jobs)
-export function queueEvent(orgId, eventType, eventData) {
-    const orgIdStr = orgId.toString();
+// Queue an event for a user (called by backend/cron jobs)
+export function queueEvent(userId, eventType, eventData) {
+    if (!userId) {
+        console.error('[Events] Cannot queue event check userId');
+        return;
+    }
+    const userIdStr = userId.toString();
     
-    if (!eventQueues.has(orgIdStr)) {
-        eventQueues.set(orgIdStr, []);
+    if (!eventQueues.has(userIdStr)) {
+        eventQueues.set(userIdStr, []);
     }
     
-    eventQueues.get(orgIdStr).push({
+    eventQueues.get(userIdStr).push({
         type: eventType,
         data: eventData,
         timestamp: Date.now()
     });
     
-    console.log(`[Events] Queued event '${eventType}' for org ${orgIdStr}`);
+    console.log(`[Events] Queued event '${eventType}' for user ${userIdStr}`);
 }
 
 // Verify posting (called by extension after successful post)
@@ -121,9 +116,6 @@ router.post('/verify-posting', protect, async (req, res) => {
         const { vehicleId, listingUrl, postingId } = req.body;
         
         console.log('[Events] Received posting verification:', { vehicleId, listingUrl, postingId });
-        
-        // You can add additional verification logic here
-        // For now, just acknowledge receipt
         
         res.json({ success: true, message: 'Verification received' });
     } catch (error) {
@@ -137,13 +129,13 @@ setInterval(() => {
     const now = Date.now();
     const maxAge = 5 * 60 * 1000; // 5 minutes
     
-    for (const [orgId, events] of eventQueues.entries()) {
+    for (const [key, events] of eventQueues.entries()) {
         const filtered = events.filter(event => (now - event.timestamp) < maxAge);
         
         if (filtered.length === 0) {
-            eventQueues.delete(orgId);
+            eventQueues.delete(key);
         } else if (filtered.length < events.length) {
-            eventQueues.set(orgId, filtered);
+            eventQueues.set(key, filtered);
         }
     }
 }, 60000); // Run every minute

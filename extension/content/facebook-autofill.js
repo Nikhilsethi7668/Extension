@@ -4061,7 +4061,9 @@
         try {
           const imageUrl = imagesToUse[i];
           await uploadImage(fileInput, imageUrl, i);
-          await sleep(1000); // Wait between uploads
+          // Random delay between 2-5 seconds (2000-5000ms)
+          const uploadDelay = Math.floor(Math.random() * 3000) + 2000;
+          await sleep(uploadDelay);
         } catch (error) {
           console.error(`Error uploading image ${i}:`, error);
         }

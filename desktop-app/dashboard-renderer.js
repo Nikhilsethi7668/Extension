@@ -48,6 +48,20 @@ async function init() {
   await updateStatus();
   await checkSocketStatus(); // Check socket status immediately
   await loadProfiles(); // Load Unified Profiles
+
+  // Set initial settings state
+  const runOnStartupCheckbox = document.getElementById('runOnStartupCheckbox');
+  if (runOnStartupCheckbox) {
+    runOnStartupCheckbox.checked = config.runOnStartup;
+    
+    // Add change listener
+    runOnStartupCheckbox.addEventListener('change', async (e) => {
+      const isChecked = e.target.checked;
+      config.runOnStartup = isChecked;
+      await ipcRenderer.invoke('save-config', config);
+      showToast(`Run on Startup ${isChecked ? 'enabled' : 'disabled'}`, 'success');
+    });
+  }
   
   // Start status polling
   setInterval(updateStatus, 5000);

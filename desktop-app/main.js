@@ -24,8 +24,38 @@ const DEFAULT_CONFIG = {
   autoStart: false,
   extensionPath: '',
   runOnStartup: false,
+  rememberMe: false,
   activeProfileId: null // Store selected Chrome profile ID
 };
+
+// Update startup settings
+// Update startup settings
+function updateStartupSettings(config) {
+  const appPath = app.isPackaged ? app.getPath('exe') : process.execPath;
+  const args = app.isPackaged ? [] : [path.resolve(__dirname)];
+
+  console.log(`[Startup] Updating Login Item Settings...`);
+  console.log(`[Startup] Mode: ${app.isPackaged ? 'Packaged' : 'Development'}`);
+  console.log(`[Startup] OpenAtLogin: ${config.runOnStartup}`);
+  console.log(`[Startup] Path: ${appPath}`);
+
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: config.runOnStartup,
+      path: appPath,
+      args: args,
+      name: 'Flash Fender Auto-Poster'
+    });
+    console.log('[Startup] Successfully updated login item settings');
+    
+    // Verify what Electron thinks
+    const settings = app.getLoginItemSettings({ path: appPath, args: args });
+    console.log('[Startup] Verification:', settings);
+    
+  } catch (error) {
+    console.error('[Startup] Failed to update settings:', error);
+  }
+}
 
 // Load configuration
 function loadConfig() {
@@ -42,7 +72,12 @@ function loadConfig() {
         return DEFAULT_CONFIG;
       }
 
-      return { ...DEFAULT_CONFIG, ...savedConfig };
+      const finalConfig = { ...DEFAULT_CONFIG, ...savedConfig };
+      
+      // Apply startup settings
+      updateStartupSettings(finalConfig);
+      
+      return finalConfig;
     }
   } catch (error) {
     console.error('Error loading config:', error);
@@ -59,6 +94,9 @@ function saveConfig(config) {
     if (automationEngine) {
       automationEngine.updateConfig(config);
     }
+
+    // Update startup settings
+    updateStartupSettings(config);
     
     return true;
   } catch (error) {
@@ -240,6 +278,7 @@ ipcMain.handle('validate-login', async (event, credentials) => {
       apiUrl: credentials.apiUrl,
       apiToken: response.data.token,  // Store the JWT token, not the API key
       apiKey: credentials.apiToken,   // Also store the API key for reference
+      rememberMe: credentials.rememberMe
     };
 
     saveSession(session);
@@ -290,10 +329,17 @@ ipcMain.handle('logout', () => {
 
 ipcMain.handle('get-saved-credentials', () => {
   const config = loadConfig();
+  if (config.rememberMe) {
+    return {
+      apiUrl: config.apiUrl,
+      apiToken: config.apiKey || config.apiToken, // Return original API key if possible
+      rememberMe: true
+    };
+  }
   return {
     apiUrl: config.apiUrl,
-    apiToken: config.apiToken,
-    rememberMe: true
+    apiToken: '',
+    rememberMe: false
   };
 });
 
@@ -672,8 +718,8 @@ function connectSocket() {
         const orgId = user.organization?._id || user.organization;
         if (orgId) {
           // Register as desktop client
-          socket.emit('register-client', { orgId, clientType: 'desktop' });
-          console.log(`[Socket] Registered as desktop client for org: ${orgId}`);
+          socket.emit('register-client', { orgId, userId: user._id, clientType: 'desktop' });
+          console.log(`[Socket] Registered as desktop client for org: ${orgId}, user: ${user._id}`);
         }
       }).catch(err => console.error('[Socket] Failed to fetch user details for room join:', err.message));
     });

@@ -2276,21 +2276,66 @@ router.post('/queue-posting', protect, async (req, res) => {
             for (let i = 0; i < vehicleIds.length; i++) {
                 const vehicleId = vehicleIds[i];
 
+                // Fetch Vehicle Data explicitly
+                const vehicleData = await Vehicle.findById(vehicleId);
+                if (!vehicleData) {
+                    console.error(`Vehicle ${vehicleId} not found, skipping.`);
+                    continue;
+                }
+
                 // Check if already scheduled for this specific profile (prevent duplicate/overwrite)
                 const activePosting = await Posting.findOne({
                     userId: req.user._id,
                     vehicleId: vehicleId,
                     profileId: targetProfileId,
-                    status: 'scheduled'
+                    status: 'scheduled' // Check for active schedule
                 });
 
                 if (activePosting) {
                     console.log(`[Scheduler] Skipping vehicle ${vehicleId} for profile ${targetProfileId}, already scheduled.`);
                     results.skipped++;
-                    continue; // Skip without incrementing time? Or should we preserve the slot? 
-                              // Use case: User re-queues same list. We should probably skip but NOT advance time if we didn't add anything.
                     continue; 
                 }
+
+                // --- STEALTH IMAGE LOGIC ---
+                // If user selected images, use them. If not, take first 8 of vehicle images.
+                let sourceImages = [];
+                if (selectedImages && selectedImages.length > 0) {
+                    sourceImages = selectedImages;
+                } else if (vehicleData.images && vehicleData.images.length > 0) {
+                    sourceImages = vehicleData.images.slice(0, 8);
+                }
+
+                let finalImages = [];
+                
+                // Process images with Stealth (Metadata + Unique Pixel)
+                if (sourceImages.length > 0) {
+                    try {
+                        const gps = (req.user.organization && req.user.organization.settings && req.user.organization.settings.gpsLocation) 
+                                    ? req.user.organization.settings.gpsLocation 
+                                    : DEFAULT_GPS;
+                        
+                        console.log(`[Queue] applying stealth to ${sourceImages.length} images for vehicle ${vehicleId}`);
+                        
+                        // Reuse functionality from autoPrepareStealth (via prepareImageBatch)
+                        const stealthResult = await prepareImageBatch(sourceImages, {
+                            gps: gps,
+                            camera: null // Random
+                        });
+
+                        if (stealthResult.success || stealthResult.successCount > 0) {
+                            finalImages = stealthResult.results.map(r => r.preparedUrl);
+                        } else {
+                            // Fallback if stealth fails
+                            console.warn('[Queue] Stealth failed, using original images');
+                            finalImages = sourceImages;
+                        }
+                    } catch (err) {
+                        console.error('[Queue] Stealth processing error:', err);
+                        finalImages = sourceImages;
+                    }
+                }
+                // ---------------------------
 
                 // Calculate New Time: Add interval/delay
                 let delayToAdd = intervalMinutes * 60000;
@@ -2307,10 +2352,8 @@ router.post('/queue-posting', protect, async (req, res) => {
                 }
 
                 // Update running time
-                // If this is the FIRST item and no queue existed (fresh start), we should start immediately (or near immediately).
-                // Otherwise (appending to queue or subsequent items), we add the delay.
                 if (!lastScheduledPost && i === 0) {
-                     // Fresh queue, first item -> Start with just the random delay (2-5 min from now)
+                     // Fresh queue, first item -> Start with just the random delay
                      runningTime = new Date(runningTime.getTime() + randomDelay);
                      console.log(`[Scheduler] First item in fresh queue for profile ${targetProfileId}. Scheduling in ${Math.floor(randomDelay/60000)} minutes.`);
                 } else {
@@ -2318,56 +2361,27 @@ router.post('/queue-posting', protect, async (req, res) => {
                      runningTime = new Date(runningTime.getTime() + delayToAdd);
                 }
 
-                // Generate AI Description (once per vehicle/profile combo)
+                // Generate AI Description
                 let customDescription = null;
                 if (schedule?.prompt) {
                     try {
-                         // Optimization: could generate once and reuse if posting same vehicle to multiple profiles?
-                         // But maybe we want variations? For now, re-generating or reusing matches user expectation of "bulk".
-                         // Since we are inside a loop, let's keep it simple.
-                        const vehicleData = await Vehicle.findById(vehicleId);
-                        if (vehicleData) {
-                            // Note: generateVehicleContent import needed? It's likely global or imported at top.
-                            // Checking previous file content... it wasn't shown imported but used. Assuming it's there.
-                            // If strictly needed, I'd check imports. But likely existing code works.
-                            
-                            // To be safe and avoid "not defined" if I removed it (I didn't), I'll assume it handles it.
-                            // Actually, I am REPLACING the whole block where it was used.
-                            // I need to make sure I don't lose the function usage logic.
-                            // I will keep the call as is.
-                             // dynamic import if needed or assume existing scope
-                             // Ideally existing imports are at top. I am editing the ROUTE handler only.
-                             
-                             // WAIT: I cannot call generateVehicleContent if I don't see it imported. 
-                             // I should check imports.
-                             // `vehicle.routes.js` imports: I saw lines 1-100 earlier.
-                             // Let's assume it's imported or available.
-                             
-                             // Just in case, I will wrap in try/catch nicely.
-                             // existing code had: `const aiContent = await generateVehicleContent(...)`
-                             // I will trust it is available in scope.
-                             
-                             // Actually, looking at previous `view_file` of `vehicle.routes.js`, I didn't see the imports (lines 1600+).
-                             // I'll assume it's there.
-                             
-                            const aiContent = await generateVehicleContent(vehicleData, schedule.prompt);
-                            if (aiContent && aiContent.description) {
-                                customDescription = aiContent.description;
-                            }
-                             // Re-using existing logic pattern
+                        // Use the already fetched vehicleData
+                        const aiContent = await generateVehicleContent(vehicleData, schedule.prompt);
+                        if (aiContent && aiContent.description) {
+                            customDescription = aiContent.description;
                         }
                     } catch (e) { console.error('AI Gen Error', e); }
                 }
 
-                // ... Create Posting ...
+                // Create Posting
                  const postingRecord = await Posting.create({
                     vehicleId,
                     userId: req.user._id,
                     orgId: orgId,
-                    profileId: targetProfileId, // Specific Profile!
+                    profileId: targetProfileId,
                     status: 'scheduled', 
                     scheduledTime: runningTime,
-                    selectedImages: selectedImages || [], 
+                    selectedImages: finalImages, // Use the Stealthed Images!
                     prompt: schedule?.prompt || null,
                     customDescription: customDescription,
                     schedulerOptions: {

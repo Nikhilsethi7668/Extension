@@ -51,8 +51,9 @@ export const initPostingCron = (io) => {
 
                 console.log(`[Cron] Triggering Posting ${posting._id} for Vehicle ${vehicleId._id} (User: ${userId})`);
 
-                const desktopRoom = `org:${orgId}:desktop`;
-                const extensionRoom = `org:${orgId}:extension`;
+                // Use user-specific room if available, otherwise fallback to org
+                const desktopRoom = userId ? `user:${userId}:desktop` : `org:${orgId}:desktop`;
+                const extensionRoom = `org:${orgId}:extension`; // Extensions poll via API, so this room usage is less critical for them, but usually they join org room.
 
 // Mark as processing immediately to prevent duplicate triggers
                 posting.status = 'processing';
@@ -103,8 +104,9 @@ export const initPostingCron = (io) => {
                      }
 
                      // Queue event instead of Socket.IO emit
-                     queueEvent(orgId, 'start-posting-vehicle', {
+                     queueEvent(posting.userId, 'start-posting-vehicle', {
                         profileId: profileId || null, // Include profile ID for routing
+                        userId: posting.userId, // Targeted User ID
                         vehicleId: vehicle._id,
                         vehicleData: vehiclePayload,
                         postingId: posting._id,
@@ -131,7 +133,7 @@ async function processPostingAsync(io, posting, extensionRoom, vehicle) {
         // Wait 15 seconds for browser to launch
         await new Promise(resolve => setTimeout(resolve, 15000));
         
-        console.log(`[Cron] Emitting start-posting-vehicle to ${extensionRoom} after delay`);
+        console.log(`[Cron] Queuing start-posting-vehicle for User ${posting.userId} after delay`);
         
         const vehiclePayload = vehicle.toObject ? vehicle.toObject() : { ...vehicle };
         if (posting.selectedImages && posting.selectedImages.length > 0) {
@@ -146,8 +148,9 @@ async function processPostingAsync(io, posting, extensionRoom, vehicle) {
         }
 
         // Queue event instead of Socket.IO emit
-        queueEvent(posting.orgId, 'start-posting-vehicle', {
+        queueEvent(posting.userId, 'start-posting-vehicle', {
             profileId: posting.profileId || null, // Include profile ID for routing
+            userId: posting.userId, // Targeted User ID
             vehicleId: vehicle._id,
             vehicleData: vehiclePayload,
             postingId: posting._id,

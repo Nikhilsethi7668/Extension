@@ -123,7 +123,7 @@ io.on('connection', (socket) => {
 
     // Register client type and join specific rooms
     socket.on('register-client', (data) => {
-        const { orgId, clientType } = data; // clientType: 'dashboard' | 'desktop' | 'extension'
+        const { orgId, userId, clientType } = data; // clientType: 'dashboard' | 'desktop' | 'extension'
 
         if (!orgId) return;
 
@@ -136,6 +136,12 @@ io.on('connection', (socket) => {
         if (clientType) {
             socket.join(`org:${orgId}:${clientType}`);
             console.log(`[Socket.IO] Client ${socket.id} joined specific room: org:${orgId}:${clientType}`);
+            
+            // Join USER-SPECIFIC room if userId is present
+            if (userId) {
+                socket.join(`user:${userId}:${clientType}`);
+                console.log(`[Socket.IO] Client ${socket.id} joined user room: user:${userId}:${clientType}`);
+            }
         }
     });
 
@@ -151,20 +157,42 @@ io.on('connection', (socket) => {
 
         if (!vehicleId || !profileId) return;
 
-        // Find the organization this socket belongs to
-        // We look for a room starting with 'org:' but NOT containing another ':' (which would be the specific room)
-        // Or we just parse one.
+        // Find the user room this socket belongs to
         const rooms = Array.from(socket.rooms);
-        const orgRoom = rooms.find(r => r.startsWith('org:') && r.split(':').length === 2);
+        const userRoom = rooms.find(r => r.startsWith('user:') && r.split(':').length === 3); // user:{userId}:{clientType}
 
-        if (!orgRoom) {
-            console.error('[Socket] Sender not in an org room');
-            return;
+        let userId, desktopRoom, extensionRoom;
+
+        if (userRoom) {
+            userId = userRoom.split(':')[1];
+            desktopRoom = `user:${userId}:desktop`;
+            // Extension room implies where we send the 'start-posting' event.
+            // If the extension registers with userId, it will be in user:{userId}:extension?
+            // But 'start-posting-vehicle' is actually sent to extension.
+            // In the cron job, we use `org:{orgId}:extension` falling back?
+            // Wait, for extension, strict isolation means we should emit to `user:{userId}:extension`?
+            // Or `user:{userId}:extension`.
+            // Let's assume extension also registers with userId (if we forced it).
+            // But wait, extension uses /poll usually.
+            // If we are emitting via socket (e.g. step 3 in this flow), we need to hit the extension via socket?
+            // The code at line 191 says `io.to(extensionRoom).emit(...)`.
+            // Does extension listen to socket?
+            // If extension uses /poll, then this socket emit might be redundant or for a different mode (Socket Mode Extension).
+            // SAFE BET: Emit to `org:{orgId}:extension` AND `user:{userId}:extension` if possible, OR just trust `user`.
+            // If user demands "only use user id", then:
+            extensionRoom = `user:${userId}:extension`;
+        } else {
+             // Fallback for legacy connections without userId (shouldn't happen if restarted)
+             const orgRoom = rooms.find(r => r.startsWith('org:') && r.split(':').length === 2);
+             if (orgRoom) {
+                 const orgId = orgRoom.split(':')[1];
+                 desktopRoom = `org:${orgId}:desktop`;
+                 extensionRoom = `org:${orgId}:extension`;
+             } else {
+                 console.error('[Socket] Sender not in a recognized room');
+                 return;
+             }
         }
-
-        const orgId = orgRoom.split(':')[1];
-        const desktopRoom = `org:${orgId}:desktop`;
-        const extensionRoom = `org:${orgId}:extension`;
 
         // Fetch vehicle details
         try {

@@ -50,7 +50,7 @@ var CONFIG = {
     attemptDelay: 2000,
     fillDelay: 300,
     clickDelay: 500,
-    imageUploadDelay: 1000
+    imageUploadDelay: 3000
   },
 
   // Image Settings
