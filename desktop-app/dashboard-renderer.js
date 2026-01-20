@@ -38,40 +38,74 @@ async function checkAuth() {
 
 // Initialize
 async function init() {
-  // Check authentication first
-  const authenticated = await checkAuth();
-  if (!authenticated) return;
-
-  const config = await ipcRenderer.invoke('get-config');
-  
-  // Load initial status
-  await updateStatus();
-  await checkSocketStatus(); // Check socket status immediately
-  await loadProfiles(); // Load Unified Profiles
-
-  // Set initial settings state
-  const runOnStartupCheckbox = document.getElementById('runOnStartupCheckbox');
-  if (runOnStartupCheckbox) {
-    runOnStartupCheckbox.checked = config.runOnStartup;
+  try {
+    await ipcRenderer.invoke('log-to-file', 'Init started');
     
-    // Add change listener
-    runOnStartupCheckbox.addEventListener('change', async (e) => {
-      const isChecked = e.target.checked;
-      config.runOnStartup = isChecked;
-      await ipcRenderer.invoke('save-config', config);
-      showToast(`Run on Startup ${isChecked ? 'enabled' : 'disabled'}`, 'success');
-    });
+    // Check authentication first
+    const authenticated = await checkAuth();
+    if (!authenticated) {
+      await ipcRenderer.invoke('log-to-file', 'Not authenticated, exiting init');
+      return;
+    }
+
+    await ipcRenderer.invoke('log-to-file', 'Getting config...');
+    const config = await ipcRenderer.invoke('get-config');
+    await ipcRenderer.invoke('log-to-file', `Config loaded: runOnStartup=${config.runOnStartup}`);
+    
+    // Load initial status
+    await updateStatus();
+    await checkSocketStatus(); // Check socket status immediately
+    await loadProfiles(); // Load Unified Profiles
+
+    // Set initial settings state
+    await ipcRenderer.invoke('log-to-file', 'Looking for checkbox...');
+    const runOnStartupCheckbox = document.getElementById('runOnStartupCheckbox');
+    if (runOnStartupCheckbox) {
+      runOnStartupCheckbox.checked = config.runOnStartup;
+      await ipcRenderer.invoke('log-to-file', `Checkbox found, initial state: ${config.runOnStartup}`);
+      
+      // Add change listener
+      runOnStartupCheckbox.addEventListener('change', async (e) => {
+        try {
+          const isChecked = e.target.checked;
+          await ipcRenderer.invoke('log-to-file', `Checkbox changed to: ${isChecked}`);
+          config.runOnStartup = isChecked;
+          await ipcRenderer.invoke('log-to-file', `Calling save-config with runOnStartup=${isChecked}`);
+          await ipcRenderer.invoke('save-config', config);
+          await ipcRenderer.invoke('log-to-file', 'save-config completed');
+          showToast(`Run on Startup ${isChecked ? 'enabled' : 'disabled'}`, 'success');
+        } catch (err) {
+          await ipcRenderer.invoke('log-to-file', `Checkbox change error: ${err.message}`);
+        }
+      });
+    } else {
+      await ipcRenderer.invoke('log-to-file', 'ERROR: runOnStartupCheckbox element not found');
+    }
+    
+    // Start status polling
+    setInterval(updateStatus, 5000);
+    
+    await ipcRenderer.invoke('log-to-file', 'Dashboard initialized successfully');
+  } catch (error) {
+    await ipcRenderer.invoke('log-to-file', `Init error: ${error.message}`);
+    console.error('Init error:', error);
   }
-  
-  // Start status polling
-  setInterval(updateStatus, 5000);
+}
+
+// Helper to log to file from renderer
+async function logRenderer(msg) {
+  try {
+    await ipcRenderer.invoke('log-to-file', msg);
+  } catch (e) {
+    console.error('Failed to log to file:', e);
+  }
 }
 
 // Check initial socket status
 async function checkSocketStatus() {
     try {
         const status = await ipcRenderer.invoke('get-socket-status');
-        if (status.connected) {
+        if (status.connected && socketDot && socketText) {
             socketDot.classList.add('active');
             socketText.textContent = 'Socket: Connected';
             addLogEntry('Socket status synced: Connected', 'success');
@@ -87,13 +121,15 @@ async function updateStatus() {
   
   isRunning = status.running;
   
-  // Update UI
-  if (isRunning) {
-    statusDot.classList.add('active');
-    statusText.textContent = 'Active';
-  } else {
-    statusDot.classList.remove('active');
-    statusText.textContent = 'Inactive';
+  // Update UI only if elements exist
+  if (statusDot && statusText) {
+    if (isRunning) {
+      statusDot.classList.add('active');
+      statusText.textContent = 'Active';
+    } else {
+      statusDot.classList.remove('active');
+      statusText.textContent = 'Inactive';
+    }
   }
 }
 
@@ -451,26 +487,8 @@ if (showAllProfilesCheckbox) {
 }
 
 // Update init to use new function
-const originalInit = init;
-init = async function() {
-    // We can't easily hook init if it's defined in scope.
-    // But we are replacing the code block.
-    // Let's just redefine init() or ensure we call loadProfiles inside the replacement if we replaced init.
-    // Wait, I am NOT replacing init() in this block.
-    // I am replacing lines 225-355 (Local Profile Logic).
-    // I need to make sure `loadProfiles` is called instead of `loadLocalProfiles`.
-    // `init` calls `loadLocalProfiles`? No, `init` isn't shown in range 225-355.
-    // `init` was at the top of the file.
-    // I'll need to update `init` separately or assume it calls `loadLocalProfiles` which I've removed?
-    // If I remove `loadLocalProfiles`, `init` (lines 40-53) will crash.
-    // So I must define `loadLocalProfiles` as an alias or update `init`.
-    // I will add the alias for backward compatibility or update `init` in another pass.
-    // Better: redefine `loadLocalProfiles` to call `loadProfiles` as a shim?
-    // Or just search/replace `loadLocalProfiles` with `loadProfiles` in `init`?
-    // Let's add the alias here to be safe:
-    loadLocalProfiles = loadProfiles; 
-    loadDbProfiles = loadProfiles;
-};
+// End of profile logic
+
 
 // ... Wait, I can't assign to const/function declarartion if it was hoisted?
 // Functions are hoisted.

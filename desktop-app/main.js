@@ -1,5 +1,5 @@
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, Notification } = require('electron');
-const { spawn } = require('child_process');
+const { spawn, exec } = require('child_process');
 const io = require('socket.io-client');
 const path = require('path');
 const fs = require('fs');
@@ -29,32 +29,100 @@ const DEFAULT_CONFIG = {
 };
 
 // Update startup settings
-// Update startup settings
+// Helper for debug logging
+function logToFile(message) {
+  try {
+    const logPath = path.join(app.getPath('userData'), 'debug_startup.log');
+    const timestamp = new Date().toISOString();
+    fs.appendFileSync(logPath, `[${timestamp}] ${message}\n`);
+  } catch (error) {
+    console.error('Failed to write to log file:', error);
+  }
+}
+
+ipcMain.handle('log-to-file', (event, message) => {
+  logToFile(`[Renderer] ${message}`);
+  return true;
+});
+
+// Update startup settings via PowerShell
 function updateStartupSettings(config) {
   const appPath = app.isPackaged ? app.getPath('exe') : process.execPath;
-  const args = app.isPackaged ? [] : [path.resolve(__dirname)];
+  const appName = "FlashFenderAutoPoster.lnk";
+  
+  logToFile(`[Startup] Updating Startup (PowerShell Method)`);
+  logToFile(`[Startup] Mode: ${app.isPackaged ? 'Packaged' : 'Development'}`);
+  logToFile(`[Startup] Target State: ${config.runOnStartup}`);
+  logToFile(`[Startup] Exe Path: ${appPath}`);
 
-  console.log(`[Startup] Updating Login Item Settings...`);
-  console.log(`[Startup] Mode: ${app.isPackaged ? 'Packaged' : 'Development'}`);
-  console.log(`[Startup] OpenAtLogin: ${config.runOnStartup}`);
-  console.log(`[Startup] Path: ${appPath}`);
-
-  try {
-    app.setLoginItemSettings({
-      openAtLogin: config.runOnStartup,
-      path: appPath,
-      args: args,
-      name: 'Flash Fender Auto-Poster'
-    });
-    console.log('[Startup] Successfully updated login item settings');
-    
-    // Verify what Electron thinks
-    const settings = app.getLoginItemSettings({ path: appPath, args: args });
-    console.log('[Startup] Verification:', settings);
-    
-  } catch (error) {
-    console.error('[Startup] Failed to update settings:', error);
+  if (config.runOnStartup) {
+    enableAutoStart(appPath, appName);
+  } else {
+    disableAutoStart(appName);
   }
+}
+
+function enableAutoStart(exePath, shortcutName) {
+  const psCommand = `
+    $exePath = "${exePath}"
+    $shortcutName = "${shortcutName}"
+    $startupFolder = "$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
+    $shortcutPath = Join-Path $startupFolder $shortcutName
+    
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($shortcutPath)
+    $shortcut.TargetPath = $exePath
+    $shortcut.WorkingDirectory = Split-Path $exePath
+    $shortcut.Save()
+  `;
+
+  logToFile('[Startup] Executing Enable PowerShell script...');
+  
+  const ps = spawn('powershell.exe', ['-Command', psCommand]);
+
+  ps.stdout.on('data', (data) => {
+    logToFile(`[Startup-PS] ${data.toString()}`);
+  });
+
+  ps.stderr.on('data', (data) => {
+    logToFile(`[Startup-PS-ERR] ${data.toString()}`);
+    console.error(`[Startup-PS-ERR] ${data.toString()}`);
+  });
+
+  ps.on('close', (code) => {
+    logToFile(`[Startup] Enable script finished with code ${code}`);
+  });
+}
+
+function disableAutoStart(shortcutName) {
+  const psCommand = `
+    $shortcutName = "${shortcutName}"
+    $startupFolder = "$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
+    $shortcutPath = Join-Path $startupFolder $shortcutName
+    
+    if (Test-Path $shortcutPath) {
+      Remove-Item $shortcutPath -Force
+      Write-Host "Shortcut removed."
+    } else {
+      Write-Host "Shortcut not found, nothing to remove."
+    }
+  `;
+
+  logToFile('[Startup] Executing Disable PowerShell script...');
+
+  const ps = spawn('powershell.exe', ['-Command', psCommand]);
+  
+  ps.stdout.on('data', (data) => {
+     logToFile(`[Startup-PS] ${data.toString()}`);
+  });
+
+  ps.stderr.on('data', (data) => {
+    logToFile(`[Startup-PS-ERR] ${data.toString()}`);
+  });
+
+  ps.on('close', (code) => {
+    logToFile(`[Startup] Disable script finished with code ${code}`);
+  });
 }
 
 // Load configuration
@@ -349,6 +417,7 @@ ipcMain.handle('get-config', () => {
 });
 
 ipcMain.handle('save-config', (event, config) => {
+  logToFile(`[IPC] save-config called. runOnStartup=${config.runOnStartup}`);
   return saveConfig(config);
 });
 
