@@ -213,8 +213,18 @@ const Inventory = () => {
 
     const getFilteredImages = () => {
         if (!selectedVehicle) return [];
-        const original = (selectedVehicle.images || []).map(url => ({ url, type: 'original' }));
-        const ai = (selectedVehicle.aiImages || []).map(url => ({ url, type: 'ai' }));
+        
+        // Specific placeholder image to remove
+        const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
+        
+        const original = (selectedVehicle.images || [])
+            .filter(url => url !== PLACEHOLDER_URL)
+            .map(url => ({ url, type: 'original' }));
+            
+        const ai = (selectedVehicle.aiImages || [])
+            .filter(url => url !== PLACEHOLDER_URL)
+            .map(url => ({ url, type: 'ai' }));
+            
         if (imageFilter === 'original') return original;
         if (imageFilter === 'ai') return ai;
         return [...original, ...ai];
@@ -719,17 +729,26 @@ const Inventory = () => {
                                             </TableCell>
                                         )}
                                         <TableCell>
-                                            {((v.preparedImages && v.preparedImages.length > 0) || (v.images && v.images.length > 0)) ? (
-                                                <img
-                                                    src={(v.preparedImages && v.preparedImages.length > 0) ? v.preparedImages[0] : v.images[0]}
-                                                    alt="vehicle"
-                                                    style={{ width: 64, height: 48, objectFit: 'cover', borderRadius: 6 }}
-                                                />
-                                            ) : (
-                                                <Box sx={{ width: 64, height: 48, bgcolor: 'background.paper', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    <ImageIcon size={20} color="#555" />
-                                                </Box>
-                                            )}
+                                            {(() => {
+                                                const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
+                                                const validPrepared = (v.preparedImages || []).filter(img => img !== PLACEHOLDER_URL);
+                                                const validOriginal = (v.images || []).filter(img => img !== PLACEHOLDER_URL);
+
+                                                if (validPrepared.length > 0 || validOriginal.length > 0) {
+                                                    return (
+                                                        <img
+                                                            src={validPrepared.length > 0 ? validPrepared[0] : validOriginal[0]}
+                                                            alt="vehicle"
+                                                            style={{ width: 64, height: 48, objectFit: 'cover', borderRadius: 6 }}
+                                                        />
+                                                    );
+                                                }
+                                                return (
+                                                    <Box sx={{ width: 64, height: 48, bgcolor: 'background.paper', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        <ImageIcon size={20} color="#555" />
+                                                    </Box>
+                                                );
+                                            })()}
                                         </TableCell>
                                         <TableCell>
                                             <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>

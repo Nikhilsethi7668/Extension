@@ -32,13 +32,23 @@ app.use(cors({
         // Allow chrome extensions
         if (origin.startsWith('chrome-extension://')) return callback(null, true);
         // Allow local dev and production
-        const allowedOrigins = ["http://localhost:5173", "http://localhost:5000", "https://api-flash.adaptusgroup.ca", "http://localhost:3682", "http://66.94.120.78:3682"];
-        if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('localhost')) {
+        const allowedOrigins = [
+            "http://localhost:5173", 
+            "http://localhost:5000", 
+            "https://flash.adaptusgroup.ca", 
+            "https://api-flash.adaptusgroup.ca",
+            "http://localhost:3682", 
+            "http://66.94.120.78:3682"
+        ];
+        if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('localhost') || origin.includes('adaptusgroup.ca')) {
             return callback(null, true);
         }
-        callback(null, true); // Fallback: Allow all for now to unblock user
+        // Fallback: Allow all for now to unblock user
+        callback(null, true);
     },
-    credentials: true
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-org-id']
 }));
 app.use(morgan('dev'));
 
@@ -263,4 +273,12 @@ app.set('io', io);
 // Export io for use in routes
 export { io };
 
-httpServer.listen(PORT, console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`));
+const server = httpServer.listen(PORT, () => {
+    console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+});
+
+// Increase server timeout for long AI processing (10 minutes)
+server.timeout = 600000; 
+server.keepAliveTimeout = 610000;
+server.headersTimeout = 620000;
+

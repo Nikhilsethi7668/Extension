@@ -15,7 +15,17 @@ const openRouter = new OpenRouter({
 
 // Helper to clean up AI JSON response
 const cleanJson = (text) => {
-    return text.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```json|```/g, '').trim();
+    // 1. Remove think blocks
+    const withoutThink = text.replace(/<think>[\s\S]*?<\/think>/g, '');
+    
+    // 2. Try to extract the first valid JSON block ({...} or [...])
+    const jsonMatch = withoutThink.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (jsonMatch) {
+        return jsonMatch[0].trim();
+    }
+
+    // Fallback: standard cleanup
+    return withoutThink.replace(/```json|```/g, '').trim();
 };
 
 
@@ -168,10 +178,11 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
         // Convert to PNG Buffer for sharp/imgly
         const pngBuffer = await sharp(imageBuffer).png().toBuffer();
         const blob = new Blob([pngBuffer], { type: 'image/png' });
-
+        console.log("Sharp processed");
         // Remove Background to get the subject (Car)
         const bgRemovedBlob = await removeBackground(blob);
         const bgRemovedBuffer = Buffer.from(await bgRemovedBlob.arrayBuffer());
+        console.log("Background removed");
 
         // Upload Original Image to Fal
         const originalImageUrl = await uploadToFal(imageBuffer);

@@ -273,11 +273,11 @@ router.get('/user-posts', protect, async (req, res) => {
     if (req.user.role === 'org_admin' || req.user.role === 'super_admin') {
         // Admins can see all, or filter by specific agent
         if (assignedUser && assignedUser !== 'all') {
-            query.assignedUsers = { $in: [assignedUser] };
+            query['postingHistory.userId'] = assignedUser;
         }
     } else {
         // Agents ONLY see their own posts
-        query.assignedUsers = { $in: [req.user._id] };
+        query['postingHistory.userId'] = req.user._id;
     }
 
     // 2. Date Filtering (on createdAt)

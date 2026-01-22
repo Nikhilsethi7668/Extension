@@ -197,12 +197,12 @@ const UserPosts = () => {
                                             </TableCell>
                                             <TableCell>
                                                  {/* Logic for showing who posted/assigned */}
-                                                {(v.assignedUsers && v.assignedUsers.length > 0) ? (
-                                                    v.assignedUsers.map(u => (
-                                                        <Chip key={u._id} label={u.name} size="small" sx={{ mr: 0.5 }} />
+                                                {(v.postingHistory && v.postingHistory.length > 0) ? (
+                                                    v.postingHistory.map(u => (
+                                                        <Chip key={u._id} label={u.agentName} size="small" sx={{ mr: 0.5 }} />
                                                     ))
                                                 ) : (
-                                                    <Typography variant="caption" color="text.secondary">Unassigned</Typography>
+                                                    <Typography variant="caption" color="text.secondary">Not posted</Typography>
                                                 )}
                                             </TableCell>
                                             <TableCell>
