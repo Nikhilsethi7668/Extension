@@ -665,7 +665,9 @@ const Inventory = () => {
                 </Box>
 
                 <Box sx={{ display: 'flex', gap: 1.5 }}>
-                    <Button variant="outlined" color="error" onClick={handleDeleteAll} startIcon={<Trash2 size={18} />} disabled={loading || vehicles.length === 0}>Delete All</Button>
+                    {isAdmin && (
+                        <Button variant="outlined" color="error" onClick={handleDeleteAll} startIcon={<Trash2 size={18} />} disabled={loading || vehicles.length === 0}>Delete All</Button>
+                    )}
                     <Button variant="outlined" color="secondary" onClick={fetchVehicles} startIcon={<RefreshCw size={18} />}>Refresh</Button>
                     {currentUser && currentUser.role !== 'agent' && (
                         <Button variant="contained" onClick={() => setOpen(true)} startIcon={<Plus size={18} />}>Import Vehicle</Button>
