@@ -126,9 +126,16 @@ export const scrapeVehicle = async (url, options = {}) => {
                     console.log(`[Scraper] API scraper returned ${result.totalScraped} vehicles (${result.totalSkipped} skipped)`);
 
                     // Return vehicles directly (not URLs, actual vehicle data!)
+                    // Filter out specific placeholder image
+                    const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
+                    const filteredVehicles = result.vehicles.map(v => {
+                        if (v.images) v.images = v.images.filter(img => img !== PLACEHOLDER_URL);
+                        return v;
+                    });
+
                     return {
                         type: 'bulk_vehicles',
-                        vehicles: result.vehicles,
+                        vehicles: filteredVehicles,
                         totalScraped: result.totalScraped,
                         totalSkipped: result.totalSkipped
                     };
@@ -653,6 +660,12 @@ export const scrapeVehicle = async (url, options = {}) => {
         // Verify we didn't miss something if it fell through
         if (url.includes('brownboysauto.com')) {
             console.warn('[Scraper] Brown Boys Auto: Fell through to generic scraper. Logic likely failed.');
+        }
+
+        // Filter out specific placeholder image
+        const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
+        if (vehicle.images) {
+            vehicle.images = vehicle.images.filter(img => img !== PLACEHOLDER_URL);
         }
 
         return vehicle;
