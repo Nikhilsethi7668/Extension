@@ -5,9 +5,8 @@ import User from '../models/User.js';
 import Posting from '../models/posting.model.js';
 
 import { protect, admin } from '../middleware/auth.js';
-import { generateVehicleContent, processImageWithGemini } from '../services/ai.service.js';
+import { generateVehicleContent, processImageWithAI } from '../services/ai.service.js';
 import { prepareImageBatch, getAvailableCameras, DEFAULT_GPS } from '../services/image-processor.service.js';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import { scrapeVehicle } from '../services/scraper.service.js';
 import promptUsed from '../models/promptUsed.js';
 import ImagePrompts from '../models/ImagePrompts.js';
@@ -672,59 +671,20 @@ router.get('/:id', protect, async (req, res, next) => {
         // Logic moved to client-side confirmation via POST /:id/posted endpoint.
 
         // Handle AI Enhancement if query parameter is present
-        if (req.query.ai_prompt && process.env.GEMINI_API_KEY) {
+        if (req.query.ai_prompt && process.env.OPENROUTER_API_KEY) {
             try {
-                console.log('Enhancing content with Gemini AI using prompt:', req.query.ai_prompt);
-
-                const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-                // Switch to stable 'gemini-pro' model
-                const model = genAI.getGenerativeModel({
-                    model: "gemini-2.0-flash-exp",
-                });
-
-                const prompt = `
-                    You are an expert car salesman copywriting assistant. 
-                    I need you to write a catchy title and a detailed, selling description for a vehicle listing on Facebook Marketplace.
-                    REQUIRED: The description MUST include 3-4 relevant emojis to make it engaging.
-                    
-                    
-                    Vehicle Details:
-                    Year: ${formattedData.year}
-                    Make: ${formattedData.make}
-                    Model: ${formattedData.model}
-                    Mileage: ${formattedData.mileage}
-                    Price: ${formattedData.price}
-                    Condition: ${formattedData.condition}
-                    
-                    User specific instructions: ${req.query.ai_prompt}
-                    
-                    Return ONLY a JSON object with this exact structure (no markdown, no backticks):
-                    {
-                        "title": "Your catchy title here",
-                        "description": "Your detailed selling description here"
-                    }
-                `;
-
-                const result = await model.generateContent(prompt);
-                const response = result.response;
-                const text = response.text().trim().replace(/^```json/, '').replace(/```$/, '');
-
-                try {
-                    const enhancedContent = JSON.parse(text);
-                    if (enhancedContent.title) formattedData.title = enhancedContent.title;
-                    if (enhancedContent.description) formattedData.description = enhancedContent.description;
-                    console.log('Content enhanced successfully');
-                } catch (parseError) {
-                    console.error('Failed to parse AI response:', parseError);
-                    // Fallback using regex if JSON parse fails
-                    const titleMatch = text.match(/"title":\s*"([^"]+)"/);
-                    const descMatch = text.match(/"description":\s*"([^"]+)"/);
-                    if (titleMatch) formattedData.title = titleMatch[1];
-                    if (descMatch) formattedData.description = descMatch[1];
+                console.log('Enhancing content with AI using prompt:', req.query.ai_prompt);
+                
+                const enhancedContent = await generateVehicleContent(formattedData, req.query.ai_prompt);
+                
+                if (enhancedContent) {
+                     if (enhancedContent.title) formattedData.title = enhancedContent.title;
+                     if (enhancedContent.description) formattedData.description = enhancedContent.description;
+                     console.log('Content enhanced successfully');
                 }
 
             } catch (aiError) {
-                console.error('Gemini API enhancement failed:', aiError);
+                console.error('AI enhancement failed:', aiError);
                 // Continue without enhancement, returning original data
             }
         }
@@ -935,7 +895,7 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
         console.log(`Processing background removal for image: ${imageUrl} with prompt: ${prompt || 'Default'}`);
 
         // Use AI Service with Gemini 2.5 Flash
-        const aiResult = await processImageWithGemini(imageUrl, prompt, promptId);
+        const aiResult = await processImageWithAI(imageUrl, prompt, promptId);
         const processedImageUrl = aiResult.processedUrl;
 
         // Update the image in the vehicle record
@@ -1642,7 +1602,7 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
         // Process images in parallel
         const processPromises = images.map(async (imageUrl) => {
             try {
-                const result = await processImageWithGemini(imageUrl, prompt);
+                const result = await processImageWithAI(imageUrl, prompt);
                 return { status: 'fulfilled', value: result };
             } catch (err) {
                 return { status: 'rejected', reason: err.message, imageUrl };
@@ -2136,8 +2096,8 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
         // Map images to array of promises
         const editPromises = images.map(async (imageUrl) => {
             try {
-                // processImageWithGemini handles promptId lookup if provided
-                const aiResult = await processImageWithGemini(imageUrl, prompt, promptId);
+                // processImageWithAI handles promptId lookup if provided
+                const aiResult = await processImageWithAI(imageUrl, prompt, promptId);
                 return {
                     success: true,
                     original: imageUrl,

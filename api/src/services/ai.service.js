@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { OpenRouter } from '@openrouter/sdk';
 import dotenv from 'dotenv';
 dotenv.config();
 import { saveImageLocally } from './storage.service.js';
@@ -9,20 +9,22 @@ import { fileURLToPath } from 'url';
 // FORCE HARDCODE KEY (User Request due to env issues)
 process.env.FAL_KEY = '1e80787c-9a39-4f09-9eac-d89f349f5a1e:9f8d078dce42d7c391b0891bb3bf011a';
 
-// Remove top-level initialization to prevent early access issues
-// const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const openRouter = new OpenRouter({
+    apiKey: process.env.OPENROUTER_API_KEY,
+});
+
+// Helper to clean up AI JSON response
+const cleanJson = (text) => {
+    return text.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/```json|```/g, '').trim();
+};
+
 
 export const generateVehicleContent = async (vehicle, instructions, sentiment = 'professional') => {
     try {
-        const apiKey = 'AIzaSyCNe8gV19UPL7uRvWlLGz-yb3twgALcsZQ';
-        if (!apiKey) {
-            console.error('[AI Service] GEMINI_API_KEY is missing from environment variables!');
-            throw new Error('GEMINI_API_KEY is not set');
+        if (!process.env.OPENROUTER_API_KEY) {
+            console.error('[AI Service] OPENROUTER_API_KEY is missing from environment variables!');
+            throw new Error('OPENROUTER_API_KEY is not set');
         }
-
-        // Lazy Initialization
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
         const prompt = `
       Act as a professional vehicle salesperson.
@@ -48,12 +50,21 @@ export const generateVehicleContent = async (vehicle, instructions, sentiment = 
       Output in JSON format: { "title": "...", "description": "..." }
     `;
 
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const text = response.text();
+        const completion = await openRouter.chat.send({
+            model: 'deepseek/deepseek-r1',
+            messages: [
+                {
+                    role: 'user',
+                    content: prompt,
+                },
+            ],
+            stream: false,
+        });
 
-        // Clean up response if it's wrapped in triple backticks
-        const jsonString = text.replace(/```json|```/g, '').trim();
+        const text = completion.choices[0].message.content;
+
+        // Clean up response if it's wrapped in triple backticks and potential think blocks
+        const jsonString = cleanJson(text);
         return JSON.parse(jsonString);
     } catch (error) {
         console.error('AI Generation Error:', error);
@@ -80,7 +91,7 @@ const uploadToFal = async (buffer, type = 'image/png') => {
     return url;
 };
 
-export const processImageWithGemini = async (imageUrl, prompt = 'Remove background', promptId) => {
+export const processImageWithAI = async (imageUrl, prompt = 'Remove background', promptId) => {
     try {
         console.log(`[AI Service] Processing image request. Prompt: "${prompt}"`);
 
@@ -88,61 +99,68 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
         const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
         const imageBuffer = Buffer.from(imageResponse.data);
 
-        // CHECK: Ensure Fal Key is available (Fal client uses FAL_KEY env var automatically, but good to check)
+        // CHECK: Ensure Fal Key is available
         if (!process.env.FAL_KEY) {
             throw new Error('FAL_KEY is missing in .env file');
         }
         const imagePrompt = await ImagePrompts.findById(promptId);
-        // 2. INTENT CLASSIFICATION WITH GEMINI
-        // FORCE KEY: The .env key is invalid. Using the verified working key.
-        const apiKey = 'AIzaSyCNe8gV19UPL7uRvWlLGz-yb3twgALcsZQ'; 
-        console.log(`[AI Service] Using Gemini Key: ${apiKey.substring(0, 10)}...`);
-        const genAI = new GoogleGenerativeAI(apiKey);
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-        const base64Image = imageBuffer.toString('base64');
+        
+        // 2. INTENT CLASSIFICATION WITH OPENROUTER (Multimodal)
         let visualDescription = "";
         let intent = "SMART_EDIT"; // Default to smart edit (background only)
 
         try {
-            console.log('[AI Service] Analyzing Intent with Gemini...');
+            console.log('[AI Service] Analyzing Intent & Enhancing Prompt with OpenRouter (Text Only)...');
+            
             const analysisPrompt = `
-                Analyze this image and the user's edit prompt: "${imagePrompt?.prompt || prompt}".
-                GOAL: Achieve a pixel-perfect result where the vehicle remains 100% authentic and geometrically accurate.
+                You are an expert AI implementation assistant for an automotive image editing pipeline.
+                
+                The user wants to edit a vehicle image using an AI inpainting model (Flux/Fal.ai).
+                User's Request: "${imagePrompt?.prompt || prompt}"
 
-                **CRITICAL RULE: The subject vehicle must NOT be modified, distorted, or changed in any way unless explicitly requested. Do not change wheels, badging, or body shape.**
-                
-                Task 1: Describe the vehicle in extreme detail (key "visualDescription"). Mention specific brand, model year features, wheels, color, and lighting.
-                Task 2: Determine if the user wants to modify the ACTUAL VEHICLE ITSELF (e.g. change color, add spoiler, new wheels) or JUST THE BACKGROUND/ENVIRONMENT (e.g. showroom, beach, white background).
-                
-                If any modification to the car body, paint, or parts is requested, intent must be "MODIFY_VEHICLE".
-                If only the setting, location, or background is changing, intent must be "MODIFY_BACKGROUND".
-                
-                IMPORTANT: If the prompt mentions "remove background" or "transparent background", the intent MUST be "MODIFY_BACKGROUND".
-                
-                Output JSON only:
+                YOUR GOAL: 
+                1. Analyze the user's intent.
+                2. WRITE A HIGHLY OPTIMIZED PROMPT for the image generator that fulfills the user's request while STRICTLY PRESERVING the vehicle's authenticity.
+
+                **CRITICAL RULES:**
+                - The subject vehicle MUST NOT be distorted, hallucinated, or modified in geometry/body shape.
+                - If the user asks for a background change, the car must look EXACTLY the same.
+                - If the user asks for a color change, ONLY the paint should change.
+
+                **INTENT CLASSIFICATION:**
+                - "MODIFY_BACKGROUND": If the user wants to change the setting, location, weather, or background (e.g. "at the beach", "showroom", "remove background").
+                - "MODIFY_VEHICLE": If the user EXPLICITLY asks to change the car itself (e.g. "make it red", "add a spoiler", "black rims").
+
+                **OUTPUT JSON ONLY:**
                 {
-                    "visualDescription": "...",
-                    "intent": "MODIFY_VEHICLE" or "MODIFY_BACKGROUND"
+                    "intent": "MODIFY_BACKGROUND" | "MODIFY_VEHICLE",
+                    "enhancedPrompt": "A detailed, photorealistic description of the scene..." (Include technical keywords like '8k', 'raw photo', 'masterpiece')
                 }
             `;
 
-            const analysisResult = await model.generateContent([
-                analysisPrompt,
-                { inlineData: { data: base64Image, mimeType: "image/jpeg" } }
-            ]);
+            const completion = await openRouter.chat.send({
+                model: 'deepseek/deepseek-r1', 
+                messages: [
+                    {
+                        role: 'user',
+                        content: analysisPrompt
+                    },
+                ],
+                stream: false,
+            });
 
-            const textResponse = analysisResult.response.text();
-            const jsonStr = textResponse.replace(/```json|```/g, '').trim();
+            const textResponse = completion.choices[0].message.content;
+            const jsonStr = cleanJson(textResponse);
             const result = JSON.parse(jsonStr);
 
-            visualDescription = result.visualDescription;
+            // Use the AI's enhanced prompt instead of constructing one manually with a generic visual description
+            visualDescription = result.enhancedPrompt; 
             intent = result.intent === 'MODIFY_VEHICLE' ? 'GENERATE_NEW' : 'SMART_EDIT';
-            console.log(`[AI Service] Intent Detected: ${intent} (User Prompt: "${prompt}")`);
-
-        } catch (geminiError) {
-            console.warn('[AI Service] Intent analysis failed, defaulting to Smart Edit:', geminiError.message);
-            visualDescription = "A vehicle";
+            console.log(`[AI Service] Intent: ${intent} | Enhanced Prompt: "${visualDescription.substring(0, 50)}..."`);
+        } catch (err) {
+            console.warn('[AI Service] Intent analysis failed, defaulting to SMART_EDIT. Error:', err.message);
         }
+
 
         // 3. PREPARE FOR FLUX (Mask Generation)
         console.log('[AI Service] Preparing masks for Flux Inpainting...');
@@ -198,9 +216,7 @@ export const processImageWithGemini = async (imageUrl, prompt = 'Remove backgrou
         // Switching to 'fal-ai/iclight-v2' for better control over preservation.
         const falResult = await subscribe('fal-ai/iclight-v2', {
             input: {
-                prompt: `${prompt}. ${visualDescription}. High quality, photorealistic, 8k, masterpiece. 
-                CRITICAL: Do not modify the vehicle body, wheels, or geometry. Keep the vehicle EXACTLY as it is. 
-                Ensure perfect perspective match between car and background. No floating cars.`,
+                prompt: `${visualDescription}. CRITICAL: Do not modify the vehicle body, wheels, or geometry. Keep the vehicle EXACTLY as it is. Ensure perfect perspective match between car and background. No floating cars.`,
                 image_url: originalImageUrl,
                 mask_url: maskUrl,
                 enable_safety_checker: false,
