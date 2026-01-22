@@ -1,4 +1,5 @@
 // popup.js - Main popup controller
+const EXCLUDED_IMAGE_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
 const API_CONFIG = {
   baseUrl: CONFIG.backendUrl,
   endpoints: {
@@ -1307,8 +1308,10 @@ function displayScrapedData(data) {
   const gallery = document.getElementById('imageGallery');
   gallery.innerHTML = '';
 
-  if (data.images && data.images.length > 0) {
-    data.images.forEach((imgUrl, index) => {
+  const imagesToDisplay = (data.images || []).filter(imgUrl => imgUrl !== EXCLUDED_IMAGE_URL);
+
+  if (imagesToDisplay.length > 0) {
+    imagesToDisplay.forEach((imgUrl, index) => {
       const img = document.createElement('img');
       img.src = imgUrl;
       img.alt = `Vehicle image ${index + 1}`;
@@ -2577,10 +2580,11 @@ function createVehicleCard(vehicle) {
   card.className = 'vehicle-card';
 
   // Prefer preparedImages if available, fallback to images
-  const imagesArray = (vehicle.preparedImages && vehicle.preparedImages.length > 0)
+  const imagesArray = ((vehicle.preparedImages && vehicle.preparedImages.length > 0)
     ? vehicle.preparedImages
-    : vehicle.images;
-  const imageUrl = imagesArray && imagesArray.length > 0
+    : vehicle.images || []).filter(url => url !== EXCLUDED_IMAGE_URL);
+  
+  const imageUrl = imagesArray.length > 0
     ? imagesArray[0]
     : '';
 
@@ -2973,7 +2977,9 @@ function filterAndDisplayGallery() {
   }
 
   // Map back to just URLs for display function
-  const urls = imagesToShow.map(img => img.url);
+  const urls = imagesToShow
+    .map(img => img.url)
+    .filter(url => url !== EXCLUDED_IMAGE_URL);
   displayImagesGallery(urls);
 }
 
