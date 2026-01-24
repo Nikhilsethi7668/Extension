@@ -452,7 +452,7 @@ const Inventory = () => {
                 vehicleId: postingVehicle._id,
                 profileIds: selectedProfileIds
             });
-            alert(`Vehicle will be posted to ${selectedProfileIds.length} profile(s) within 2-5 minutes!`);
+            alert(`Vehicle will be posted to ${selectedProfileIds.length} profile(s) within a minutes!`);
             setPostNowDialogOpen(false);
             setSelectedProfileIds([]);
             fetchVehicles();
