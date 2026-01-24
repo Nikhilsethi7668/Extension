@@ -57,8 +57,9 @@ router.get('/poll', protect, async (req, res) => {
         const relevantEvents = [];
         const remainingEvents = [];
 
-        // Default limit to 1
-        const limit = parseInt(req.query.limit) || 1; 
+        // Default limit to 10 to allow multiple profile-specific events
+        // This ensures all scheduled postings for a profile are retrieved
+        const limit = parseInt(req.query.limit) || 10; 
 
         for (const event of allEvents) {
             // Check if matches profile
