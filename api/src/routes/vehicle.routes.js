@@ -2421,6 +2421,168 @@ router.post('/queue-posting', protect, async (req, res) => {
     }
 });
 
+// @desc    Post a single vehicle immediately (minimal delay)
+// @route   POST /api/vehicles/post-now
+// @access  Protected
+router.post('/post-now', protect, async (req, res) => {
+    const { vehicleId, profileIds, selectedImages } = req.body;
+
+    if (!vehicleId) {
+        return res.status(400).json({ message: 'Vehicle ID is required' });
+    }
+
+    if (!profileIds || !Array.isArray(profileIds) || profileIds.length === 0) {
+        return res.status(400).json({ message: 'At least one profile is required' });
+    }
+
+    try {
+        const orgId = req.user.organization?._id || req.user.organization;
+        
+        // Fetch vehicle data
+        const vehicleData = await Vehicle.findById(vehicleId);
+        if (!vehicleData) {
+            return res.status(404).json({ message: 'Vehicle not found' });
+        }
+
+        // Authorization check
+        if (vehicleData.organization.toString() !== orgId.toString()) {
+            return res.status(403).json({ message: 'Not authorized to access this vehicle' });
+        }
+
+        // Agent access check
+        if (req.user.role === 'agent' && vehicleData.assignedUsers &&
+            !vehicleData.assignedUsers.some(id => id.toString() === req.user._id.toString())) {
+            return res.status(403).json({ message: 'Not authorized to access this vehicle' });
+        }
+
+        console.log(`[Post Now] Processing vehicle ${vehicleId} for ${profileIds.length} profiles`);
+
+        // Prepare images with stealth processing
+        let sourceImages = [];
+        if (selectedImages && selectedImages.length > 0) {
+            sourceImages = selectedImages;
+        } else if (vehicleData.images && vehicleData.images.length > 0) {
+            sourceImages = vehicleData.images.slice(0, 8);
+        }
+
+        let finalImages = [];
+        if (sourceImages.length > 0) {
+            try {
+                const gps = (req.user.organization && req.user.organization.settings && req.user.organization.settings.gpsLocation) 
+                            ? req.user.organization.settings.gpsLocation 
+                            : DEFAULT_GPS;
+                
+                console.log(`[Post Now] Applying stealth to ${sourceImages.length} images`);
+                
+                const stealthResult = await prepareImageBatch(sourceImages, {
+                    gps: gps,
+                    camera: null, // Random
+                    folder: 'stealth'
+                });
+
+                if (stealthResult.success || stealthResult.successCount > 0) {
+                    finalImages = stealthResult.results.map(r => {
+                        const url = r.preparedUrl;
+                        if (url.startsWith('http')) return url;
+                        return `${'https://api-flash.adaptusgroup.ca'}${url}`;
+                    });
+                } else {
+                    console.warn('[Post Now] Stealth failed, using original images');
+                    finalImages = sourceImages;
+                }
+            } catch (err) {
+                console.error('[Post Now] Stealth processing error:', err);
+                finalImages = sourceImages;
+            }
+        }
+
+        // Ensure Final Images are Full URLs
+        const BASE_URL = 'https://api-flash.adaptusgroup.ca';
+        finalImages = finalImages.map(url => {
+             if (!url) return url;
+             if (url.startsWith('http')) return url;
+             return `${BASE_URL}${url}`;
+        });
+
+        // Create posting records for each profile
+        const now = new Date();
+        const createdPostings = [];
+
+        for (const profileId of profileIds) {
+            // Check for duplicate
+            const existingPosting = await Posting.findOne({
+                userId: req.user._id,
+                vehicleId: vehicleId,
+                profileId: profileId,
+                status: 'scheduled'
+            });
+
+            if (existingPosting) {
+                console.log(`[Post Now] Skipping profile ${profileId}, already scheduled`);
+                continue;
+            }
+
+            // Calculate minimal delay (2-5 minutes for anti-detection)
+            const randomMinutes = 2 + Math.random() * 3; // 2-5 min
+            const scheduledTime = new Date(now.getTime() + randomMinutes * 60000);
+
+            // Create posting
+            const posting = await Posting.create({
+                vehicleId: vehicleId,
+                userId: req.user._id,
+                orgId: orgId,
+                profileId: profileId,
+                status: 'scheduled',
+                scheduledTime: scheduledTime,
+                selectedImages: finalImages,
+                prompt: null,
+                customDescription: null,
+                schedulerOptions: {
+                    delay: 0,
+                    stealth: true
+                },
+                completedAt: null,
+                logs: [{ message: `Immediate post requested by user ${req.user._id}`, timestamp: new Date() }]
+            });
+
+            createdPostings.push(posting);
+        }
+
+        // Audit Log
+        await AuditLog.create({
+            action: 'Post Now',
+            entityType: 'Vehicle',
+            entityId: vehicleId,
+            user: req.user._id,
+            organization: orgId,
+            details: {
+                profileCount: createdPostings.length,
+                profileIds: profileIds,
+                imagesCount: finalImages.length
+            },
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+        });
+
+        console.log(`[Post Now] ✅ Created ${createdPostings.length} immediate postings`);
+
+        res.json({
+            success: true,
+            count: createdPostings.length,
+            message: `Vehicle will be posted to ${createdPostings.length} profile(s) within 2-5 minutes.`,
+            postings: createdPostings.map(p => ({
+                id: p._id,
+                profileId: p.profileId,
+                scheduledTime: p.scheduledTime
+            }))
+        });
+
+    } catch (error) {
+        console.error('[Post Now] Error:', error);
+        res.status(500).json({ message: 'Failed to create immediate posting: ' + error.message });
+    }
+});
+
 // @desc    Update posting result (called by Extension via API)
 // @route   POST /api/vehicles/posting-result
 // @access  Protected (or API Key)

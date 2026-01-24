@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 
 const drawerWidth = 260; // Slightly wider for modern look
 
-const Layout = ({ children, title, actions }) => {
+const Layout = ({ children, title, actions, processingIndicator }) => {
     const navigate = useNavigate();
     const location = useLocation();
     const { user, logout } = useAuth();
@@ -163,6 +163,8 @@ const Layout = ({ children, title, actions }) => {
 
                     {/* Header Actions */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        {processingIndicator && processingIndicator}
+                        
                         <Tooltip title="Notifications">
                             <IconButton size="small" sx={{ color: 'text.secondary', border: '1px solid rgba(255,255,255,0.1)', p: 1 }}>
                                 <Bell size={18} />

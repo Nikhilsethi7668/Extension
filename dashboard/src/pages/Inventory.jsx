@@ -4,9 +4,9 @@ import {
     TableContainer, TableHead, TableRow, Dialog, DialogTitle,
     DialogContent, TextField, DialogActions, Chip, InputAdornment, TablePagination,
     IconButton, Tooltip, FormControl, Select, MenuItem, Checkbox, InputLabel, RadioGroup, FormControlLabel, Radio,
-    LinearProgress, Alert
+    LinearProgress, Alert, CircularProgress
 } from '@mui/material';
-import { Plus, Search, RefreshCw, X, Eye, ExternalLink, Image as ImageIcon, Trash2, UserPlus, Users, AlertTriangle, DollarSign, RotateCcw, Zap, CheckCircle, Loader, Edit } from 'lucide-react';
+import { Plus, Search, RefreshCw, X, Eye, ExternalLink, Image as ImageIcon, Trash2, UserPlus, Users, AlertTriangle, DollarSign, RotateCcw, Zap, CheckCircle, Loader, Edit, Send } from 'lucide-react';
 import apiClient from '../config/axios';
 import Layout from '../components/Layout';
 import { io as socketIO } from 'socket.io-client';
@@ -70,8 +70,11 @@ const Inventory = () => {
     const [selectedPromptId, setSelectedPromptId] = useState('');
     const [customPrompt, setCustomPrompt] = useState('');
     const [queueSchedule, setQueueSchedule] = useState({ intervalMinutes: 15, randomize: true, stealth: true });
-    const [processingAi, setProcessingAi] = useState(false);
+    const [activeProcessingCount, setActiveProcessingCount] = useState(0);
     const [editDialogOpen, setEditDialogOpen] = useState(false); // New state for edit dialog
+    
+    // Post Now State
+    const [postNowDialogOpen, setPostNowDialogOpen] = useState(false);
 
     useEffect(() => {
         const userStr = localStorage.getItem('user');
@@ -350,7 +353,7 @@ const Inventory = () => {
     // AI Edit Handlers
     const handleOpenAiDialog = async () => {
         if (selectedDetailImages.length === 0) return alert('Select at least one image first.');
-        setProcessingAi(true);
+        setActiveProcessingCount(prev => prev + 1);
         try {
             const { data } = await apiClient.get(`/vehicles/${selectedVehicle._id}/recommend-prompts`);
             setPrompts(data || []);
@@ -359,25 +362,37 @@ const Inventory = () => {
             console.error(error);
             alert('Failed to load prompts');
         } finally {
-            setProcessingAi(false);
+            setActiveProcessingCount(prev => prev - 1);
         }
     };
 
     const handleAiEditSubmit = async () => {
         if (!selectedPromptId && !customPrompt) return alert('Select a prompt or enter a custom one.');
-        setProcessingAi(true);
+        
+        // Close dialog and cleanup immediately
+        setAiEditDialogOpen(false);
+        const imagesToProcess = [...selectedDetailImages];
+        const vehicleId = selectedVehicle._id;
+        const promptData = {
+            promptId: selectedPromptId || undefined,
+            prompt: customPrompt || undefined
+        };
+        setSelectedDetailImages([]); // Clear selection
+        setCustomPrompt('');
+        setSelectedPromptId('');
+        
+        // Process in background
+        setActiveProcessingCount(prev => prev + 1);
         try {
-            const { data } = await apiClient.post(`/vehicles/${selectedVehicle._id}/batch-edit-images`, {
-                images: selectedDetailImages,
-                promptId: selectedPromptId || undefined,
-                prompt: customPrompt || undefined
+            const { data } = await apiClient.post(`/vehicles/${vehicleId}/batch-edit-images`, {
+                images: imagesToProcess,
+                ...promptData
             });
 
             alert(`Processed ${data.processedCount} images successfully!`);
 
             // Refresh Vehicle
-            // Refresh Vehicle
-            const { data: refreshedData } = await apiClient.get(`/vehicles/${selectedVehicle._id}`);
+            const { data: refreshedData } = await apiClient.get(`/vehicles/${vehicleId}`);
             if (refreshedData.success && refreshedData.data) {
                 setSelectedVehicle(refreshedData.data);
             } else {
@@ -385,16 +400,11 @@ const Inventory = () => {
                  setSelectedVehicle(refreshedData);
             }
             fetchVehicles(); // update list too
-
-            setAiEditDialogOpen(false);
-            setSelectedDetailImages([]); // Clear selection
-            setCustomPrompt('');
-            setSelectedPromptId('');
         } catch (error) {
             console.error(error);
             alert('AI Edit failed: ' + (error.response?.data?.message || error.message));
         } finally {
-            setProcessingAi(false);
+            setActiveProcessingCount(prev => prev - 1);
         }
     };
 
@@ -422,6 +432,33 @@ const Inventory = () => {
         } catch (error) {
             console.error(error);
             alert('Queue failed: ' + (error.response?.data?.message || error.message));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // Post Now Handlers
+    const handleOpenPostNowDialog = (vehicle) => {
+        setPostingVehicle(vehicle);
+        fetchChromeProfiles();
+        setPostNowDialogOpen(true);
+    };
+
+    const handlePostNowSubmit = async () => {
+        if (selectedProfileIds.length === 0) return alert('Select at least one profile');
+        setLoading(true);
+        try {
+            await apiClient.post('/vehicles/post-now', {
+                vehicleId: postingVehicle._id,
+                profileIds: selectedProfileIds
+            });
+            alert(`Vehicle will be posted to ${selectedProfileIds.length} profile(s) within 2-5 minutes!`);
+            setPostNowDialogOpen(false);
+            setSelectedProfileIds([]);
+            fetchVehicles();
+        } catch (error) {
+            console.error(error);
+            alert('Post Now failed: ' + (error.response?.data?.message || error.message));
         } finally {
             setLoading(false);
         }
@@ -605,7 +642,19 @@ const Inventory = () => {
     const canSelect = true; // Allow everyone to select for bulk actions
 
     return (
-        <Layout title="Vehicle Inventory">
+        <Layout 
+            title="Vehicle Inventory"
+            processingIndicator={activeProcessingCount > 0 && (
+                <Tooltip title="Processing AI Images...">
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'primary.main' }}>
+                        <CircularProgress size={20} />
+                        <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                            {activeProcessingCount === 1 ? 'Processing...' : `Processing ${activeProcessingCount} batches...`}
+                        </Typography>
+                    </Box>
+                </Tooltip>
+            )}
+        >
             <Paper className="glass" sx={{ p: 2, mb: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, minWidth: '300px' }}>
 
@@ -827,6 +876,16 @@ const Inventory = () => {
                                             <Tooltip title="View Details">
                                                 <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleViewVehicle(v); }}>
                                                     <Eye size={18} />
+                                                </IconButton>
+                                            </Tooltip>
+                                            
+                                            <Tooltip title="Post Now">
+                                                <IconButton
+                                                    size="small"
+                                                    color="primary"
+                                                    onClick={(e) => { e.stopPropagation(); handleOpenPostNowDialog(v); }}
+                                                >
+                                                    <Send size={18} />
                                                 </IconButton>
                                             </Tooltip>
 
@@ -1543,10 +1602,10 @@ const Inventory = () => {
                         onClick={handleAiEditSubmit}
                         variant="contained"
                         color="secondary"
-                        disabled={processingAi || (!selectedPromptId && !customPrompt)}
-                        startIcon={processingAi ? <Loader className="animate-spin" size={16} /> : <Zap size={16} />}
+                        disabled={activeProcessingCount > 0 || (!selectedPromptId && !customPrompt)}
+                        startIcon={<Zap size={16} />}
                     >
-                        {processingAi ? 'Processing...' : 'Apply AI Edit'}
+                        Apply AI Edit
                     </Button>
                 </DialogActions>
             </Dialog>
@@ -1682,6 +1741,58 @@ const Inventory = () => {
                         disabled={loading || selectedProfileIds.length === 0}
                     >
                         {loading ? 'Queueing...' : 'Add to Queue'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Post Now Dialog */}
+            <Dialog open={postNowDialogOpen} onClose={() => setPostNowDialogOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Send size={20} />
+                        Post Now
+                    </Box>
+                </DialogTitle>
+                <DialogContent>
+                    <Box sx={{ pt: 1 }}>
+                        {postingVehicle && (
+                            <Alert severity="info" sx={{ mb: 2 }}>
+                                Posting: {postingVehicle.year} {postingVehicle.make} {postingVehicle.model}
+                            </Alert>
+                        )}
+
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            Select Chrome profiles to post this vehicle immediately. The vehicle will be posted within 2-5 minutes.
+                        </Typography>
+
+                        <FormControl fullWidth size="small">
+                            <InputLabel>Select Profiles</InputLabel>
+                            <Select
+                                multiple
+                                value={selectedProfileIds}
+                                onChange={(e) => setSelectedProfileIds(e.target.value)}
+                                renderValue={(selected) => `${selected.length} profile(s) selected`}
+                            >
+                                {chromeProfiles.map((profile) => (
+                                    <MenuItem key={profile._id} value={profile._id}>
+                                        <Checkbox checked={selectedProfileIds.includes(profile._id)} />
+                                        {profile.name}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setPostNowDialogOpen(false)}>Cancel</Button>
+                    <Button
+                        onClick={handlePostNowSubmit}
+                        variant="contained"
+                        color="primary"
+                        disabled={loading || selectedProfileIds.length === 0}
+                        startIcon={<Send size={16} />}
+                    >
+                        {loading ? 'Posting...' : 'Post Now'}
                     </Button>
                 </DialogActions>
             </Dialog>
