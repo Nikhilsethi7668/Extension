@@ -537,7 +537,7 @@ async function handleFetchImageBlob(url) {
 
 async function handlePostingResult(data) {
     console.log('[Extension] Handling posting result:', data);
-    const { postingId, jobId, status, error, listingUrl } = data;
+    const { postingId, jobId, status, error, listingUrl, vehicleId } = data;
     
     // Only proceed if we have a postingId (queue job)
     if (!postingId) return { success: false, error: 'No postingId provided' };
@@ -548,18 +548,18 @@ async function handlePostingResult(data) {
         
         if (!apiKey) throw new Error('No API key found');
 
-        const response = await fetch(`${BACKEND_URL}/vehicles/posting-result`, {
+        // Call the new posting completion endpoint
+        const response = await fetch(`${BACKEND_URL}/postings/${postingId}/complete`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'x-api-key': apiKey
             },
             body: JSON.stringify({
-                postingId,
-                jobId,
                 status,
                 error,
-                listingUrl
+                listingUrl,
+                vehicleId
             })
         });
 
@@ -569,9 +569,9 @@ async function handlePostingResult(data) {
         if (result.success && status === 'completed') {
              // Verification Signal: Emit socket event as requested
              if (socket && socket.connected) {
-                 console.log(`[Extension] Emitting verify-vehicle-posting for ${data.vehicleId}`);
+                 console.log(`[Extension] Emitting verify-vehicle-posting for ${vehicleId}`);
                  socket.emit('verify-vehicle-posting', {
-                     vehicleId: data.vehicleId,
+                     vehicleId: vehicleId,
                      listingUrl: listingUrl,
                      postingId: postingId
                  });
