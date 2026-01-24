@@ -1066,6 +1066,34 @@ const Inventory = () => {
                                             <MenuItem value="ai">AI Generated</MenuItem>
                                         </Select>
                                     </FormControl>
+                                    <Button
+                                        variant="outlined"
+                                        size="small"
+                                        onClick={() => {
+                                            const filteredImages = getFilteredImages();
+                                            const allSelected = filteredImages.every(img => selectedDetailImages.includes(img.url));
+                                            
+                                            if (allSelected) {
+                                                // Deselect all filtered images
+                                                setSelectedDetailImages(prev => 
+                                                    prev.filter(url => !filteredImages.some(img => img.url === url))
+                                                );
+                                            } else {
+                                                // Select all filtered images
+                                                const newUrls = filteredImages.map(img => img.url);
+                                                setSelectedDetailImages(prev => {
+                                                    const combined = [...prev, ...newUrls];
+                                                    return [...new Set(combined)]; // Remove duplicates
+                                                });
+                                            }
+                                        }}
+                                    >
+                                        {(() => {
+                                            const filteredImages = getFilteredImages();
+                                            const allSelected = filteredImages.every(img => selectedDetailImages.includes(img.url));
+                                            return allSelected ? 'Deselect All' : 'Select All';
+                                        })()}
+                                    </Button>
                                 </Box>
                                 <Box sx={{ display: 'flex', gap: 1 }}>
                                     <Button
