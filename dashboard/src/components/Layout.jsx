@@ -11,13 +11,19 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-const drawerWidth = 260; // Slightly wider for modern look
+import { useQueue } from '../context/QueueContext';
+import { LinearProgress } from '@mui/material';
+
+const drawerWidth = 260;
 
 const Layout = ({ children, title, actions, processingIndicator }) => {
     const navigate = useNavigate();
     const location = useLocation();
     const { user, logout } = useAuth();
+    const { queueProgress, aiProgress } = useQueue();
     const [anchorEl, setAnchorEl] = useState(null);
+
+
 
     const menuItems = [
         { text: 'Dashboard', icon: <LayoutDashboard size={20} />, path: '/' },
@@ -127,7 +133,55 @@ const Layout = ({ children, title, actions, processingIndicator }) => {
                 </Box>
 
                 {/* User Profile Mini - Bottom */}
-                <Box sx={{ mt: 'auto', p: 2 }}>
+                {/* Queue Progress in Sidebar */}
+                {queueProgress.active && (
+                    <Box sx={{ px: 2, pb: 1, mt: 'auto' }}>
+                         <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.2)' }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                                <Typography variant="caption" fontWeight={600} color="primary">
+                                    {queueProgress.completed ? 'Queue Complete' : 'Queueing Posts...'}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">{Math.round(queueProgress.percent)}%</Typography>
+                            </Box>
+                            <LinearProgress variant="determinate" value={queueProgress.percent} sx={{ height: 4, borderRadius: 2 }} />
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, fontSize: '0.7rem' }} noWrap>
+                                {queueProgress.message}
+                            </Typography>
+                         </Box>
+                    </Box>
+                )}
+
+                {/* AI Progress in Sidebar */}
+                {aiProgress && aiProgress.active && (
+                    <Box sx={{ px: 2, pb: 1, mt: queueProgress.active ? 1 : 'auto' }}>
+                         <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(168, 85, 247, 0.1)', border: '1px solid rgba(168, 85, 247, 0.2)' }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                                <Typography variant="caption" fontWeight={600} sx={{ color: '#a855f7' }}>
+                                    {aiProgress.completed ? 'AI Complete' : 'Enhancing Images...'}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">{Math.round(aiProgress.percent)}%</Typography>
+                            </Box>
+                            <LinearProgress 
+                                variant="determinate" 
+                                value={aiProgress.percent} 
+                                sx={{ 
+                                    height: 4, 
+                                    borderRadius: 2,
+                                    bgcolor: 'rgba(168, 85, 247, 0.1)',
+                                    '& .MuiLinearProgress-bar': {
+                                        bgcolor: '#a855f7'
+                                    }
+                                }} 
+                            />
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, fontSize: '0.7rem' }} noWrap>
+                                {aiProgress.message}
+                            </Typography>
+                         </Box>
+                    </Box>
+                )}
+
+                {/* User Profile Mini - Bottom */}
+                <Box sx={{ mt: queueProgress.active ? 1 : 'auto', p: 2 }}>
                     <Box
                         sx={{
                             p: 2,

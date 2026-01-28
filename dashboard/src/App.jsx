@@ -221,10 +221,14 @@ const ThemedApp = () => {
   );
 };
 
+import { QueueProvider } from './context/QueueContext';
+
 function App() {
   return (
     <ThemeModeProvider>
-      <ThemedApp />
+      <QueueProvider>
+        <ThemedApp />
+      </QueueProvider>
     </ThemeModeProvider>
   );
 }

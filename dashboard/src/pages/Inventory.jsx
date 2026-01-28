@@ -9,6 +9,7 @@ import {
 import { Plus, Search, RefreshCw, X, Eye, ExternalLink, Image as ImageIcon, Trash2, UserPlus, Users, AlertTriangle, DollarSign, RotateCcw, Zap, CheckCircle, Loader, Edit, Send } from 'lucide-react';
 import apiClient from '../config/axios';
 import Layout from '../components/Layout';
+import { useQueue } from '../context/QueueContext';
 import { io as socketIO } from 'socket.io-client';
 
 const Inventory = () => {
@@ -70,11 +71,13 @@ const Inventory = () => {
     const [selectedPromptId, setSelectedPromptId] = useState('');
     const [customPrompt, setCustomPrompt] = useState('');
     const [queueSchedule, setQueueSchedule] = useState({ intervalMinutes: 15, randomize: true, stealth: true });
-    const [activeProcessingCount, setActiveProcessingCount] = useState(0);
+
     const [editDialogOpen, setEditDialogOpen] = useState(false); // New state for edit dialog
     
     // Post Now State
     const [postNowDialogOpen, setPostNowDialogOpen] = useState(false);
+    const [selectedPostNowImages, setSelectedPostNowImages] = useState([]);
+    const [postNowPrompt, setPostNowPrompt] = useState('');
 
     useEffect(() => {
         const userStr = localStorage.getItem('user');
@@ -353,7 +356,7 @@ const Inventory = () => {
     // AI Edit Handlers
     const handleOpenAiDialog = async () => {
         if (selectedDetailImages.length === 0) return alert('Select at least one image first.');
-        setActiveProcessingCount(prev => prev + 1);
+        
         try {
             const { data } = await apiClient.get(`/vehicles/${selectedVehicle._id}/recommend-prompts`);
             setPrompts(data || []);
@@ -361,51 +364,46 @@ const Inventory = () => {
         } catch (error) {
             console.error(error);
             alert('Failed to load prompts');
-        } finally {
-            setActiveProcessingCount(prev => prev - 1);
         }
     };
 
-    const handleAiEditSubmit = async () => {
+    const handleAiEditSubmit = () => {
         if (!selectedPromptId && !customPrompt) return alert('Select a prompt or enter a custom one.');
         
         // Close dialog and cleanup immediately
         setAiEditDialogOpen(false);
         const imagesToProcess = [...selectedDetailImages];
         const vehicleId = selectedVehicle._id;
-        const promptData = {
+        const payload = {
+            images: imagesToProcess,
             promptId: selectedPromptId || undefined,
             prompt: customPrompt || undefined
         };
+        
         setSelectedDetailImages([]); // Clear selection
         setCustomPrompt('');
         setSelectedPromptId('');
         
-        // Process in background
-        setActiveProcessingCount(prev => prev + 1);
-        try {
-            const { data } = await apiClient.post(`/vehicles/${vehicleId}/batch-edit-images`, {
-                images: imagesToProcess,
-                ...promptData
-            });
+        // Process in background via Global Context
+        const userStr = localStorage.getItem('user');
+        const user = userStr ? JSON.parse(userStr) : null;
+        const token = user?.token;
 
-            alert(`Processed ${data.processedCount} images successfully!`);
-
-            // Refresh Vehicle
-            const { data: refreshedData } = await apiClient.get(`/vehicles/${vehicleId}`);
-            if (refreshedData.success && refreshedData.data) {
-                setSelectedVehicle(refreshedData.data);
-            } else {
-                 // Fallback if structure is flat (though backend shows nested)
-                 setSelectedVehicle(refreshedData);
+        if (!token) return alert('No auth token found');
+        
+        aiEditing(vehicleId, payload, token, async () => {
+            // onSuccess: Refresh Vehicle Data
+            try {
+                const { data: refreshedData } = await apiClient.get(`/vehicles/${vehicleId}`);
+                if (refreshedData.success && refreshedData.data) {
+                     // Only update if we are still viewing the same vehicle
+                     setSelectedVehicle(prev => (prev && prev._id === vehicleId ? refreshedData.data : prev));
+                }
+                fetchVehicles(); // update list
+            } catch (err) {
+                console.error('Failed to refresh vehicle after AI edit:', err);
             }
-            fetchVehicles(); // update list too
-        } catch (error) {
-            console.error(error);
-            alert('AI Edit failed: ' + (error.response?.data?.message || error.message));
-        } finally {
-            setActiveProcessingCount(prev => prev - 1);
-        }
+        });
     };
 
     // Queue Handler (Detail View)
@@ -414,32 +412,52 @@ const Inventory = () => {
         setQueueDialogOpen(true);
     };
 
+    const { queuePosting, aiEditing, aiProgress } = useQueue();
+
     const handleQueueSubmit = async () => {
         if (selectedProfileIds.length === 0) return alert('Select at least one profile');
-        setLoading(true);
-        try {
-            await apiClient.post('/vehicles/queue-posting', {
-                vehicleIds: [selectedVehicle._id],
-                profileIds: selectedProfileIds,
-                schedule: queueSchedule,
-                selectedImages: selectedDetailImages
-            });
-            alert('Vehicle queued successfully!');
-            setQueueDialogOpen(false);
-            fetchVehicles();
-            setSelectedDetailImages([]);
-            setSelectedProfileIds([]);
-        } catch (error) {
-            console.error(error);
-            alert('Queue failed: ' + (error.response?.data?.message || error.message));
-        } finally {
-            setLoading(false);
-        }
+        
+        // Close dialog immediately
+        setQueueDialogOpen(false);
+        
+        // Get auth token
+        const userStr = localStorage.getItem('user');
+        const user = userStr ? JSON.parse(userStr) : null;
+        const token = user?.token;
+
+        if (!token) return alert('No auth token found');
+
+        const payload = {
+            vehicleIds: [selectedVehicle._id],
+            profileIds: selectedProfileIds,
+            schedule: queueSchedule,
+            selectedImages: selectedDetailImages
+        };
+
+        // Trigger global queue
+        queuePosting(payload, token, () => {
+             fetchVehicles(); // Refresh on success
+        });
+
+        // Clean up immediately
+        setSelectedDetailImages([]);
+        setSelectedProfileIds([]);
     };
 
     // Post Now Handlers
     const handleOpenPostNowDialog = (vehicle) => {
         setPostingVehicle(vehicle);
+        
+        // Initialize images (valid ones only)
+        const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
+        const images = (vehicle.images || []).filter(url => url !== PLACEHOLDER_URL);
+        const aiImages = (vehicle.aiImages || []).filter(url => url !== PLACEHOLDER_URL);
+        // Combine unique
+        const all = [...new Set([...images, ...aiImages])];
+        
+        setSelectedPostNowImages(all.slice(0, 4));
+        setPostNowPrompt('');
+        
         fetchChromeProfiles();
         setPostNowDialogOpen(true);
     };
@@ -450,7 +468,9 @@ const Inventory = () => {
         try {
             await apiClient.post('/vehicles/post-now', {
                 vehicleId: postingVehicle._id,
-                profileIds: selectedProfileIds
+                profileIds: selectedProfileIds,
+                selectedImages: selectedPostNowImages,
+                prompt: postNowPrompt
             });
             alert(`Vehicle will be posted to ${selectedProfileIds.length} profile(s) within a minutes!`);
             setPostNowDialogOpen(false);
@@ -644,16 +664,7 @@ const Inventory = () => {
     return (
         <Layout 
             title="Vehicle Inventory"
-            processingIndicator={activeProcessingCount > 0 && (
-                <Tooltip title="Processing AI Images...">
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'primary.main' }}>
-                        <CircularProgress size={20} />
-                        <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                            {activeProcessingCount === 1 ? 'Processing...' : `Processing ${activeProcessingCount} batches...`}
-                        </Typography>
-                    </Box>
-                </Tooltip>
-            )}
+
         >
             <Paper className="glass" sx={{ p: 2, mb: 3, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 2 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, minWidth: '300px' }}>
@@ -1630,7 +1641,7 @@ const Inventory = () => {
                         onClick={handleAiEditSubmit}
                         variant="contained"
                         color="secondary"
-                        disabled={activeProcessingCount > 0 || (!selectedPromptId && !customPrompt)}
+                        disabled={(aiProgress && aiProgress.active) || (!selectedPromptId && !customPrompt)}
                         startIcon={<Zap size={16} />}
                     >
                         Apply AI Edit
@@ -1782,22 +1793,88 @@ const Inventory = () => {
                     </Box>
                 </DialogTitle>
                 <DialogContent>
-                    <Box sx={{ pt: 1 }}>
+                    <Box sx={{ pt: 1, display: 'flex', flexDirection: 'column', gap: 2 }}>
                         {postingVehicle && (
-                            <Alert severity="info" sx={{ mb: 2 }}>
+                            <Alert severity="info">
                                 Posting: {postingVehicle.year} {postingVehicle.make} {postingVehicle.model}
                             </Alert>
                         )}
 
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                            Select Chrome profiles to post this vehicle immediately. The vehicle will be posted within 2-5 minutes.
-                        </Typography>
+                        {/* Image Selection */}
+                        <Box>
+                            <Typography variant="subtitle2" gutterBottom>Select Images ({selectedPostNowImages.length})</Typography>
+                            <Box sx={{ display: 'flex', gap: 1, overflowX: 'auto', pb: 1, minHeight: 80 }}>
+                                {(() => {
+                                    const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
+                                    const allImages = [...new Set([...(postingVehicle?.images || []), ...(postingVehicle?.aiImages || [])])].filter(u => u !== PLACEHOLDER_URL);
+
+                                    if (allImages.length === 0) return <Typography variant="caption">No images available</Typography>;
+
+                                    return allImages.map((img, idx) => (
+                                        <Box key={idx} sx={{ position: 'relative', flexShrink: 0, width: 100, height: 75, borderRadius: 1, overflow: 'hidden', border: selectedPostNowImages.includes(img) ? '2px solid #2196f3' : '1px solid #ddd', cursor: 'pointer' }}
+                                            onClick={() => {
+                                                if (selectedPostNowImages.includes(img)) {
+                                                    setSelectedPostNowImages(prev => prev.filter(u => u !== img));
+                                                } else {
+                                                    setSelectedPostNowImages(prev => [...prev, img]);
+                                                }
+                                            }}
+                                        >
+                                            <img
+                                                src={img}
+                                                alt=""
+                                                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                            />
+                                            {selectedPostNowImages.includes(img) && (
+                                                <Box sx={{ position: 'absolute', top: 2, right: 2, bgcolor: 'primary.main', borderRadius: '50%', p: 0.2, display: 'flex' }}>
+                                                    <CheckCircle size={12} color="white" />
+                                                </Box>
+                                            )}
+                                        </Box>
+                                    ));
+                                })()}
+                            </Box>
+                        </Box>
+
+                        {/* AI Description Prompt */}
+                        <Box sx={{ bgcolor: 'background.paper', p: 2, borderRadius: 1, border: '1px solid #eee' }}>
+                            <Typography variant="subtitle2" gutterBottom>AI Description Enhancement</Typography>
+                            <TextField
+                                label="Custom Description Prompt (Optional)"
+                                placeholder="e.g. Urgent sale, Price negotiable..."
+                                multiline
+                                rows={2}
+                                fullWidth
+                                size="small"
+                                value={postNowPrompt}
+                                onChange={(e) => setPostNowPrompt(e.target.value)}
+                                sx={{ mb: 1 }}
+                            />
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                {[
+                                    { label: 'Urgent Sale', value: 'Write an urgent sale listing. Emphasize "Must Go".' },
+                                    { label: 'Short', value: 'Keep it extremely short. Bullet points only.' },
+                                    { label: 'Detailed', value: 'Highlight all premium features in detail.' },
+                                    { label: 'Standard', value: '' }
+                                ].map((suggestion) => (
+                                    <Chip
+                                        key={suggestion.label}
+                                        label={suggestion.label}
+                                        size="small"
+                                        onClick={() => setPostNowPrompt(suggestion.value)}
+                                        sx={{ cursor: 'pointer' }}
+                                        variant="outlined"
+                                    />
+                                ))}
+                            </Box>
+                        </Box>
 
                         <FormControl fullWidth size="small">
                             <InputLabel>Select Profiles</InputLabel>
                             <Select
                                 multiple
                                 value={selectedProfileIds}
+                                label="Select Profiles"
                                 onChange={(e) => setSelectedProfileIds(e.target.value)}
                                 renderValue={(selected) => `${selected.length} profile(s) selected`}
                             >

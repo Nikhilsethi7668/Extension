@@ -1583,127 +1583,7 @@ router.delete('/', protect, async (req, res) => {
     }
 });
 
-// @desc    Batch process images with AI
-// @route   POST /api/vehicles/:id/batch-edit-images
-// @access  Protected
-router.post('/:id/batch-edit-images', protect, async (req, res) => {
-    try {
-        let { images, prompt, promptId } = req.body;
-        const vehicleId = req.params.id;
 
-        if (!images || !Array.isArray(images) || images.length === 0) {
-            res.status(400);
-            throw new Error('No images provided');
-        }
-
-        // Fix: If no prompt text provided but promptId is present, fetch it
-        if (!prompt && promptId) {
-            const promptDoc = await ImagePrompts.findById(promptId);
-            if (promptDoc) {
-                prompt = promptDoc.prompt;
-                console.log(`[Batch Edit] Resolved promptId ${promptId} to: "${prompt.substring(0, 50)}..."`);
-            } else {
-                res.status(404);
-                throw new Error('Selected prompt not found');
-            }
-        }
-
-        if (!prompt) {
-            res.status(400);
-            throw new Error('Prompt is required');
-        }
-
-        const vehicle = await Vehicle.findById(vehicleId);
-        if (!vehicle) {
-            res.status(404);
-            throw new Error('Vehicle not found');
-        }
-
-        console.log(`[Batch Edit] Processing ${images.length} images for vehicle ${vehicleId} with prompt: "${prompt}"`);
-
-        const results = [];
-        const errors = [];
-
-        // Process images in parallel
-        const processPromises = images.map(async (imageUrl) => {
-            try {
-                const result = await processImageWithAI(imageUrl, prompt);
-                return { status: 'fulfilled', value: result };
-            } catch (err) {
-                return { status: 'rejected', reason: err.message, imageUrl };
-            }
-        });
-
-        const outcomes = await Promise.all(processPromises);
-
-        outcomes.forEach(outcome => {
-            if (outcome.status === 'fulfilled') {
-                results.push(outcome.value);
-            } else {
-                errors.push({ imageUrl: outcome.imageUrl, error: outcome.reason });
-            }
-        });
-
-        // Update vehicle images with processed ones
-        // Store in separate aiImages field as requested
-        const newAiImages = [];
-        results.forEach(result => {
-            if (result.processedUrl) {
-                newAiImages.push(result.processedUrl);
-            }
-        });
-
-        if (newAiImages.length > 0) {
-            // Option 1: Append to existing
-            vehicle.aiImages.push(...newAiImages);
-
-            // Track Usage (if promptId was available, or find it?)
-            // If user selected from recommendation, frontend should send `promptId`.
-            // If user typed custom text, we might not have ID.
-            // Check req.body for promptId
-            if (req.body.promptId) {
-                await promptUsed.create({
-                    vehicle: vehicle._id,
-                    promptId: req.body.promptId,
-                    user: req.user._id
-                });
-            }
-
-            // Option 2: Overwrite? No, "push the urls in it" implies simple addition.
-            // But we should probably filter duplicates if needed.
-
-            await vehicle.save();
-
-            // Audit Log: Batch AI Edit
-            await AuditLog.create({
-                action: 'Batch AI Edit',
-                entityType: 'Vehicle',
-                entityId: vehicle._id,
-                user: req.user._id,
-                organization: req.user.organization._id,
-                details: {
-                    prompt: prompt,
-                    processedCount: newAiImages.length,
-                    totalImages: vehicle.images.length
-                },
-                ipAddress: req.ip,
-                userAgent: req.get('User-Agent'),
-            });
-        }
-
-        res.json({
-            success: true,
-            results,
-            errors,
-            processedCount: results.length,
-            failedCount: errors.length
-        });
-
-    } catch (error) {
-        console.error('Batch processing error:', error);
-        res.status(500).json({ success: false, message: error.message });
-    }
-});
 
 // @desc    Delete a specific image from a vehicle
 // @route   DELETE /api/vehicles/:id/images
@@ -2095,34 +1975,52 @@ router.get('/camera-models', protect, (req, res) => {
 router.post('/:id/batch-edit-images', protect, async (req, res) => {
     const { images, prompt, promptId } = req.body;
 
+    // Set headers for streaming IMMEDIATELY because we want to send progress
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    const sendProgress = (message, percent, details = {}) => {
+        res.write(JSON.stringify({ type: 'progress', message, percent, ...details }) + '\n');
+    };
+
     try {
         const vehicle = await Vehicle.findById(req.params.id);
 
         if (!vehicle) {
-            res.status(404);
-            throw new Error('Vehicle not found');
+            sendProgress('Vehicle not found', 0, { error: true });
+            res.end();
+            return;
         }
 
         // Authorization Check
         if (req.user.role === 'agent' && (!vehicle.assignedUsers || !vehicle.assignedUsers.some(id => id.toString() === req.user._id.toString()))) {
-            res.status(403);
-            throw new Error('Not authorized to access this vehicle');
+            sendProgress('Not authorized', 0, { error: true });
+            res.end();
+            return;
         }
 
         if (!images || !Array.isArray(images) || images.length === 0) {
-            res.status(400);
-            throw new Error('Images array is required');
+           sendProgress('No images provided', 0, { error: true });
+           res.end();
+           return;
         }
 
-        let processedCount = 0;
-        // const results = []; // Removed to avoid redeclaration
+        sendProgress(`Starting AI enhancement for ${images.length} images...`, 5);
 
-        // Process in parallel for speed
-        // Map images to array of promises
+        let processedCount = 0;
+        let completedOperations = 0;
+        const totalOperations = images.length;
+
+        // Process in parallel with progress tracking
         const editPromises = images.map(async (imageUrl) => {
             try {
                 // processImageWithAI handles promptId lookup if provided
                 const aiResult = await processImageWithAI(imageUrl, prompt, promptId);
+                
+                completedOperations++;
+                const currentPercent = 5 + Math.round((completedOperations / totalOperations) * 90); // Scale 5-95%
+                sendProgress(`Enhanced image ${completedOperations}/${totalOperations}`, currentPercent);
+
                 return {
                     success: true,
                     original: imageUrl,
@@ -2130,6 +2028,8 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
                 };
             } catch (err) {
                 console.error(`Batch processing failed for image ${imageUrl}:`, err);
+                 completedOperations++;
+                 // Still report progress even on fail
                 return {
                     success: false,
                     original: imageUrl,
@@ -2138,8 +2038,6 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
             }
         });
 
-        // specific concurrency limit could be added here (e.g., p-limit) if needed, 
-        // but for <10-20 images, Promise.all is fine.
         const results = await Promise.all(editPromises);
 
         // Update Vehicle with results
@@ -2170,8 +2068,8 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
                 }
             }
 
-            // Audit Log
-            await AuditLog.create({
+            // Audit Log (Non-blocking)
+            AuditLog.create({
                 action: 'Batch AI Edit',
                 entityType: 'Vehicle',
                 entityId: vehicle._id,
@@ -2184,17 +2082,36 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
                 },
                 ipAddress: req.ip,
                 userAgent: req.get('User-Agent'),
-            });
+            }).catch(e => console.error('Audit Log Error:', e));
         }
 
-        res.json({
-            success: true,
-            processedCount,
-            results
-        });
+        const failedCount = results.length - processedCount;
+        let finalMessage = 'AI Enhancement Complete!';
+        if (processedCount === 0 && failedCount > 0) {
+            finalMessage = `Failed (${failedCount} images)`;
+        } else if (failedCount > 0) {
+            finalMessage = `Complete: ${processedCount} OK, ${failedCount} Failed`;
+        }
+
+        // Final Success Message with Data
+        res.write(JSON.stringify({
+            type: 'complete',
+            message: finalMessage,
+            percent: 100,
+            data: {
+                success: processedCount > 0,
+                processedCount,
+                failedCount,
+                results
+            }
+        }) + '\n');
+        
+        res.end();
 
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        console.error('Batch Edit Error:', error);
+        res.write(JSON.stringify({ type: 'error', message: error.message }) + '\n');
+        res.end();
     }
 });
 
@@ -2215,6 +2132,15 @@ router.post('/queue-posting', protect, async (req, res) => {
         return res.status(400).json({ message: 'No vehicle IDs provided' });
     }
 
+    // Set headers for streaming
+    res.setHeader('Content-Type', 'text/plain');
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    // Helper to send progress
+    const sendProgress = (message, percent, details = {}) => {
+        res.write(JSON.stringify({ type: 'progress', message, percent, ...details }) + '\n');
+    };
+
     // Handle single vs multiple profiles
     // If profileIds is provided, use it. If not, use profileId (legacy). If neither, user might want "Any" (null).
     // But usually we want to explicit profiles. If null, we treated as "Default".
@@ -2232,7 +2158,7 @@ router.post('/queue-posting', protect, async (req, res) => {
     try {
         const orgId = req.user.organization?._id || req.user.organization;
         const results = { queued: 0, skipped: 0 };
-        const now = new Date(); // Reference 'Now'
+        // const now = new Date(); // Reference 'Now' (Unused variable removed)
         
         // Default scheduler settings
         const intervalMinutes = schedule?.intervalMinutes || 1; 
@@ -2240,6 +2166,10 @@ router.post('/queue-posting', protect, async (req, res) => {
         const useStealth = schedule?.stealth === true;
 
         console.log(`[Scheduler] Scheduling ${vehicleIds.length} vehicles for ${targetProfiles.length} profiles. Interval: ${intervalMinutes}m`);
+        sendProgress(`Initializing queue for ${vehicleIds.length} vehicles...`, 5);
+
+        let totalOperations = vehicleIds.length * targetProfiles.length;
+        let completedOperations = 0;
 
         // Iterate over each target profile to create independent queues
         for (const targetProfileId of targetProfiles) {
@@ -2258,14 +2188,19 @@ router.post('/queue-posting', protect, async (req, res) => {
             let runningTime = lastScheduledPost ? new Date(lastScheduledPost.scheduledTime) : new Date();
 
             // Create Posting records for this profile
-            // 1. Process all vehicles in PARALLEL (Heavy lifting: Images + AI)
+            // Process sequentially to update progress accurately, though parallel is faster. 
+            // Let's do parallel processing of images but report progress.
+            
             const vehiclePromises = vehicleIds.map(async (vehicleId, index) => {
                 // A. Fetch Data
                 const vehicleData = await Vehicle.findById(vehicleId);
                 if (!vehicleData) {
-                    console.error(`Vehicle ${vehicleId} not found, skipping.`);
+                    completedOperations++;
+                    sendProgress(`Skipping missing vehicle...`, 5 + (completedOperations / totalOperations) * 80);
                     return { skipped: true, reason: 'not_found' };
                 }
+
+                sendProgress(`Processing ${vehicleData.year} ${vehicleData.make} ${vehicleData.model}...`, 5 + (completedOperations / totalOperations) * 80);
 
                 // B. Duplicate Check (Read-only, safe for parallel)
                 const activePosting = await Posting.findOne({
@@ -2276,7 +2211,7 @@ router.post('/queue-posting', protect, async (req, res) => {
                 });
 
                 if (activePosting) {
-                    console.log(`[Scheduler] Skipping vehicle ${vehicleId} for profile ${targetProfileId}, already scheduled.`);
+                    completedOperations++;
                     return { skipped: true, reason: 'duplicate' };
                 }
 
@@ -2295,7 +2230,7 @@ router.post('/queue-posting', protect, async (req, res) => {
                                     ? req.user.organization.settings.gpsLocation 
                                     : DEFAULT_GPS;
                         
-                        console.log(`[Queue] applying stealth to ${sourceImages.length} images for vehicle ${vehicleId} (Folder: stealth)`);
+                        // console.log(`[Queue] applying stealth to ${sourceImages.length} images for vehicle ${vehicleId} (Folder: stealth)`);
                         
                         const stealthResult = await prepareImageBatch(sourceImages, {
                             gps: gps,
@@ -2310,7 +2245,7 @@ router.post('/queue-posting', protect, async (req, res) => {
                                 return `${'https://api-flash.adaptusgroup.ca'}${url}`;
                             });
                         } else {
-                            console.warn('[Queue] Stealth failed, using original images');
+                            // console.warn('[Queue] Stealth failed, using original images');
                             finalImages = sourceImages;
                         }
                     } catch (err) {
@@ -2337,6 +2272,9 @@ router.post('/queue-posting', protect, async (req, res) => {
                         }
                     } catch (e) { console.error('AI Gen Error', e); }
                 }
+
+                completedOperations++;
+                sendProgress(`Prepared ${vehicleData.year} ${vehicleData.model}`, 5 + (completedOperations / totalOperations) * 80);
 
                 return {
                     skipped: false,
@@ -2372,16 +2310,11 @@ router.post('/queue-posting', protect, async (req, res) => {
                 }
 
                 // Update running time
-                // Logic: If freshness (index 0 effectively of effective queue)
-                // We use the loop index 'i' here. 
-                // Note: 'i' is the index in processedVehicles, which matches vehicleIds length.
-                // However, we only care about effective additions. 
-                // But for simplicity, we space them out based on their batch order.
                 
                 if (!lastScheduledPost && results.queued === 0) {
                      // Very First Item in a fresh queue
                      runningTime = new Date(runningTime.getTime() + randomDelay);
-                     console.log(`[Scheduler] First item in fresh queue for profile ${targetProfileId}. Scheduling in ${Math.floor(randomDelay/60000)} minutes.`);
+                     // console.log(`[Scheduler] First item in fresh queue for profile ${targetProfileId}. Scheduling in ${Math.floor(randomDelay/60000)} minutes.`);
                 } else {
                      runningTime = new Date(runningTime.getTime() + delayToAdd);
                 }
@@ -2409,15 +2342,21 @@ router.post('/queue-posting', protect, async (req, res) => {
             }
         }
 
-        res.json({ 
+        sendProgress('All items queued successfully!', 100);
+        
+        // Final summary chunk
+        res.write(JSON.stringify({ 
+            type: 'complete',
             success: true, 
             count: results.queued, 
-            message: `Scheduled ${results.queued} postings across ${targetProfiles.length} profiles.` 
-        });
+            message: `Scheduled ${results.queued} postings (skipped ${results.skipped}).` 
+        }));
+        res.end();
 
     } catch (error) {
         console.error('Scheduling error:', error);
-        res.status(500).json({ message: 'Failed to schedule vehicles: ' + error.message });
+        res.write(JSON.stringify({ type: 'error', message: error.message }));
+        res.end();
     }
 });
 
