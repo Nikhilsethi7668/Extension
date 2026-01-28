@@ -4,7 +4,7 @@ import {
     TableContainer, TableHead, TableRow, Chip,
     Button, CircularProgress, Pagination, IconButton,
     Dialog, DialogTitle, DialogContent, DialogActions,
-    DialogContentText
+    DialogContentText, Tabs, Tab
 } from '@mui/material';
 import { Calendar, Trash2, AlertCircle } from 'lucide-react';
 import Layout from '../components/Layout';
@@ -17,18 +17,23 @@ const ScheduledPosts = () => {
     const [loading, setLoading] = useState(true);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
+    const [statusFilter, setStatusFilter] = useState('all'); // Default to all as requested
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [selectedPosting, setSelectedPosting] = useState(null);
     const [deleting, setDeleting] = useState(false);
 
     useEffect(() => {
         fetchPostings();
-    }, [page]);
+    }, [page, statusFilter]);
 
     const fetchPostings = async () => {
         try {
             setLoading(true);
-            const { data } = await apiClient.get(`/postings?page=${page}&limit=20&status=scheduled`);
+            let url = `/postings?page=${page}&limit=20`;
+            if (statusFilter !== 'all') {
+                url += `&status=${statusFilter}`;
+            }
+            const { data } = await apiClient.get(url);
             setPostings(data.postings);
             setTotal(data.total);
         } catch (err) {
@@ -77,8 +82,25 @@ const ScheduledPosts = () => {
     };
 
     return (
-        <Layout title="Scheduled Posts">
+        <Layout title="Post Scheduler">
             <Paper className="glass" sx={{ overflow: 'hidden' }}>
+                {/* Status Tabs */}
+                <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 2, pt: 2 }}>
+                    <Tabs 
+                        value={statusFilter} 
+                        onChange={(e, v) => { setStatusFilter(v); setPage(1); }}
+                        textColor="primary"
+                        indicatorColor="primary"
+                        aria-label="status tabs"
+                    >
+                        <Tab label="Scheduled" value="scheduled" />
+                        <Tab label="Processing" value="processing" />
+                        <Tab label="Completed" value="completed" />
+                        <Tab label="Failed" value="failed" />
+                        <Tab label="All" value="all" />
+                    </Tabs>
+                </Box>
+
                 <TableContainer>
                     <Table>
                         <TableHead>
@@ -105,7 +127,7 @@ const ScheduledPosts = () => {
                                     <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
                                         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                                             <Calendar size={48} style={{ opacity: 0.3 }} />
-                                            <Typography color="text.secondary">No scheduled posts found.</Typography>
+                                            <Typography color="text.secondary">No {statusFilter === 'all' ? '' : statusFilter} posts found.</Typography>
                                         </Box>
                                     </TableCell>
                                 </TableRow>
@@ -140,12 +162,20 @@ const ScheduledPosts = () => {
                                             </Typography>
                                         </TableCell>
                                         <TableCell>
-                                            <Chip
-                                                label={posting.status}
-                                                size="small"
-                                                color={getStatusColor(posting.status)}
-                                                variant="outlined"
-                                            />
+                                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0.5 }}>
+                                                <Chip
+                                                    label={posting.status}
+                                                    size="small"
+                                                    color={getStatusColor(posting.status)}
+                                                    variant="outlined"
+                                                />
+                                                {/* Show Failure Reason or Error */}
+                                                {(posting.failureReason || posting.error) && (
+                                                    <Typography variant="caption" color="error" sx={{ maxWidth: 200, lineHeight: 1.2 }}>
+                                                        {posting.failureReason || posting.error}
+                                                    </Typography>
+                                                )}
+                                            </Box>
                                         </TableCell>
                                         {(currentUser?.role === 'org_admin' || currentUser?.role === 'super_admin') && (
                                             <TableCell>

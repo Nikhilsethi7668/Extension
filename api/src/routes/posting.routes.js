@@ -46,7 +46,7 @@ router.get('/', protect, async (req, res) => {
                 select: 'year make model images vin price' // Minimal fields
             })
             .populate('userId', 'name email')
-            .sort({ scheduledTime: 1 }) // Closest first
+            .sort({ scheduledTime: -1 }) // Recent/Newest first
             .skip(skip)
             .limit(limitNum);
 

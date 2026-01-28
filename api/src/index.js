@@ -141,6 +141,12 @@ io.on('connection', (socket) => {
         socket.join(`org:${orgId}`);
         console.log(`[Socket.IO] Client ${socket.id} (${clientType}) joined org:${orgId}`);
 
+        // Extension Specific: Join Profile Room if profileId exists
+        if (clientType === 'extension' && data.profileId && userId) {
+            socket.join(`user:${userId}:extension:${data.profileId}`);
+            console.log(`[Socket.IO] Client ${socket.id} joined extension room: user:${userId}:extension:${data.profileId}`);
+        }
+
         // Join specific client-type room (for targeted commands)
         // e.g., org:123:desktop
         if (clientType) {

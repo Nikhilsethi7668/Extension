@@ -334,7 +334,8 @@ async function loadProfiles() {
                 return;
             }
 
-            profileSelect.innerHTML = '<option value="">-- Global / No Profile --</option>';
+            // Default "Unselected" State
+            profileSelect.innerHTML = '<option value="" disabled selected>-- Select Profile --</option>';
             
             profiles.forEach(p => {
                 const option = document.createElement('option');
@@ -343,9 +344,17 @@ async function loadProfiles() {
                 
                 if (selectedId && (option.value === selectedId)) {
                     option.selected = true;
+                    // If we have a stored selection, we must unselect the default disabled one? 
+                    // Browser handles single select, but let's be safe.
+                    // Actually, if we set selected=true here, it overrides the default from innerHTML string? 
+                    // No, "disabled selected" in HTML string sets initial. 
+                    // If we find a match, setting option.selected = true is enough.
                 }
                 profileSelect.appendChild(option);
             });
+            
+            // If we have a selectedId but it wasn't found in list, should we revert to default?
+            // The disabled selected option covers it.
         };
 
         // 1. Initial Render from Cache (if available)

@@ -2461,9 +2461,7 @@ router.post('/post-now', protect, async (req, res) => {
                 continue;
             }
 
-            // Calculate minimal delay (2-5 minutes for anti-detection)
-            const randomMinutes = 2 + Math.random() * 3; // 2-5 min
-            const scheduledTime = new Date(now.getTime() + randomMinutes * 60000);
+            const scheduledTime = new Date(now.getTime());
 
             // Create posting
             const posting = await Posting.create({

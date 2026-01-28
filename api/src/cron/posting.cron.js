@@ -1,7 +1,8 @@
 import cron from 'node-cron';
 import Posting from '../models/posting.model.js';
 import Vehicle from '../models/Vehicle.js';
-import { queueEvent } from '../routes/events.routes.js';
+import ChromeProfile from '../models/ChromeProfile.js';
+import { queueEvent, isProfileActive } from '../routes/events.routes.js';
 
 // Actually we don't need jobEvents here. We emit socket directly.
 
@@ -20,22 +21,13 @@ export const initPostingCron = (io) => {
     cron.schedule('*/30 * * * * *', async () => {
         const now = new Date();
         console.log(`[Cron] Post Scheduler running at ${now.toLocaleTimeString()}`);
-        // Check for postings scheduled in the past 2 minutes or next 1 minute (window)
-        // Actually, best practice is: scheduledTime <= now AND status == 'scheduled'
-        // The user said: "check 2 min old and 1 min upconning posting"
-        // This implies a window: [Now - 2m, Now + 1m]
-        // But if we run every minute, we might miss something if we are strict.
-        // Let's look for anything 'scheduled' that is due (scheduledTime <= Now + 1 min)
-        // And maybe filter out very old ones if they are deemed 'stale', but usually we just process them.
-        
-        // Let's follow the user's specific logic roughly but make it robust.
-        // Window: Start = Now - 2 mins. End = Now + 1 mins.
         
         const twoMinutesAgo = new Date(now.getTime() - 2 * 60000);
         const oneMinuteFuture = new Date(now.getTime() + 1 * 60000);
 
         try {
-            // Find active scheduled postings in the time window
+            // Find active scheduled postings
+            // REMOVE LIMIT to support concurrency (processed in parallel below)
             const postings = await Posting.find({
                 status: 'scheduled',
                 scheduledTime: { $gte: twoMinutesAgo, $lte: oneMinuteFuture }
@@ -43,84 +35,11 @@ export const initPostingCron = (io) => {
 
             if (postings.length > 0) {
                 console.log(`[Cron] Found ${postings.length} postings to trigger.`);
-            }
-
-            for (const posting of postings) {
-                const { orgId, userId, vehicleId, profileId } = posting;
-                const vehicle = posting.vehicleId; // Populated
-
-                if (!vehicle) {
-                    console.error(`[Cron] Posting ${posting._id} has no vehicle.`);
-                    posting.status = 'failed';
-                    posting.error = 'Vehicle not found';
-                    await posting.save();
-                    continue;
-                }
-
-                console.log(`[Cron] Triggering Posting ${posting._id} for Vehicle ${vehicleId._id} (User: ${userId})`);
-
-                // Use user-specific room if available, otherwise fallback to org
-                const desktopRoom = userId ? `user:${userId}:desktop` : `org:${orgId}:desktop`;
-                const extensionRoom = `org:${orgId}:extension`; // Extensions poll via API, so this room usage is less critical for them, but usually they join org room.
-
-// Mark as processing immediately to prevent duplicate triggers
-                posting.status = 'processing';
-                posting.logs.push({ message: 'Processing started', timestamp: new Date() });
-                await posting.save();
-
-                // 1. Launch/Focus Profile (if specified)
-                // We fire this to Desktop
-                if (profileId) {
-                    // Check if profile is already active (polling via extension)
-                    try {
-                        const { isProfileActive } = await import('../routes/events.routes.js');
-                        
-                        if (isProfileActive(userId, profileId)) {
-                            console.log(`[Cron] User ${userId} Profile ${profileId} is active. Skipping launch.`);
-                            posting.logs.push({ message: 'Skipped browser launch (Profile Active)', timestamp: new Date() });
-                        } else {
-                            console.log(`[Cron] Emitting launch-browser-profile to ${desktopRoom} for profile ${profileId}`);
-                            io.to(desktopRoom).emit('launch-browser-profile', { profileId });
-                        }
-                    } catch (e) {
-                         console.error('[Cron] Error checking profile status:', e);
-                         // Fallback to emitting if check fails
-                         io.to(desktopRoom).emit('launch-browser-profile', { profileId });
-                    }
-                    
-                    // We can emulate this async logic without blocking the main loop.
-                    processPostingAsync(io, posting, extensionRoom, vehicle);
-                } else {
-                     // Direct to extension
-                     const vehiclePayload = vehicle.toObject ? vehicle.toObject() : { ...vehicle };
-                     if (posting.selectedImages && posting.selectedImages.length > 0) {
-                        console.log(`[Cron] Using ${posting.selectedImages.length} selected images for posting.`);
-                        const fullUrls = posting.selectedImages.map(toFullUrl);
-                        vehiclePayload.preparedImages = fullUrls;
-                        vehiclePayload.images = fullUrls; // Strict override
-                     }
-                     
-                     // Also attach custom description/prompt if present
-                     if (posting.customDescription) {
-                        vehiclePayload.description = posting.customDescription; // Override description
-                     }
-
-                     // Queue event instead of Socket.IO emit
-                     queueEvent(posting.userId, 'start-posting-vehicle', {
-                        profileId: profileId || null, // Include profile ID for routing
-                        userId: posting.userId, // Targeted User ID
-                        vehicleId: vehicle._id,
-                        vehicleData: vehiclePayload,
-                        postingId: posting._id,
-                        jobId: posting._id // Use ID as JobID
-                    });
-                    
-                    // Mark Completed Immediately
-                    posting.status = 'completed'; // As requested
-                    posting.completedAt = new Date();
-                    posting.logs.push({ message: 'Triggered via Cron', timestamp: new Date() });
-                    await posting.save();
-                }
+                
+                // Process ALL postings concurrently
+                await Promise.all(postings.map(async (posting) => {
+                    await processSinglePosting(io, posting);
+                }));
             }
 
         } catch (error) {
@@ -129,43 +48,185 @@ export const initPostingCron = (io) => {
     });
 };
 
-// Async helper to handle the delay without blocking the cron loop
-async function processPostingAsync(io, posting, extensionRoom, vehicle) {
-    try {
-        // Wait 15 seconds for browser to launch
-        await new Promise(resolve => setTimeout(resolve, 15000));
+async function processSinglePosting(io, posting) {
+    const { orgId, userId, vehicleId, profileId } = posting;
+    const vehicle = posting.vehicleId;
+
+    if (!vehicle) {
+        console.error(`[Cron] Posting ${posting._id} has no vehicle.`);
+        posting.status = 'failed';
+        posting.error = 'Vehicle not found';
+        await posting.save();
+        return;
+    }
+
+    // 1. Connectivity Checks
+    if (userId) {
+        // A. Desktop App Check (Strict)
+        const desktopRoom = `user:${userId}:desktop`;
+        const desktopConnected = checkRoomHasClients(io, desktopRoom);
+
+        if (!desktopConnected) {
+            console.warn(`[Cron] Desktop App not connected for User ${userId}. Skipping.`);
+            posting.failureReason = 'Desktop App Disconnected';
+            await posting.save();
+            return;
+        }
         
-        console.log(`[Cron] Queuing start-posting-vehicle for User ${posting.userId} after delay`);
+        // Note: Extension check is moved to AFTER the launch/delay phase
+    }
+
+    console.log(`[Cron] Triggering Posting ${posting._id} for Vehicle ${vehicle._id} (User: ${userId})`);
+
+    // Mark as processing
+    posting.status = 'processing';
+    posting.failureReason = null; 
+    posting.logs.push({ message: 'Processing started (Launching Profile)', timestamp: new Date() });
+    await posting.save();
+
+
+
+    // 2. Launch/Focus Profile (via Desktop)
+    if (profileId) {
+        const desktopRoom = `user:${userId}:desktop`;
+        const extensionRoom = `user:${userId}:extension:${profileId}`; // MongoID room
+        
+        // --- RESOLVE UNIQUE ID FOR POLLING CHECK ---
+        let profileUniqueId = profileId; // Default to assuming it's the Unique ID (String) since Posting schema says type: String
+        let chromeProfile = null;
+        
+        // Try to see if it IS a mongo ID first (legacy or mixed usage)
+        if (profileId.match(/^[0-9a-fA-F]{24}$/)) {
+            try {
+                chromeProfile = await ChromeProfile.findById(profileId);
+                if (chromeProfile) {
+                    profileUniqueId = chromeProfile.uniqueId;
+                }
+            } catch (e) { console.error('[Cron] Error resolving profile:', e); }
+        } else {
+             // It is likely the unique ID string already (e.g. "Profile 3")
+             // We can optionally try to find the ChromeProfile doc by uniqueId if we need the Name for the desktop app?
+             // Desktop app launch needs: profileId (Unique), profileName (Display), mongoId (Optional)
+             try {
+                 const p = await ChromeProfile.findOne({ uniqueId: profileId, user: userId });
+                 if (p) chromeProfile = p;
+             } catch (e) { }
+        }
+
+        // --- CHECK CONNECTIVITY (SOCKET OR POLLING) ---
+        const isSocketActive = checkRoomHasClients(io, extensionRoom);
+        const isPollingActive = profileUniqueId ? isProfileActive(userId, profileUniqueId) : false;
+
+        console.log(`[Cron] Connectivity Check for Profile ${profileUniqueId || profileId}: Socket=${isSocketActive}, Polling=${isPollingActive}`);
+
+        if (isSocketActive || isPollingActive) {
+            console.log(`[Cron] Extension for profile ${profileUniqueId || profileId} is ALREADY ACTIVE. Skipping launch & delay.`);
+            processPostingAsync(io, posting, vehicle, 0, false, profileUniqueId);
+        } else {
+             // Not active, so trigger launch
+            try {
+                if (chromeProfile) {
+                    console.log(`[Cron] Emitting launch-browser-profile to ${desktopRoom} for profile "${chromeProfile.name}" (${chromeProfile.uniqueId})`);
+                    io.to(desktopRoom).emit('launch-browser-profile', { 
+                        profileId: chromeProfile.uniqueId, 
+                        profileName: chromeProfile.name,
+                        mongoId: chromeProfile._id
+                    });
+                } else {
+                     console.warn(`[Cron] ChromeProfile ${profileId} not found in DB. Sending raw ID.`);
+                     io.to(desktopRoom).emit('launch-browser-profile', { profileId });
+                }
+
+            } catch (e) {
+                console.error('[Cron] Error emitting launch event:', e);
+            }
+
+            // 3. Queue Event (Async Delay + Extension Check)
+            // Wait 8 seconds as requested
+            processPostingAsync(io, posting, vehicle, 8000, true, profileUniqueId);
+        }
+    } else {
+        // Direct handling (no specific profile launch)
+        processPostingAsync(io, posting, vehicle, 0, false); 
+    }
+}
+
+// Helper to check socket room
+function checkRoomHasClients(io, roomName) {
+    const room = io.sockets.adapter.rooms.get(roomName);
+    return room && room.size > 0;
+}
+
+// Async helper to handle the delay and checks
+async function processPostingAsync(io, posting, vehicle, delayMs = 15000, enforceExtensionCheck = false, profileUniqueId = null) {
+    try {
+        if (delayMs > 0) {
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+
+        // 3.5 Extension Check (Post-Launch)
+        if (enforceExtensionCheck && posting.profileId && posting.userId) {
+            const extensionRoom = `user:${posting.userId}:extension:${posting.profileId}`;
+            const isSocketActive = checkRoomHasClients(io, extensionRoom);
+            
+            // Use passed uniqueId or resolve it
+            let currentUniqueId = profileUniqueId || posting.profileId; // Default to using what we have
+            
+            // If it looks like a Mongo ID, try to resolve it to get the real Unique ID
+            if (!profileUniqueId && posting.profileId && posting.profileId.match(/^[0-9a-fA-F]{24}$/)) {
+                 try {
+                    const ChromeProfile = (await import('../models/ChromeProfile.js')).default;
+                    const p = await ChromeProfile.findById(posting.profileId);
+                    if (p) currentUniqueId = p.uniqueId;
+                } catch (e) { }
+            }
+
+            // Check Polling
+            let isPollingActive = false;
+            if (currentUniqueId) {
+                const { isProfileActive } = await import('../routes/events.routes.js');
+                isPollingActive = isProfileActive(posting.userId, currentUniqueId);
+            }
+
+            if (!isSocketActive && !isPollingActive) {
+                console.warn(`[Cron] Extension Profile ${posting.profileId} failed to connect (Socket/Poll) after ${delayMs}ms.`);
+                posting.status = 'failed';
+                posting.failureReason = 'Extension Failed to Connect (Timeout)';
+                posting.logs.push({ message: `Extension check failed after ${delayMs}ms`, timestamp: new Date() });
+                await posting.save();
+                return;
+            }
+        }
+        
+        console.log(`[Cron] Queuing start-posting-vehicle for User ${posting.userId}`);
         
         const vehiclePayload = vehicle.toObject ? vehicle.toObject() : { ...vehicle };
         if (posting.selectedImages && posting.selectedImages.length > 0) {
-           console.log(`[Cron] Using ${posting.selectedImages.length} selected images for posting.`);
            const fullUrls = posting.selectedImages.map(toFullUrl);
            vehiclePayload.preparedImages = fullUrls;
-           vehiclePayload.images = fullUrls; // Strict override
+           vehiclePayload.images = fullUrls;
         }
         
-        // Also attach custom description/prompt if present
         if (posting.customDescription) {
-           vehiclePayload.description = posting.customDescription; // Override description
+           vehiclePayload.description = posting.customDescription;
         }
 
-        // Queue event instead of Socket.IO emit
+        // IMPORTANT: Use profileUniqueId if available for the event data, 
+        // because extension polls by Unique ID (e.g. "Profile 1")
         queueEvent(posting.userId, 'start-posting-vehicle', {
-            profileId: posting.profileId || null, // Include profile ID for routing
-            userId: posting.userId, // Targeted User ID
+            profileId: profileUniqueId || posting.profileId || null, 
+            userId: posting.userId,
             vehicleId: vehicle._id,
             vehicleData: vehiclePayload,
             postingId: posting._id,
             jobId: posting._id
         });
 
-        // Mark Completed Immediately (or after trigger)
-        posting.status = 'completed';
-        posting.completedAt = new Date();
-        posting.logs.push({ message: 'Triggered via Cron (Async)', timestamp: new Date() });
+        posting.logs.push({ message: 'Triggered via Cron', timestamp: new Date() });
+        // posting.status remains 'processing' until worker finishes? 
+        // Or if we want to follow previous logic "mark completed" is removed.
+        // But if we marked it 'processing' earlier, we are good.
         await posting.save();
-        console.log(`[Cron] Posting ${posting._id} marked as completed.`);
 
     } catch (err) {
         console.error(`[Cron] Async processing failed for ${posting._id}:`, err);
