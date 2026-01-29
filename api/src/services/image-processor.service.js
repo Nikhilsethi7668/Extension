@@ -230,11 +230,7 @@ export const prepareImage = async (imageUrl, options = {}) => {
         console.log(`[Image Processor] Starting preparation for: ${imageUrl}`);
 
         // Step 1: Fetch the original image
-        const axiosOptions = { responseType: 'arraybuffer' };
-        if (options.headers) {
-            axiosOptions.headers = options.headers;
-        }
-        const response = await axios.get(imageUrl, axiosOptions);
+        const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
         let imageBuffer = Buffer.from(response.data);
 
         // Step 2: Resize for marketplace (2048px max)
