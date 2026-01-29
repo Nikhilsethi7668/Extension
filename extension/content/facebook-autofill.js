@@ -561,13 +561,27 @@
           document.removeEventListener('click', clickListener, true);
           isMonitorAttached = false;
 
-          // Send confirmation to background
-          safeChromeRuntimeSendMessage({
-            action: 'postActionConfirmed',
-            vehicleId: vehicleData._id,
-            platform: 'facebook_marketplace',
-            listingUrl: window.location.href // Initial URL, might change later
-          });
+          if (vehicleData.postingId) {
+              console.log('Publish detected for Posting Job, sending posting_result...');
+              safeChromeRuntimeSendMessage({
+                action: 'posting_result',
+                data: {
+                  postingId: vehicleData.postingId,
+                  jobId: vehicleData.jobId,
+                  vehicleId: vehicleData._id || vehicleData.vehicleId,
+                  status: 'completed',
+                  listingUrl: window.location.href
+                }
+              });
+          } else {
+              // Send confirmation to background (Legacy)
+              safeChromeRuntimeSendMessage({
+                action: 'postActionConfirmed',
+                vehicleId: vehicleData._id,
+                platform: 'facebook_marketplace',
+                listingUrl: window.location.href // Initial URL, might change later
+              });
+          }
         }
       }
     };

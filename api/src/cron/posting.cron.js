@@ -22,7 +22,7 @@ export const initPostingCron = (io) => {
         const now = new Date();
         console.log(`[Cron] Post Scheduler running at ${now.toLocaleTimeString()}`);
         
-        const twoMinutesAgo = new Date(now.getTime() - 2 * 60000);
+        const twoMinutesAgo = new Date(now.getTime() - 120 * 60000);
         const oneMinuteFuture = new Date(now.getTime() + 1 * 60000);
 
         try {

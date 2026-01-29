@@ -2359,7 +2359,7 @@ router.post('/queue-posting', protect, async (req, res) => {
 // @route   POST /api/vehicles/post-now
 // @access  Protected
 router.post('/post-now', protect, async (req, res) => {
-    const { vehicleId, profileIds, selectedImages } = req.body;
+    const { vehicleId, profileIds, selectedImages, prompt } = req.body;
 
     if (!vehicleId) {
         return res.status(400).json({ message: 'Vehicle ID is required' });
@@ -2438,12 +2438,32 @@ router.post('/post-now', protect, async (req, res) => {
              return `${BASE_URL}${url}`;
         });
 
+        // Generate AI Description if prompt provided
+        let customDescription = null;
+        if (prompt) {
+            try {
+                console.log(`[Post Now] Generating AI content with prompt: "${prompt}"`);
+                const aiContent = await generateVehicleContent(vehicleData, prompt);
+                if (aiContent && aiContent.description) {
+                    customDescription = aiContent.description;
+                    console.log('[Post Now] AI Description generated successfully');
+                }
+            } catch (e) { 
+                console.error('[Post Now] AI Gen Error', e); 
+            }
+        }
+
         // Create posting records for each profile
         const now = new Date();
         const createdPostings = [];
+        const skippedProfiles = [];
 
         for (const profileId of profileIds) {
-            // Check for duplicate
+            // Check for immediate duplicate (already scheduled)
+            // But also check if there is ANY scheduled post coming up soon for this profile
+            // to avoid conflicts.
+            
+            // 1. Strict Duplicate Check (Exact same vehicle/profile) - Already there
             const existingPosting = await Posting.findOne({
                 userId: req.user._id,
                 vehicleId: vehicleId,
@@ -2453,6 +2473,22 @@ router.post('/post-now', protect, async (req, res) => {
 
             if (existingPosting) {
                 console.log(`[Post Now] Skipping profile ${profileId}, already scheduled`);
+                skippedProfiles.push({ profileId, reason: 'Already scheduled for this vehicle' });
+                continue;
+            }
+
+            // 2. Conflict Check: Is there a scheduled post within next 5 minutes for this profile?
+            const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60000);
+            const upcomingPost = await Posting.findOne({
+                userId: req.user._id,
+                profileId: profileId,
+                status: 'scheduled',
+                scheduledTime: { $lt: fiveMinutesFromNow }
+            });
+
+            if (upcomingPost) {
+                console.log(`[Post Now] Skipping profile ${profileId}, conflict with upcoming post at ${upcomingPost.scheduledTime}`);
+                skippedProfiles.push({ profileId, reason: 'Profile has another post scheduled within 5 mins' });
                 continue;
             }
 
@@ -2467,46 +2503,59 @@ router.post('/post-now', protect, async (req, res) => {
                 status: 'scheduled',
                 scheduledTime: scheduledTime,
                 selectedImages: finalImages,
-                prompt: null,
-                customDescription: null,
+                prompt: prompt || null,
+                customDescription: customDescription,
                 schedulerOptions: {
                     delay: 0,
                     stealth: true
                 },
                 completedAt: null,
-                logs: [{ message: `Immediate post requested by user ${req.user._id}`, timestamp: new Date() }]
+                logs: [{ message: `Immediate post requested by user ${req.user._id}. ${customDescription ? 'AI Description generated.' : ''}`, timestamp: new Date() }]
             });
 
             createdPostings.push(posting);
         }
 
         // Audit Log
-        await AuditLog.create({
-            action: 'Post Now',
-            entityType: 'Vehicle',
-            entityId: vehicleId,
-            user: req.user._id,
-            organization: orgId,
-            details: {
-                profileCount: createdPostings.length,
-                profileIds: profileIds,
-                imagesCount: finalImages.length
-            },
-            ipAddress: req.ip,
-            userAgent: req.get('User-Agent'),
-        });
+        if (createdPostings.length > 0) {
+            await AuditLog.create({
+                action: 'Post Now',
+                entityType: 'Vehicle',
+                entityId: vehicleId,
+                user: req.user._id,
+                organization: orgId,
+                details: {
+                    profileCount: createdPostings.length,
+                    profileIds: profileIds,
+                    imagesCount: finalImages.length,
+                    aiGenerated: !!customDescription
+                },
+                ipAddress: req.ip,
+                userAgent: req.get('User-Agent'),
+            });
+        }
 
-        console.log(`[Post Now] ✅ Created ${createdPostings.length} immediate postings`);
+        console.log(`[Post Now] ✅ Created ${createdPostings.length} immediate postings. Skipped ${skippedProfiles.length}.`);
+
+        let message = `Vehicle will be posted to ${createdPostings.length} profile(s).`;
+        if (createdPostings.length > 0 && customDescription) {
+            message += ` AI Description generated.`;
+        }
+        if (skippedProfiles.length > 0) {
+            message += ` Skipped ${skippedProfiles.length} profile(s) due to scheduling conflicts.`;
+        }
 
         res.json({
             success: true,
             count: createdPostings.length,
-            message: `Vehicle will be posted to ${createdPostings.length} profile(s) within 2-5 minutes.`,
+            skippedCount: skippedProfiles.length,
+            message: message,
             postings: createdPostings.map(p => ({
                 id: p._id,
                 profileId: p.profileId,
                 scheduledTime: p.scheduledTime
-            }))
+            })),
+            skipped: skippedProfiles
         });
 
     } catch (error) {

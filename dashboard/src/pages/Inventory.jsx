@@ -466,13 +466,28 @@ const Inventory = () => {
         if (selectedProfileIds.length === 0) return alert('Select at least one profile');
         setLoading(true);
         try {
-            await apiClient.post('/vehicles/post-now', {
+            const { data } = await apiClient.post('/vehicles/post-now', {
                 vehicleId: postingVehicle._id,
                 profileIds: selectedProfileIds,
                 selectedImages: selectedPostNowImages,
                 prompt: postNowPrompt
             });
-            alert(`Vehicle will be posted to ${selectedProfileIds.length} profile(s) within a minutes!`);
+            
+            // Construct detailed message
+            let msg = data.message || `Vehicle will be posted to ${data.count} profile(s).`;
+            
+            // Append details about skipped profiles if any
+            if (data.skipped && data.skipped.length > 0) {
+                msg += '\n\nSKIPPED PROFILES:\n';
+                data.skipped.forEach(skip => {
+                    const profile = chromeProfiles.find(p => p._id === skip.profileId || p.uniqueId === skip.profileId);
+                    const name = profile ? profile.name : skip.profileId;
+                    msg += `- ${name}: ${skip.reason}\n`;
+                });
+            }
+
+            alert(msg);
+            
             setPostNowDialogOpen(false);
             setSelectedProfileIds([]);
             fetchVehicles();
