@@ -2043,12 +2043,7 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
         // Update Vehicle with results
         for (const res of results) {
             if (res.success) {
-                const imageIndex = vehicle.images.indexOf(res.original);
-                if (imageIndex > -1) {
-                    vehicle.images[imageIndex] = res.processed;
-                } else {
                     vehicle.images.push(res.processed);
-                }
                 processedCount++;
             }
         }

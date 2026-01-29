@@ -115,124 +115,51 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
         }
         const imagePrompt = await ImagePrompts.findById(promptId);
         
-        // 2. INTENT CLASSIFICATION WITH OPENROUTER (Multimodal)
-        let visualDescription = "";
-        let intent = "SMART_EDIT"; // Default to smart edit (background only)
+        // 2. Setup Prompt and Intent
+        // Strictly enforcing Background Change mode as per configuration.
+        const visualDescription = imagePrompt?.prompt || prompt;
+        const intent = 'MODIFY_BACKGROUND';
 
-        try {
-            console.log('[AI Service] Analyzing Intent & Enhancing Prompt with OpenRouter (Text Only)...');
-            
-            const analysisPrompt = `
-                You are an expert AI implementation assistant for an automotive image editing pipeline.
-                
-                The user wants to edit a vehicle image using an AI inpainting model (Flux/Fal.ai).
-                User's Request: "${imagePrompt?.prompt || prompt}"
+        console.log(`[AI Service] Processing Background Change | Prompt: "${visualDescription}"`);
 
-                YOUR GOAL: 
-                1. Analyze the user's intent.
-                2. WRITE A HIGHLY OPTIMIZED PROMPT for the image generator that fulfills the user's request while STRICTLY PRESERVING the vehicle's authenticity.
+        // 3. Prepare Image for Flux 2 LoRA (Requires Clean White Background)
+        console.log('[AI Service] Preparing clean white background image...');
 
-                **CRITICAL RULES:**
-                - The subject vehicle MUST NOT be distorted, hallucinated, or modified in geometry/body shape.
-                - If the user asks for a background change, the car must look EXACTLY the same.
-                - If the user asks for a color change, ONLY the paint should change.
-
-                **INTENT CLASSIFICATION:**
-                - "MODIFY_BACKGROUND": If the user wants to change the setting, location, weather, or background (e.g. "at the beach", "showroom", "remove background").
-                - "MODIFY_VEHICLE": If the user EXPLICITLY asks to change the car itself (e.g. "make it red", "add a spoiler", "black rims").
-
-                **OUTPUT JSON ONLY:**
-                {
-                    "intent": "MODIFY_BACKGROUND" | "MODIFY_VEHICLE",
-                    "enhancedPrompt": "A detailed, photorealistic description of the scene..." (Include technical keywords like '8k', 'raw photo', 'masterpiece')
-                }
-            `;
-
-            const completion = await openRouter.chat.send({
-                model: 'deepseek/deepseek-r1', 
-                messages: [
-                    {
-                        role: 'user',
-                        content: analysisPrompt
-                    },
-                ],
-                stream: false,
-            });
-
-            const textResponse = completion.choices[0].message.content;
-            const jsonStr = cleanJson(textResponse);
-            const result = JSON.parse(jsonStr);
-
-            // Use the AI's enhanced prompt instead of constructing one manually with a generic visual description
-            visualDescription = result.enhancedPrompt; 
-            intent = result.intent === 'MODIFY_VEHICLE' ? 'GENERATE_NEW' : 'SMART_EDIT';
-            console.log(`[AI Service] Intent: ${intent} | Enhanced Prompt: "${visualDescription.substring(0, 50)}..."`);
-        } catch (err) {
-            console.warn('[AI Service] Intent analysis failed, defaulting to SMART_EDIT. Error:', err.message);
-        }
-
-
-        // 3. PREPARE FOR FLUX (Mask Generation)
-        console.log('[AI Service] Preparing masks for Flux Inpainting...');
-
-        // Convert to PNG Buffer for sharp/imgly
+        // Convert to PNG for processing
         const pngBuffer = await sharp(imageBuffer).png().toBuffer();
         const blob = new Blob([pngBuffer], { type: 'image/png' });
-        console.log("Sharp processed");
-        // Remove Background to get the subject (Car)
+        
+        // Remove background to isolate the vehicle
+        console.log("[AI Service] Removing original background...");
         const bgRemovedBlob = await removeBackground(blob);
         const bgRemovedBuffer = Buffer.from(await bgRemovedBlob.arrayBuffer());
-        console.log("Background removed");
 
-        // Upload Original Image to Fal
-        const originalImageUrl = await uploadToFal(imageBuffer);
+        // Composite isolated vehicle onto white background
+        const cleanImageBuffer = await sharp(bgRemovedBuffer)
+            .flatten({ background: { r: 255, g: 255, b: 255 } })
+            .toBuffer();
+        
+        console.log("[AI Service] Composited vehicle on white background.");
 
-        let maskBuffer;
+        // Upload prepared image to Fal
+        const cleanImageUrl = await uploadToFal(cleanImageBuffer);
+        console.log(`[AI Service] Prepared Image URL: ${cleanImageUrl}`);
+        
+        // Ensure prompt has the required prefix
+        const loraPrompt = visualDescription.startsWith('Add Background') 
+            ? visualDescription 
+            : `Add Background ${visualDescription}`;
 
-        if (intent === 'SMART_EDIT') {
-            // INTENT: Change Background, Keep Car.
-            // MASK: White = Modify (Background), Black = Protect (Car).
-            // bgRemovedBuffer Alpha: Car=255 (White), BG=0 (Black).
-
-            // DILATION STEP: Expand the Car Mask (White) slightly to ensure edges are protected.
-            // If we don't dilate, the boundary might be modified. 
-            // Logic: Blur -> Threshold (Low) = Expands White Area.
-
-            console.log('[AI Service] Creating Inverted Mask (Dilated to Protect Car entirely)...');
-            maskBuffer = await sharp(bgRemovedBuffer)
-                .ensureAlpha()
-                .extractChannel(3) // Get Alpha (Car=White)
-                .blur(5)           // Blur edges (White bleeds into Black)
-                .threshold(10)     // Threshold low to capture blur (Expands Car)
-                .negate()          // Invert (Car=0/Black, BG=255/White)
-                .toBuffer();
-        } else {
-            // INTENT: Change Car, Keep Background.
-            // ... (Logic stays same or similar)
-            console.log('[AI Service] Creating Standard Mask (Edit Car, Protect BG)...');
-            maskBuffer = await sharp(bgRemovedBuffer)
-                .ensureAlpha()
-                .extractChannel(3) // Get Alpha
-                .toBuffer();
-        }
-
-        // Upload Mask to Fal
-        const maskUrl = await uploadToFal(maskBuffer);
-
-        console.log(`[AI Service] Calling Fal.ai Flux Inpainting. Intent: ${intent}`);
-        console.log(`[AI Service] Original URL: ${originalImageUrl}`);
-        console.log(`[AI Service] Mask URL: ${maskUrl}`);
-
-        // 4. CALL FAL.AI
-        // Switching to 'fal-ai/iclight-v2' for better control over preservation.
-        const falResult = await subscribe('fal-ai/iclight-v2', {
+        // 4. CALL FAL.AI (Flux 2 LoRA)
+        // Docs: https://fal.ai/models/fal-ai/flux-2-lora-gallery/add-background/api
+        // No mask support. Input must be subject on white/clean background.
+        const falResult = await subscribe('fal-ai/flux-2-lora-gallery/add-background', {
             input: {
-                prompt: `${visualDescription}. CRITICAL: Do not modify the vehicle body, wheels, or geometry. Keep the vehicle EXACTLY as it is. Ensure perfect perspective match between car and background. No floating cars.`,
-                image_url: originalImageUrl,
-                mask_url: maskUrl,
+                prompt: loraPrompt,
+                image_urls: [cleanImageUrl], // Array of strings
                 enable_safety_checker: false,
                 image_size: "landscape_4_3",
-                strength: 0.95 // Ensure effective inpainting in masked area
+                lora_scale: 1.0 // Strength of the effect
             },
             logs: true,
             onQueueUpdate: (update) => {
@@ -267,11 +194,11 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
                 success: true,
                 originalUrl: imageUrl,
                 processedUrl: processedUrl,
-                provider: 'fal-ai-iclight-v2',
+                provider: 'fal-ai-flux-2-lora',
                 wasGenerated: true,
                 metadata: {
                     intent: intent,
-                    prompt: prompt,
+                    prompt: loraPrompt,
                     originalDescription: visualDescription.substring(0, 50) + '...'
                 }
             };
