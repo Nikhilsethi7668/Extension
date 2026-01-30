@@ -70,7 +70,7 @@ const Inventory = () => {
     const [prompts, setPrompts] = useState([]);
     const [selectedPromptId, setSelectedPromptId] = useState('');
     const [customPrompt, setCustomPrompt] = useState('');
-    const [queueSchedule, setQueueSchedule] = useState({ intervalMinutes: 15, randomize: true, stealth: true });
+    const [queueSchedule, setQueueSchedule] = useState({ intervalMinutes: 15, randomize: true, stealth: true, contactNumber: '' });
 
     const [editDialogOpen, setEditDialogOpen] = useState(false); // New state for edit dialog
     
@@ -78,6 +78,7 @@ const Inventory = () => {
     const [postNowDialogOpen, setPostNowDialogOpen] = useState(false);
     const [selectedPostNowImages, setSelectedPostNowImages] = useState([]);
     const [postNowPrompt, setPostNowPrompt] = useState('');
+    const [postNowContactNumber, setPostNowContactNumber] = useState('');
 
     useEffect(() => {
         const userStr = localStorage.getItem('user');
@@ -412,7 +413,7 @@ const Inventory = () => {
         setQueueDialogOpen(true);
     };
 
-    const { queuePosting, aiEditing, aiProgress } = useQueue();
+    const { queuePosting, postNow, aiEditing, aiProgress } = useQueue();
 
     const handleQueueSubmit = async () => {
         if (selectedProfileIds.length === 0) return alert('Select at least one profile');
@@ -459,44 +460,44 @@ const Inventory = () => {
         setPostNowPrompt('');
         
         fetchChromeProfiles();
+        setPostNowContactNumber(currentUser?.organization?.settings?.contactNumber || '');
         setPostNowDialogOpen(true);
     };
 
     const handlePostNowSubmit = async () => {
         if (selectedProfileIds.length === 0) return alert('Select at least one profile');
-        setLoading(true);
-        try {
-            const { data } = await apiClient.post('/vehicles/post-now', {
-                vehicleId: postingVehicle._id,
-                profileIds: selectedProfileIds,
-                selectedImages: selectedPostNowImages,
-                prompt: postNowPrompt
-            });
-            
-            // Construct detailed message
-            let msg = data.message || `Vehicle will be posted to ${data.count} profile(s).`;
-            
-            // Append details about skipped profiles if any
-            if (data.skipped && data.skipped.length > 0) {
-                msg += '\n\nSKIPPED PROFILES:\n';
-                data.skipped.forEach(skip => {
-                    const profile = chromeProfiles.find(p => p._id === skip.profileId || p.uniqueId === skip.profileId);
-                    const name = profile ? profile.name : skip.profileId;
-                    msg += `- ${name}: ${skip.reason}\n`;
-                });
-            }
+        setLoading(true); // Keep loading for the dialog transition
+        
+        // Close dialog immediately to show progress in sidebar
+        setPostNowDialogOpen(false);
 
-            alert(msg);
-            
-            setPostNowDialogOpen(false);
+        // Get token
+        const userStr = localStorage.getItem('user');
+        const user = userStr ? JSON.parse(userStr) : null;
+        const token = user?.token;
+
+        if (!token) {
+            setLoading(false);
+            return alert('No auth token found');
+        }
+
+        const payload = {
+            vehicleId: postingVehicle._id,
+            profileIds: selectedProfileIds,
+            selectedImages: selectedPostNowImages,
+            prompt: postNowPrompt,
+            contactNumber: postNowContactNumber
+        };
+
+        postNow(payload, token, (data) => {
+            // onSuccess
+            // We don't need to alert big messages anymore as status is in sidebar.
+            // But a small toast or alert is fine.
+            // alert(data.message); 
             setSelectedProfileIds([]);
             fetchVehicles();
-        } catch (error) {
-            console.error(error);
-            alert('Post Now failed: ' + (error.response?.data?.message || error.message));
-        } finally {
             setLoading(false);
-        }
+        });
     };
 
     // New Handler for Edit Submission
@@ -1743,6 +1744,15 @@ const Inventory = () => {
                                     />
                                 ))}
                             </Box>
+                            <TextField
+                                label="Contact Number (Optional)"
+                                placeholder="e.g. +1 555-0123"
+                                fullWidth
+                                size="small"
+                                value={queueSchedule.contactNumber || ''}
+                                onChange={(e) => setQueueSchedule({ ...queueSchedule, contactNumber: e.target.value })}
+                                sx={{ mt: 2 }}
+                            />
                         </Box>
 
                         <Box sx={{ bgcolor: 'background.paper', p: 2, borderRadius: 1, border: '1px solid #eee' }}>
@@ -1882,6 +1892,15 @@ const Inventory = () => {
                                     />
                                 ))}
                             </Box>
+                            <TextField
+                                label="Contact Number (Optional)"
+                                placeholder="e.g. +1 555-0123"
+                                fullWidth
+                                size="small"
+                                value={postNowContactNumber}
+                                onChange={(e) => setPostNowContactNumber(e.target.value)}
+                                sx={{ mt: 2 }}
+                            />
                         </Box>
 
                         <FormControl fullWidth size="small">

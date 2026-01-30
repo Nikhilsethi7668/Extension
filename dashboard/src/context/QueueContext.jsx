@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 
 const QueueContext = createContext();
 
@@ -10,26 +10,111 @@ export const useQueue = () => {
     return context;
 };
 
+import { io } from 'socket.io-client';
+
 export const QueueProvider = ({ children }) => {
     const [queueProgress, setQueueProgress] = useState({
         active: false,
         message: '',
         percent: 0,
-        completed: false
+        completed: false,
+        error: false
     });
 
+    const [socket, setSocket] = useState(null);
+
+    // Initialize Socket
+    useEffect(() => {
+        const storedUser = localStorage.getItem('user');
+        if (!storedUser) return;
+        
+        const user = JSON.parse(storedUser);
+        if (!user || !user._id || !user.organization) return;
+
+        const API_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api-flash.adaptusgroup.ca');
+        
+        const newSocket = io(API_URL, {
+             auth: {
+                 clientType: 'dashboard',
+                 token: user.token
+             },
+             query: {
+                 clientType: 'dashboard',
+                 userId: user._id, 
+                 orgId: user.organization._id || user.organization
+             }
+        });
+
+        newSocket.on('connect', () => {
+             console.log('[Dashboard Socket] Connected:', newSocket.id);
+             // Join rooms explicitly if needed, but backend handles it on 'register-client' usually?
+             // Backend index.js handles 'register-client' event. Let's emit it.
+             newSocket.emit('register-client', {
+                 orgId: user.organization._id || user.organization,
+                 userId: user._id,
+                 clientType: 'dashboard'
+             });
+        });
+
+        newSocket.on('queue-progress', (data) => {
+             console.log('[Dashboard Socket] Progress:', data);
+             if (data.type === 'progress') {
+                 setQueueProgress(prev => ({
+                     ...prev,
+                     active: true,
+                     message: data.message,
+                     percent: data.percent,
+                     completed: false,
+                     error: false
+                 }));
+             } else if (data.type === 'complete') {
+                 setQueueProgress({
+                     active: true,
+                     message: data.message,
+                     percent: 100,
+                     completed: true,
+                     error: false
+                 });
+                 // Minimize after delay
+                 setTimeout(() => {
+                    setQueueProgress(prev => ({ ...prev, active: false }));
+                 }, 5000);
+             } else if (data.type === 'error') {
+                 setQueueProgress({
+                     active: true, 
+                     message: data.message, 
+                     percent: 0, 
+                     error: true,
+                     completed: false,
+                 });
+             }
+        });
+
+        setSocket(newSocket);
+
+        return () => {
+            newSocket.disconnect();
+        };
+    }, []);
+
     const queuePosting = useCallback(async (payload, token, onSuccess) => {
-        // Initialize progress
+        // Initialize progress UI immediately
         setQueueProgress({
             active: true,
             message: 'Initializing queue...',
             percent: 0,
-            completed: false
+            completed: false,
+            error: false
         });
 
         const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api-flash.adaptusgroup.ca') + '/api';
 
         try {
+            // We use simple FETCH now, because socket will handle updates!
+            // No need to read stream anymore if backend uses queue.
+            // But IF backend sends stream for "initial" progress, we can keep it.
+            // QueueManager "addJob" returns immediately.
+            
             const response = await fetch(`${API_BASE_URL}/vehicles/queue-posting`, {
                 method: 'POST',
                 headers: {
@@ -43,57 +128,16 @@ export const QueueProvider = ({ children }) => {
                 const err = await response.json();
                 throw new Error(err.message || 'Queue failed');
             }
-
-            // Stream Reader
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-
-            while (true) {
-                const { value, done } = await reader.read();
-                if (done) break;
-
-                const chunk = decoder.decode(value, { stream: true });
-                const lines = chunk.split('\n');
-
-                for (const line of lines) {
-                    if (!line.trim()) continue;
-                    try {
-                        const data = JSON.parse(line);
-                        
-                        if (data.type === 'progress') {
-                            setQueueProgress(prev => ({
-                                ...prev,
-                                active: true,
-                                message: data.message,
-                                percent: data.percent
-                            }));
-                        } else if (data.type === 'complete') {
-                            setQueueProgress({
-                                active: true,
-                                message: data.message,
-                                percent: 100,
-                                completed: true
-                            });
-                            
-                            // Call success callback (e.g., refresh list)
-                            if (onSuccess) onSuccess();
-
-                            // Auto-dismiss after 5 seconds, or keep it until user dismisses?
-                            // User request: "won't lost state on page change". 
-                            // Let's keep it visible until they dismiss or start new one, 
-                            // OR auto-minimize?
-                            // For now, let's keep it "Complete" state.
-                            setTimeout(() => {
-                                setQueueProgress(prev => ({ ...prev, active: false }));
-                            }, 5000); 
-                        } else if (data.type === 'error') {
-                            throw new Error(data.message);
-                        }
-                    } catch (err) {
-                        console.error('Stream parse error:', err);
-                    }
-                }
-            }
+            
+            const data = await response.json();
+            // Response is 202 Accepted { success: true, message: ... }
+            
+            // We rely on socket for further updates.
+            setQueueProgress(prev => ({
+                ...prev,
+                message: data.message || 'Request queued. Waiting for processor...',
+                percent: 0
+            }));
 
         } catch (error) {
             console.error('Queue Error:', error);
@@ -101,9 +145,60 @@ export const QueueProvider = ({ children }) => {
                 active: true, 
                 message: 'Error: ' + error.message, 
                 percent: 0, 
-                error: true 
+                error: true,
+                completed: false
             });
-            // Auto hide error after delay
+            setTimeout(() => {
+                setQueueProgress(prev => ({ ...prev, active: false }));
+            }, 8000);
+        }
+    }, []);
+
+    const postNow = useCallback(async (payload, token, onSuccess) => {
+        setQueueProgress({
+            active: true,
+            message: 'Initiating immediate post...',
+            percent: 0,
+            completed: false,
+            error: false
+        });
+
+        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api-flash.adaptusgroup.ca') + '/api';
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/vehicles/post-now`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.message || 'Post Now failed');
+            }
+            
+            const data = await response.json();
+            
+            setQueueProgress(prev => ({
+                ...prev,
+                message: data.message || 'Posting started.',
+                percent: 0
+            }));
+            
+            if (onSuccess) onSuccess(data);
+
+        } catch (error) {
+            console.error('Post Now Error:', error);
+            setQueueProgress({ 
+                active: true, 
+                message: 'Error: ' + error.message, 
+                percent: 0, 
+                error: true,
+                completed: false
+            });
             setTimeout(() => {
                 setQueueProgress(prev => ({ ...prev, active: false }));
             }, 8000);
@@ -215,7 +310,7 @@ export const QueueProvider = ({ children }) => {
 
     return (
         <QueueContext.Provider value={{ 
-            queueProgress, queuePosting, dismissProgress,
+            queueProgress, queuePosting, postNow, dismissProgress,
             aiProgress, aiEditing, dismissAiProgress
         }}>
             {children}

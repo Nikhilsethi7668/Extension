@@ -13,6 +13,8 @@ import ImagePrompts from '../models/ImagePrompts.js';
 import mongoose from 'mongoose';
 
 
+import queueManager from '../services/queue.service.js';
+
 const router = express.Router();
 import fs from 'fs';
 import path from 'path';
@@ -2113,456 +2115,80 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
 // @desc    Queue multiple vehicles for posting
 // @route   POST /api/vehicles/queue-posting
 // @access  Protected
-// @desc    Queue multiple vehicles for posting with scheduling options
-// @route   POST /api/vehicles/queue-posting
-// @access  Protected
-// @desc    Queue multiple vehicles for posting with scheduling options
-// @route   POST /api/vehicles/queue-posting
-// @access  Protected
 router.post('/queue-posting', protect, async (req, res) => {
-    const { vehicleIds, profileId, profileIds, schedule, selectedImages } = req.body;
-    // schedule: { intervalMinutes: number, randomize: boolean, stealth: boolean }
-
-    if (!vehicleIds || !Array.isArray(vehicleIds) || vehicleIds.length === 0) {
-        return res.status(400).json({ message: 'No vehicle IDs provided' });
-    }
-
-    // Set headers for streaming
-    res.setHeader('Content-Type', 'text/plain');
-    res.setHeader('Transfer-Encoding', 'chunked');
-
-    // Helper to send progress
-    const sendProgress = (message, percent, details = {}) => {
-        res.write(JSON.stringify({ type: 'progress', message, percent, ...details }) + '\n');
-    };
-
-    // Handle single vs multiple profiles
-    // If profileIds is provided, use it. If not, use profileId (legacy). If neither, user might want "Any" (null).
-    // But usually we want to explicit profiles. If null, we treated as "Default".
-    // Let's normalize to an array.
-    let targetProfiles = [];
-    if (profileIds && Array.isArray(profileIds) && profileIds.length > 0) {
-        targetProfiles = profileIds;
-    } else if (profileId) {
-        targetProfiles = [profileId];
-    } else {
-        // No profile specified -> Just one pass with null
-        targetProfiles = [null];
-    }
-
     try {
-        const orgId = req.user.organization?._id || req.user.organization;
-        const results = { queued: 0, skipped: 0 };
-        // const now = new Date(); // Reference 'Now' (Unused variable removed)
-        
-        // Default scheduler settings
-        const intervalMinutes = schedule?.intervalMinutes || 1; 
-        const randomize = schedule?.randomize !== false; 
-        const useStealth = schedule?.stealth === true;
+        const { vehicleIds, profileId, profileIds, schedule, selectedImages } = req.body;
 
-        console.log(`[Scheduler] Scheduling ${vehicleIds.length} vehicles for ${targetProfiles.length} profiles. Interval: ${intervalMinutes}m`);
-        sendProgress(`Initializing queue for ${vehicleIds.length} vehicles...`, 5);
-
-        let totalOperations = vehicleIds.length * targetProfiles.length;
-        let completedOperations = 0;
-
-        // Iterate over each target profile to create independent queues
-        for (const targetProfileId of targetProfiles) {
-            
-            // Find the last scheduled post for THIS profile (and this user)
-            // This ensures queues for different profiles don't block each other
-            const lastScheduledPost = await Posting.findOne({
-                userId: req.user._id,
-                profileId: targetProfileId, // Filter by profile!
-                status: 'scheduled'
-            }).sort({ scheduledTime: -1 });
-
-            // Base time calculation
-            // If queue exists for this profile: Start from its last scheduled time
-            // If queue empty: Start from Now
-            let runningTime = lastScheduledPost ? new Date(lastScheduledPost.scheduledTime) : new Date();
-
-            // Create Posting records for this profile
-            // Process sequentially to update progress accurately, though parallel is faster. 
-            // Let's do parallel processing of images but report progress.
-            
-            const vehiclePromises = vehicleIds.map(async (vehicleId, index) => {
-                // A. Fetch Data
-                const vehicleData = await Vehicle.findById(vehicleId);
-                if (!vehicleData) {
-                    completedOperations++;
-                    sendProgress(`Skipping missing vehicle...`, 5 + (completedOperations / totalOperations) * 80);
-                    return { skipped: true, reason: 'not_found' };
-                }
-
-                sendProgress(`Processing ${vehicleData.year} ${vehicleData.make} ${vehicleData.model}...`, 5 + (completedOperations / totalOperations) * 80);
-
-                // B. Duplicate Check (Read-only, safe for parallel)
-                const activePosting = await Posting.findOne({
-                    userId: req.user._id,
-                    vehicleId: vehicleId,
-                    profileId: targetProfileId,
-                    status: 'scheduled'
-                });
-
-                if (activePosting) {
-                    completedOperations++;
-                    return { skipped: true, reason: 'duplicate' };
-                }
-
-                // C. Stealth Image Processing
-                let sourceImages = [];
-                if (selectedImages && selectedImages.length > 0) {
-                    sourceImages = selectedImages;
-                } else if (vehicleData.images && vehicleData.images.length > 0) {
-                    sourceImages = vehicleData.images.slice(0, 8);
-                }
-
-                let finalImages = [];
-                if (sourceImages.length > 0) {
-                    try {
-                        const gps = (req.user.organization && req.user.organization.settings && req.user.organization.settings.gpsLocation) 
-                                    ? req.user.organization.settings.gpsLocation 
-                                    : DEFAULT_GPS;
-                        
-                        // console.log(`[Queue] applying stealth to ${sourceImages.length} images for vehicle ${vehicleId} (Folder: stealth)`);
-                        
-                        const stealthResult = await prepareImageBatch(sourceImages, {
-                            gps: gps,
-                            camera: null, // Random
-                            folder: 'stealth' // Custom folder!
-                        });
-
-                        if (stealthResult.success || stealthResult.successCount > 0) {
-                            finalImages = stealthResult.results.map(r => {
-                                const url = r.preparedUrl;
-                                if (url.startsWith('http')) return url;
-                                return `${'https://api-flash.adaptusgroup.ca'}${url}`;
-                            });
-                        } else {
-                            // console.warn('[Queue] Stealth failed, using original images');
-                            finalImages = sourceImages;
-                        }
-                    } catch (err) {
-                        console.error('[Queue] Stealth processing error:', err);
-                        finalImages = sourceImages;
-                    }
-                }
-
-                // Ensure Final Images are Full URLs
-                const BASE_URL = 'https://api-flash.adaptusgroup.ca';
-                finalImages = finalImages.map(url => {
-                     if (!url) return url;
-                     if (url.startsWith('http')) return url;
-                     return `${BASE_URL}${url}`;
-                });
-
-                // D. AI Description Generation
-                let customDescription = null;
-                if (schedule?.prompt) {
-                    try {
-                        const aiContent = await generateVehicleContent(vehicleData, schedule.prompt);
-                        if (aiContent && aiContent.description) {
-                            customDescription = aiContent.description;
-                        }
-                    } catch (e) { console.error('AI Gen Error', e); }
-                }
-
-                completedOperations++;
-                sendProgress(`Prepared ${vehicleData.year} ${vehicleData.model}`, 5 + (completedOperations / totalOperations) * 80);
-
-                return {
-                    skipped: false,
-                    vehicleId,
-                    vehicleData,
-                    finalImages,
-                    customDescription,
-                    originalIndex: index // Keep track of order just in case
-                };
-            });
-
-            const processedVehicles = await Promise.all(vehiclePromises);
-
-            // 2. Schedule and Create Records SEQUENTIALLY (to maintain time order)
-            for (let i = 0; i < processedVehicles.length; i++) {
-                const item = processedVehicles[i];
-
-                if (item.skipped) {
-                    if (item.reason === 'duplicate') results.skipped++;
-                    continue;
-                }
-
-                // Calculate New Time: Add interval/delay
-                let delayToAdd = intervalMinutes * 60000;
-                
-                const randomMinutes = 2 + Math.random() * 3; // 2-5 min
-                const randomDelay = Math.floor(randomMinutes * 60000);
-                delayToAdd += randomDelay;
-                
-                if (randomize) {
-                    const variance = Math.floor(Math.random() * 1 * 60000);
-                    delayToAdd += variance;
-                }
-
-                // Update running time
-                
-                if (!lastScheduledPost && results.queued === 0) {
-                     // Very First Item in a fresh queue
-                     runningTime = new Date(runningTime.getTime() + randomDelay);
-                     // console.log(`[Scheduler] First item in fresh queue for profile ${targetProfileId}. Scheduling in ${Math.floor(randomDelay/60000)} minutes.`);
-                } else {
-                     runningTime = new Date(runningTime.getTime() + delayToAdd);
-                }
-
-                // Create Posting
-                 await Posting.create({
-                    vehicleId: item.vehicleId,
-                    userId: req.user._id,
-                    orgId: orgId,
-                    profileId: targetProfileId,
-                    status: 'scheduled', 
-                    scheduledTime: runningTime,
-                    selectedImages: item.finalImages,
-                    prompt: schedule?.prompt || null,
-                    customDescription: item.customDescription,
-                    schedulerOptions: {
-                        delay: 0, 
-                        stealth: useStealth
-                    },
-                    completedAt: null,
-                    logs: [{ message: `Scheduled by user ${req.user._id}`, timestamp: new Date() }]
-                });
-                
-                results.queued++;
-            }
+        if (!vehicleIds || !Array.isArray(vehicleIds) || vehicleIds.length === 0) {
+            return res.status(400).json({ message: 'No vehicle IDs provided' });
         }
 
-        sendProgress('All items queued successfully!', 100);
-        
-        // Final summary chunk
-        res.write(JSON.stringify({ 
-            type: 'complete',
-            success: true, 
-            count: results.queued, 
-            message: `Scheduled ${results.queued} postings (skipped ${results.skipped}).` 
-        }));
-        res.end();
+        // Use QueueManager
+        const io = req.app.get('io');
+        const userId = req.user._id.toString();
+        const orgId = req.user.organization?._id || req.user.organization;
 
+        queueManager.addJob(userId, 'batch-schedule', {
+            vehicleIds,
+            profileId,
+            profileIds,
+            schedule,
+            selectedImages,
+            orgId,
+            user: { ...req.user.toObject(), organization: req.user.organization } // Pass necessary user data
+        }, io);
+
+        res.status(202).json({
+            success: true,
+            message: 'Bulk scheduling started in background. Check dashboard for progress.',
+            vehicleCount: vehicleIds.length
+        });
     } catch (error) {
-        console.error('Scheduling error:', error);
-        res.write(JSON.stringify({ type: 'error', message: error.message }));
-        res.end();
+        console.error('Queue posting error:', error);
+        res.status(500).json({ message: error.message });
     }
 });
 
 // @desc    Post a single vehicle immediately (minimal delay)
+// @desc    Post a single vehicle immediately (minimal delay)
 // @route   POST /api/vehicles/post-now
 // @access  Protected
 router.post('/post-now', protect, async (req, res) => {
-    const { vehicleId, profileIds, selectedImages, prompt } = req.body;
-
-    if (!vehicleId) {
-        return res.status(400).json({ message: 'Vehicle ID is required' });
-    }
-
-    if (!profileIds || !Array.isArray(profileIds) || profileIds.length === 0) {
-        return res.status(400).json({ message: 'At least one profile is required' });
-    }
-
     try {
+        const { vehicleId, profileIds, selectedImages, prompt, contactNumber } = req.body;
+
+        if (!vehicleId) {
+            return res.status(400).json({ message: 'Vehicle ID is required' });
+        }
+        if (!profileIds || !Array.isArray(profileIds) || profileIds.length === 0) {
+            return res.status(400).json({ message: 'At least one profile is required' });
+        }
+
+        // Use QueueManager
+        const io = req.app.get('io');
+        const userId = req.user._id.toString();
         const orgId = req.user.organization?._id || req.user.organization;
-        
-        // Fetch vehicle data
-        const vehicleData = await Vehicle.findById(vehicleId);
-        if (!vehicleData) {
-            return res.status(404).json({ message: 'Vehicle not found' });
-        }
 
-        // Authorization check
-        if (vehicleData.organization.toString() !== orgId.toString()) {
-            return res.status(403).json({ message: 'Not authorized to access this vehicle' });
-        }
+        queueManager.addJob(userId, 'post-now', {
+            vehicleId,
+            profileIds,
+            selectedImages,
+            prompt,
+            contactNumber,
+            orgId,
+            user: { ...req.user.toObject(), organization: req.user.organization }
+        }, io);
 
-        // Agent access check
-        if (req.user.role === 'agent' && vehicleData.assignedUsers &&
-            !vehicleData.assignedUsers.some(id => id.toString() === req.user._id.toString())) {
-            return res.status(403).json({ message: 'Not authorized to access this vehicle' });
-        }
-
-        console.log(`[Post Now] Processing vehicle ${vehicleId} for ${profileIds.length} profiles`);
-
-        // Prepare images with stealth processing
-        let sourceImages = [];
-        if (selectedImages && selectedImages.length > 0) {
-            sourceImages = selectedImages;
-        } else if (vehicleData.images && vehicleData.images.length > 0) {
-            sourceImages = vehicleData.images.slice(0, 8);
-        }
-
-        let finalImages = [];
-        if (sourceImages.length > 0) {
-            try {
-                const gps = (req.user.organization && req.user.organization.settings && req.user.organization.settings.gpsLocation) 
-                            ? req.user.organization.settings.gpsLocation 
-                            : DEFAULT_GPS;
-                
-                console.log(`[Post Now] Applying stealth to ${sourceImages.length} images`);
-                
-                const stealthResult = await prepareImageBatch(sourceImages, {
-                    gps: gps,
-                    camera: null, // Random
-                    folder: 'stealth'
-                });
-
-                if (stealthResult.success || stealthResult.successCount > 0) {
-                    finalImages = stealthResult.results.map(r => {
-                        const url = r.preparedUrl;
-                        if (url.startsWith('http')) return url;
-                        return `${'https://api-flash.adaptusgroup.ca'}${url}`;
-                    });
-                } else {
-                    console.warn('[Post Now] Stealth failed, using original images');
-                    finalImages = sourceImages;
-                }
-            } catch (err) {
-                console.error('[Post Now] Stealth processing error:', err);
-                finalImages = sourceImages;
-            }
-        }
-
-        // Ensure Final Images are Full URLs
-        const BASE_URL = 'https://api-flash.adaptusgroup.ca';
-        finalImages = finalImages.map(url => {
-             if (!url) return url;
-             if (url.startsWith('http')) return url;
-             return `${BASE_URL}${url}`;
-        });
-
-        // Generate AI Description if prompt provided
-        let customDescription = null;
-        if (prompt) {
-            try {
-                console.log(`[Post Now] Generating AI content with prompt: "${prompt}"`);
-                const aiContent = await generateVehicleContent(vehicleData, prompt);
-                if (aiContent && aiContent.description) {
-                    customDescription = aiContent.description;
-                    console.log('[Post Now] AI Description generated successfully');
-                }
-            } catch (e) { 
-                console.error('[Post Now] AI Gen Error', e); 
-            }
-        }
-
-        // Create posting records for each profile
-        const now = new Date();
-        const createdPostings = [];
-        const skippedProfiles = [];
-
-        for (const profileId of profileIds) {
-            // Check for immediate duplicate (already scheduled)
-            // But also check if there is ANY scheduled post coming up soon for this profile
-            // to avoid conflicts.
-            
-            // 1. Strict Duplicate Check (Exact same vehicle/profile) - Already there
-            const existingPosting = await Posting.findOne({
-                userId: req.user._id,
-                vehicleId: vehicleId,
-                profileId: profileId,
-                status: 'scheduled'
-            });
-
-            if (existingPosting) {
-                console.log(`[Post Now] Skipping profile ${profileId}, already scheduled`);
-                skippedProfiles.push({ profileId, reason: 'Already scheduled for this vehicle' });
-                continue;
-            }
-
-            // 2. Conflict Check: Is there a scheduled post within next 5 minutes for this profile?
-            const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60000);
-            const upcomingPost = await Posting.findOne({
-                userId: req.user._id,
-                profileId: profileId,
-                status: 'scheduled',
-                scheduledTime: { $lt: fiveMinutesFromNow }
-            });
-
-            if (upcomingPost) {
-                console.log(`[Post Now] Skipping profile ${profileId}, conflict with upcoming post at ${upcomingPost.scheduledTime}`);
-                skippedProfiles.push({ profileId, reason: 'Profile has another post scheduled within 5 mins' });
-                continue;
-            }
-
-            const scheduledTime = new Date(now.getTime());
-
-            // Create posting
-            const posting = await Posting.create({
-                vehicleId: vehicleId,
-                userId: req.user._id,
-                orgId: orgId,
-                profileId: profileId,
-                status: 'scheduled',
-                scheduledTime: scheduledTime,
-                selectedImages: finalImages,
-                prompt: prompt || null,
-                customDescription: customDescription,
-                schedulerOptions: {
-                    delay: 0,
-                    stealth: true
-                },
-                completedAt: null,
-                logs: [{ message: `Immediate post requested by user ${req.user._id}. ${customDescription ? 'AI Description generated.' : ''}`, timestamp: new Date() }]
-            });
-
-            createdPostings.push(posting);
-        }
-
-        // Audit Log
-        if (createdPostings.length > 0) {
-            await AuditLog.create({
-                action: 'Post Now',
-                entityType: 'Vehicle',
-                entityId: vehicleId,
-                user: req.user._id,
-                organization: orgId,
-                details: {
-                    profileCount: createdPostings.length,
-                    profileIds: profileIds,
-                    imagesCount: finalImages.length,
-                    aiGenerated: !!customDescription
-                },
-                ipAddress: req.ip,
-                userAgent: req.get('User-Agent'),
-            });
-        }
-
-        console.log(`[Post Now] ✅ Created ${createdPostings.length} immediate postings. Skipped ${skippedProfiles.length}.`);
-
-        let message = `Vehicle will be posted to ${createdPostings.length} profile(s).`;
-        if (createdPostings.length > 0 && customDescription) {
-            message += ` AI Description generated.`;
-        }
-        if (skippedProfiles.length > 0) {
-            message += ` Skipped ${skippedProfiles.length} profile(s) due to scheduling conflicts.`;
-        }
-
-        res.json({
+        res.status(202).json({
             success: true,
-            count: createdPostings.length,
-            skippedCount: skippedProfiles.length,
-            message: message,
-            postings: createdPostings.map(p => ({
-                id: p._id,
-                profileId: p.profileId,
-                scheduledTime: p.scheduledTime
-            })),
-            skipped: skippedProfiles
+            message: 'Posting started in background.',
         });
-
     } catch (error) {
-        console.error('[Post Now] Error:', error);
-        res.status(500).json({ message: 'Failed to create immediate posting: ' + error.message });
+        console.error('Post Now error:', error);
+        res.status(500).json({ message: error.message });
     }
 });
+
 
 // @desc    Update posting result (called by Extension via API)
 // @route   POST /api/vehicles/posting-result
@@ -2581,12 +2207,16 @@ router.post('/posting-result', async (req, res) => {
     const { postingId, status, error, listingUrl } = req.body;
 
     try {
+        const posting = await Posting.findById(postingId);
+        if (!posting) {
+            return res.status(404).json({ message: 'Posting not found' });
+        }
         // Ephemeral Queue Logic: Signal the worker directly
         // Dynamic import to avoid circular dependency
         const { jobEvents } = await import('../workers/posting.worker.js');
 
         jobEvents.emit('job-completed', {
-            jobId: jobId || postingId, // Use whatever ID the extension sent back
+            jobId: postingId, // Use whatever ID the extension sent back
             success: status === 'success',
             error: error,
             listingUrl: listingUrl
