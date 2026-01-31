@@ -7,6 +7,7 @@ class QueueManager {
     constructor() {
         this.queues = new Map(); // userId -> Array<Job>
         this.processing = new Map(); // userId -> Boolean
+        this.stats = new Map(); // userId -> { total: number, completed: number }
     }
 
     /**
@@ -20,14 +21,83 @@ class QueueManager {
         if (!this.queues.has(userId)) {
             this.queues.set(userId, []);
             this.processing.set(userId, false);
+            this.stats.set(userId, { total: 0, completed: 0 });
         }
 
         const queue = this.queues.get(userId);
-        queue.push({ type, data, addedAt: Date.now() });
+        const userStats = this.stats.get(userId);
+
+        // FLATTEN JOBS HERE
+        const newJobs = this.flattenJobs(userId, type, data);
         
-        console.log(`[QueueManager] Job added for user ${userId}. Queue size: ${queue.length}`);
+        // Add to queue and update total count
+        newJobs.forEach(job => queue.push(job));
+        userStats.total += newJobs.length;
+
+        console.log(`[QueueManager] Added ${newJobs.length} jobs for user ${userId}. Total in session: ${userStats.total}`);
         
         this.processQueue(userId, io);
+    }
+
+    /**
+     * Helper to flatten inputs into single execution units
+     */
+    flattenJobs(userId, type, data) {
+        const jobs = [];
+        // Extract common data
+        const { vehicleIds, profileIds, profileId, vehicleId, schedule, selectedImages, prompt, contactNumber, orgId, user, randomize, intervalMinutes } = data;
+
+        // Normalize Targets
+        let targetProfiles = [];
+        if (profileIds && Array.isArray(profileIds) && profileIds.length > 0) {
+            targetProfiles = profileIds;
+        } else if (profileId) {
+            targetProfiles = [profileId];
+        } else {
+            targetProfiles = [null]; // No specific profile (maybe just database entry?)
+        }
+
+        // Normalize Vehicles
+        let targetVehicles = [];
+        if (vehicleIds && Array.isArray(vehicleIds)) {
+            targetVehicles = vehicleIds;
+        } else if (vehicleId) {
+            targetVehicles = [vehicleId];
+        }
+
+        // Current timestamp for scheduling base (if multiple, we increment this base later)
+        // Actually, we should probably pass the schedule parameters and let the worker calculate the exact time relative to the *last* one.
+        // But to keep it simple, we can pass metadata.
+        
+        for (const pid of targetProfiles) {
+            for (const vid of targetVehicles) {
+                jobs.push({
+                    type: 'single-posting', // Unified type
+                    addedAt: Date.now(),
+                    data: {
+                        userId,
+                        orgId,
+                        vehicleId: vid,
+                        profileId: pid,
+                        // Configs
+                        schedule: schedule || {},
+                        intervalMinutes: intervalMinutes || (schedule?.intervalMinutes || 1),
+                        randomize: randomize !== false && (schedule?.randomize !== false),
+                        useStealth: schedule?.stealth === true || data.useStealth === true,
+                        // Content Override
+                        selectedImages: selectedImages, // Note: if batching multiple vehicles, selectedImages might not apply to all. usually 'selectedImages' comes from single vehicle select.
+                        // If vehicleIds > 1, selectedImages usually isn't passed (unless bulk action). 
+                        // If bulk action, same images for all cars? Unlikely. 
+                        // Assumption: If vehicleIds.length > 1, selectedImages is null/undefined usually.
+                        prompt: prompt || schedule?.prompt,
+                        contactNumber: contactNumber || schedule?.contactNumber,
+                        user: user,
+                        isPostNow: type === 'post-now'
+                    }
+                });
+            }
+        }
+        return jobs;
     }
 
     /**
@@ -36,298 +106,263 @@ class QueueManager {
     async processQueue(userId, io) {
         if (this.processing.get(userId)) return; // Already processing
         const queue = this.queues.get(userId);
-        if (!queue || queue.length === 0) return;
+        const userStats = this.stats.get(userId);
+
+        if (!queue || queue.length === 0) {
+            // Queue Finished entirely
+            if (userStats && userStats.total > 0) {
+                 this.emitProgress(io, userId, `Queue execution complete!`, 100, 'complete');
+            }
+            // CLEANUP: Prevent memory leak by removing inactive user entries
+            this.stats.delete(userId);
+            this.queues.delete(userId);
+            this.processing.delete(userId);
+            
+            console.log(`[QueueManager] ✅ Queue finished and cleaned up for user ${userId}`);
+            return;
+        }
 
         this.processing.set(userId, true);
         const job = queue.shift();
 
         try {
-            console.log(`[QueueManager] Processing job '${job.type}' for user ${userId}`);
-            
-            // Send start event
-            this.emitProgress(io, userId, `Starting ${job.type === 'batch-schedule' ? 'batch schedule' : 'posting'}...`, 0);
-
-            if (job.type === 'batch-schedule') {
-                await this.handleBatchSchedule(userId, job.data, io);
-            } else if (job.type === 'post-now') {
-                await this.handlePostNow(userId, job.data, io);
-            }
-
+            await this.handleSingleJob(userId, job, io, userStats);
         } catch (error) {
             console.error(`[QueueManager] Error processing job for ${userId}:`, error);
-            this.emitProgress(io, userId, `Error: ${error.message}`, 0, 'error');
+            // Even if error, we count as processed/attempted?
+            // Yes, so we don't get stuck.
         } finally {
+            // Update Stats
+            userStats.completed++;
             this.processing.set(userId, false);
+            
             // Process next item
-            if (queue.length > 0) {
-                this.processQueue(userId, io);
-            } else {
-                 console.log(`[QueueManager] Queue finished for user ${userId}`);
-            }
+            this.processQueue(userId, io);
         }
     }
 
-    emitProgress(io, userId, message, percent, type = 'progress') {
+    /**
+     * Emit aggregated progress
+     */
+    emitProgress(io, userId, message, itemPercent, type = 'progress') {
+        const userStats = this.stats.get(userId) || { total: 1, completed: 0 };
+        const { total, completed } = userStats;
+        
+        // Global Percent Calculation
+        // Each item is worth (100 / total) percent.
+        // Current base is (completed / total) * 100.
+        // Current item contribution is (itemPercent / 100) * (1 / total) * 100 = itemPercent / total.
+        
+        let globalPercent = 0;
+        if (total > 0) {
+            const baseProgress = (completed / total) * 100;
+            const currentItemContribution = itemPercent / total;
+            globalPercent = Math.min(100, Math.floor(baseProgress + currentItemContribution));
+        }
+
+        // Identify rooms
         const desktopRoom = `user:${userId}:desktop`;
         const dashboardRoom = `user:${userId}:dashboard`;
         
-        // Emit to both to ensure visibility
-        io.to(desktopRoom).emit('queue-progress', { type, message, percent });
-        io.to(dashboardRoom).emit('queue-progress', { type, message, percent });
-        
-        // Also emit to generic user room if they joined it?
-        // index.js: socket.join(`user:${userId}:${clientType}`)
-        // Let's also emit to org generic room for simple dashboards
-        // io.to(`org:${orgId}`).emit('queue-progress', ...) -> Need orgId which is not passed here easiest.
-        // But dashboard is definitely in user room if logged in.
+        const payload = {
+            type,
+            message,
+            percent: globalPercent, // The UI expects a 0-100 value
+            itemPercent: itemPercent, // Optional: if UI wants to show "Job 3/10: 50%"
+            stats: { completed, total }
+        };
+
+        io.to(desktopRoom).emit('queue-progress', payload);
+        io.to(dashboardRoom).emit('queue-progress', payload);
     }
 
-    async handleBatchSchedule(userId, data, io) {
-        const { vehicleIds, profileId, profileIds, schedule, selectedImages, orgId, user } = data;
-        const intervalMinutes = schedule?.intervalMinutes || 1; 
-        const randomize = schedule?.randomize !== false; 
-        const useStealth = schedule?.stealth === true;
+    async handleSingleJob(userId, job, io, stats) {
+        const { vehicleId, profileId, user, selectedImages, prompt, contactNumber, schedule, isPostNow, orgId, intervalMinutes, randomize, useStealth } = job.data;
+        
+        // 1. INIT (3%)
+        this.emitProgress(io, userId, `Starting job ${stats.completed + 1}/${stats.total}...`, 3);
 
-        // Simplify target profiles
-        let targetProfiles = [];
-        if (profileIds && Array.isArray(profileIds) && profileIds.length > 0) {
-            targetProfiles = profileIds;
-        } else if (profileId) {
-            targetProfiles = [profileId];
-        } else {
-            targetProfiles = [null];
+        const vehicleData = await Vehicle.findById(vehicleId);
+        if (!vehicleData) {
+            this.emitProgress(io, userId, `Skipping missing vehicle...`, 100); // Fail fast
+            return; 
         }
 
-        const totalOperations = vehicleIds.length * targetProfiles.length;
-        let completedOperations = 0;
-        let results = { queued: 0, skipped: 0 };
+        // DUPLICATE/EXISTENCE CHECK
+        // If it's a schedule run, we check if already scheduled
+        // If it's Post Now, we usually bypass or queue duplicate? 
+        // Let's stick to original logic: check if 'scheduled' exists.
+        const activePosting = await Posting.findOne({
+            userId: userId,
+            vehicleId: vehicleId,
+            profileId: profileId,
+            status: 'scheduled'
+        });
 
-        this.emitProgress(io, userId, `Initializing queue for ${vehicleIds.length} vehicles...`, 5);
+        if (activePosting) {
+             this.emitProgress(io, userId, `Vehicle already scheduled for this profile. Skipping.`, 100);
+             return;
+        }
 
-        for (const targetProfileId of targetProfiles) {
-            // Find last scheduled post logic (same as original)
+        // 2. IMAGE PREP (50%)
+        let sourceImages = [];
+        if (selectedImages && selectedImages.length > 0) {
+             sourceImages = selectedImages;
+        } else if (vehicleData.images && vehicleData.images.length > 0) {
+             sourceImages = vehicleData.images.slice(0, 8);
+        }
+
+        let finalImages = [];
+        if (sourceImages.length > 0) {
+            this.emitProgress(io, userId, `Processing images for ${vehicleData.make} ${vehicleData.model}...`, 50);
+            
+            try {
+                const gps = (user.organization && user.organization.settings && user.organization.settings.gpsLocation) 
+                            ? user.organization.settings.gpsLocation 
+                            : DEFAULT_GPS;
+                
+                const stealthResult = await prepareImageBatch(sourceImages, {
+                    gps: gps,
+                    camera: null, 
+                    folder: 'stealth'
+                });
+
+                if (stealthResult.success || stealthResult.successCount > 0) {
+                    finalImages = stealthResult.results.map(r => {
+                        const url = r.preparedUrl;
+                        if (url.startsWith('http')) return url;
+                        return 'https://api-flash.adaptusgroup.ca' + url;
+                    });
+                } else {
+                    finalImages = sourceImages;
+                }
+            } catch (err) {
+                console.error('[Queue] Stealth processing error:', err);
+                finalImages = sourceImages;
+            }
+        }
+        
+        // Normalize URLs
+        finalImages = finalImages.map(url => {
+             if (!url) return url;
+             if (url.startsWith('http')) return url;
+             return 'https://api-flash.adaptusgroup.ca' + url;
+        });
+
+        // 3. AI GENERATION (80%)
+        let customDescription = null;
+        if (prompt) { // prompt is passed from schedule/input
+            this.emitProgress(io, userId, `Generating AI description...`, 80);
+            try {
+                const aiContent = await generateVehicleContent(vehicleData, prompt, 'professional', contactNumber);
+                if (aiContent && aiContent.description) {
+                    customDescription = aiContent.description;
+                }
+            } catch (e) {
+                console.error('AI Gen Error', e);
+            }
+        }
+
+        // 4. SCHEDULING / SAVING (100%)
+        this.emitProgress(io, userId, `Finalizing schedule...`, 90);
+
+        let scheduledTime = new Date();
+        const MIN_GAP_MS = 4 * 60 * 1000; // 4 minutes
+
+        if (isPostNow) {
+            // POST NOW: Smart scheduling to prevent rate limits
+            // Check if there are scheduled posts for this profile in next 5 minutes
+            const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000);
+            
+            const upcomingPosts = await Posting.find({
+                userId: userId,
+                profileId: profileId,
+                status: 'scheduled',
+                scheduledTime: {
+                    $gte: new Date(), // From now
+                    $lte: fiveMinutesFromNow // To 5 minutes from now
+                }
+            }).sort({ scheduledTime: 1 }); // Ascending order
+
+            if (upcomingPosts.length > 0) {
+                // There are upcoming posts in the next 5 minutes
+                // Find the LAST scheduled post for this profile (not just in next 5 min, but overall)
+                const lastScheduledPost = await Posting.findOne({
+                    userId: userId,
+                    profileId: profileId,
+                    status: 'scheduled'
+                }).sort({ scheduledTime: -1 }); // Latest one
+
+                if (lastScheduledPost) {
+                    // Schedule after the last post with 4-minute gap
+                    scheduledTime = new Date(lastScheduledPost.scheduledTime.getTime() + MIN_GAP_MS);
+                    console.log(`[Queue] Post Now: Found upcoming posts. Scheduling after last post with 4-min gap: ${scheduledTime}`);
+                } else {
+                    // Fallback (shouldn't happen since upcomingPosts.length > 0)
+                    scheduledTime = new Date();
+                }
+            } else {
+                // No posts in next 5 minutes, schedule immediately
+                scheduledTime = new Date();
+            }
+        } else {
+            // REGULAR SCHEDULE: Chain to last scheduled post with intervals
             const lastScheduledPost = await Posting.findOne({
                 userId: userId,
-                profileId: targetProfileId,
+                profileId: profileId,
                 status: 'scheduled'
             }).sort({ scheduledTime: -1 });
 
-            let runningTime = lastScheduledPost ? new Date(lastScheduledPost.scheduledTime) : new Date();
-
-            for (let i = 0; i < vehicleIds.length; i++) {
-                const vehicleId = vehicleIds[i];
-                
-                // DATA FETCH
-                const vehicleData = await Vehicle.findById(vehicleId);
-                if (!vehicleData) {
-                    completedOperations++;
-                    this.emitProgress(io, userId, `Skipping missing vehicle...`, Math.floor((completedOperations / totalOperations) * 100));
-                    results.skipped++;
-                    continue;
-                }
-
-                this.emitProgress(io, userId, `Processing ${vehicleData.year} ${vehicleData.make} ${vehicleData.model}...`, Math.floor((completedOperations / totalOperations) * 100));
-
-                // DUPLICATE CHECK
-                const activePosting = await Posting.findOne({
-                    userId: userId,
-                    vehicleId: vehicleId,
-                    profileId: targetProfileId,
-                    status: 'scheduled'
-                });
-                if (activePosting) {
-                     completedOperations++;
-                     results.skipped++;
-                     continue;
-                }
-
-                // IMAGE PROCESSING
-                let sourceImages = [];
-                if (selectedImages && selectedImages.length > 0) {
-                     sourceImages = selectedImages;
-                } else if (vehicleData.images && vehicleData.images.length > 0) {
-                     sourceImages = vehicleData.images.slice(0, 8);
-                }
-
-                let finalImages = [];
-                if (sourceImages.length > 0) {
-                    this.emitProgress(io, userId, `Processing images for ${vehicleData.make} ${vehicleData.model}...`, Math.floor(((completedOperations + 0.2) / totalOperations) * 100)); // 20% within item
-                    try {
-                        const gps = (user.organization && user.organization.settings && user.organization.settings.gpsLocation) 
-                                    ? user.organization.settings.gpsLocation 
-                                    : DEFAULT_GPS;
-                        
-                        const stealthResult = await prepareImageBatch(sourceImages, {
-                            gps: gps,
-                            camera: null, 
-                            folder: 'stealth'
-                        });
-
-                        if (stealthResult.success || stealthResult.successCount > 0) {
-                            finalImages = stealthResult.results.map(r => {
-                                const url = r.preparedUrl;
-                                if (url.startsWith('http')) return url;
-                                return 'https://api-flash.adaptusgroup.ca' + url;
-                            });
-                        } else {
-                            finalImages = sourceImages;
-                        }
-                    } catch (err) {
-                        console.error('[Queue] Stealth processing error:', err);
-                        finalImages = sourceImages;
-                    }
-                }
-                
-                // Normalize URLs
-                finalImages = finalImages.map(url => {
-                     if (!url) return url;
-                     if (url.startsWith('http')) return url;
-                     return 'https://api-flash.adaptusgroup.ca' + url;
-                });
-
-                // AI DESCRIPTION
-                let customDescription = null;
-                const contactNumber = schedule?.contactNumber;
-                if (schedule?.prompt) {
-                    this.emitProgress(io, userId, `Generating AI description for ${vehicleData.make} ${vehicleData.model}...`, Math.floor(((completedOperations + 0.6) / totalOperations) * 100)); // 60% within item
-                    try {
-                        const aiContent = await generateVehicleContent(vehicleData, schedule.prompt, 'professional', contactNumber);
-                        if (aiContent && aiContent.description) {
-                            customDescription = aiContent.description;
-                        }
-                    } catch (e) { console.error('AI Gen Error', e); }
-                }
-
-                // CREATE POSTING
-                let delayToAdd = intervalMinutes * 60000;
-                const randomMinutes = 2 + Math.random() * 3;
-                const randomDelay = Math.floor(randomMinutes * 60000);
-                delayToAdd += randomDelay;
-                if (randomize) {
-                    const variance = Math.floor(Math.random() * 1 * 60000);
-                    delayToAdd += variance;
-                }
-
-                if (!lastScheduledPost && results.queued === 0 && i === 0) {
-                     // First one for this profile in this batch
-                     runningTime = new Date(runningTime.getTime() + randomDelay);
-                } else {
-                     runningTime = new Date(runningTime.getTime() + delayToAdd);
-                }
-
-                await Posting.create({
-                    vehicleId: vehicleId,
-                    userId: userId,
-                    orgId: orgId,
-                    profileId: targetProfileId,
-                    status: 'scheduled', 
-                    scheduledTime: runningTime,
-                    selectedImages: finalImages,
-                    prompt: schedule?.prompt || null,
-                    customDescription: customDescription,
-                    schedulerOptions: { delay: 0, stealth: useStealth },
-                    completedAt: null,
-                    logs: [{ message: `Scheduled by user ${userId}`, timestamp: new Date() }]
-                });
-
-                results.queued++;
-                completedOperations++;
-                this.emitProgress(io, userId, `Scheduled ${vehicleData.make} ${vehicleData.model}`, Math.floor((completedOperations / totalOperations) * 100)); // 100% of item logic
-            }
-        }
-
-        this.emitProgress(io, userId, `Scheduled ${results.queued} postings (skipped ${results.skipped}).`, 100, 'complete');
-    }
-
-    async handlePostNow(userId, data, io) {
-        // Implement Post Now logic inside queue (Preparation only, because actual "Post Now" triggers socket to extension immediately?)
-        // The original /post-now endpoint did:
-        // 1. Prepare images/AI
-        // 2. TRIGGER socket 'launch-browser-profile' and then 'start-posting-vehicle'.
-        // It did NOT create a Posting record? 
-        // Wait, looking at original code... it just emitted events.
-        // It did NOT save to DB? 
-        // Actually, line 2362 in original... let's check.
-        // Verified: It prepares images, then... wait, the file cut off.
-        // I need to verify if /post-now creates a record. typically it should.
-        // If it doesn't, that's a bug or a feature (direct bypass).
-        // Assuming it SHOULD create a record or at least we want to queue the PREPARATION part.
-        // Once prepared, we emit the event.
-        
-        // REPLICATING POST-NOW LOGIC:
-        const { vehicleId, profileIds, selectedImages, prompt, contactNumber, orgId, user } = data;
-        
-        // Fetch vehicle
-        const vehicleData = await Vehicle.findById(vehicleId);
-        if (!vehicleData) return; // Should handle error
-        
-        this.emitProgress(io, userId, `Preparing ${vehicleData.make} ${vehicleData.model} for immediate posting...`, 20);
-
-        // ... Replication of image processing ...
-        let sourceImages = selectedImages && selectedImages.length > 0 ? selectedImages : (vehicleData.images || []).slice(0, 8);
-        let finalImages = [];
-        
-        if (sourceImages.length > 0) {
-             const gps = (user.organization?.settings?.gpsLocation) || DEFAULT_GPS;
-             try {
-                const stealthResult = await prepareImageBatch(sourceImages, { gps, folder: 'stealth' });
-                if (stealthResult.success || stealthResult.successCount > 0) {
-                    finalImages = stealthResult.results.map(r => r.preparedUrl.startsWith('http') ? r.preparedUrl : 'https://api-flash.adaptusgroup.ca' + r.preparedUrl);
-                } else { finalImages = sourceImages; }
-             } catch(e) { finalImages = sourceImages; }
-        }
-        finalImages = finalImages.map(u => u.startsWith('http') ? u : 'https://api-flash.adaptusgroup.ca' + u);
-        this.emitProgress(io, userId, `Images prepared. Processing profiles...`, 40);
-
-        for (let i = 0; i < profileIds.length; i++) {
-            const pid = profileIds[i];
+            let baseTime = lastScheduledPost ? new Date(lastScheduledPost.scheduledTime) : new Date();
             
-            // AI (Generate unique per posting if prompt exists)
-            let customDescription = null;
-            if (prompt) {
-                 this.emitProgress(io, userId, `Generating AI content for profile ${i+1}/${profileIds.length}...`, 50 + Math.floor((i / profileIds.length) * 30));
-                 try {
-                     const ai = await generateVehicleContent(vehicleData, prompt, 'professional', contactNumber);
-                     if (ai?.description) customDescription = ai.description;
-                 } catch(e) {
-                     console.error('[PostNow] AI Generation failed:', e);
-                 }
+            // User-defined Interval
+            let userIntervalMs = intervalMinutes * 60000;
+            
+            // Random scatter (2-5 minutes)
+            const randomMinutes = 2 + Math.random() * 3;
+            const randomDelay = Math.floor(randomMinutes * 60000);
+            
+            // Calculate total delay
+            let totalDelay = userIntervalMs + randomDelay;
+            
+            // Add optional randomization variance
+            if (randomize) {
+                const variance = Math.floor(Math.random() * 1 * 60000);
+                totalDelay += variance;
             }
 
-             // Create Posting Record (Status: 'scheduled')
-            // We set the time to NOW so the cron (running every 30s) picks it up.
-            
-            const posting = await Posting.create({
-                vehicleId: vehicleData._id,
-                userId: userId,
-                orgId: orgId,
-                profileId: pid,
-                status: 'scheduled', 
-                scheduledTime: new Date(), // Immediate
-                selectedImages: finalImages,
-                prompt: prompt || null,
-                customDescription: customDescription,
-                schedulerOptions: {
-                    delay: 0,
-                    stealth: true
-                },
-                completedAt: null,
-                logs: [{ message: `Immediate post requested by user ${userId} via Queue. Waiting for Cron...`, timestamp: new Date() }]
-            });
-            
-            // Only send 'complete' on the LAST one to finish the UI bar?
-            // Actually, if we send complete on the first one, the bar might close.
-            // QueueContext handles 'complete' by closing 5s later.
-            // If we have multiple, we should probably stick to 'progress' until the last one.
-            
-            if (i === profileIds.length - 1) {
-                this.emitProgress(io, userId, `All ${profileIds.length} profiles scheduled!`, 100, 'complete');
+            // Enforce minimum gap for chained posts
+            if (lastScheduledPost) {
+                // Ensure at least 4 minutes between posts
+                if (totalDelay < MIN_GAP_MS) {
+                    totalDelay = MIN_GAP_MS;
+                }
+                scheduledTime = new Date(baseTime.getTime() + totalDelay);
             } else {
-                this.emitProgress(io, userId, `Scheduled profile ${i+1}/${profileIds.length}...`, 50 + Math.floor(((i+1) / profileIds.length) * 30));
+                // First post: just add random delay from now
+                scheduledTime = new Date(baseTime.getTime() + randomDelay);
             }
         }
-        // We do NOT wait here anymore. The Cron Job will pick it up and emit sockets.
-        // This makes the request fast and non-blocking.
+
+
+
+        await Posting.create({
+            vehicleId: vehicleId,
+            userId: userId,
+            orgId: orgId,
+            profileId: profileId,
+            status: 'scheduled', 
+            scheduledTime: scheduledTime,
+            selectedImages: finalImages,
+            prompt: prompt || null,
+            customDescription: customDescription,
+            schedulerOptions: { delay: 0, stealth: useStealth },
+            completedAt: null,
+            logs: [{ message: `Scheduled via Queue (Job ${stats.completed + 1}/${stats.total})`, timestamp: new Date() }]
+        });
+        
+        // Done with this item
+        this.emitProgress(io, userId, `Scheduled ${vehicleData.make} ${vehicleData.model} for ${profileId ? 'Profile' : 'Default'}`, 100);
     }
 }
 
