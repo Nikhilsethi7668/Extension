@@ -36,6 +36,9 @@ class QueueManager {
 
         console.log(`[QueueManager] Added ${newJobs.length} jobs for user ${userId}. Total in session: ${userStats.total}`);
         
+        // Emit progress immediately so frontend knows total increased (recalculates %)
+        this.emitProgress(io, userId, `Added ${newJobs.length} new jobs to queue...`, 0);
+
         this.processQueue(userId, io);
     }
 
@@ -274,17 +277,19 @@ class QueueManager {
             // Check if there are scheduled posts for this profile in next 5 minutes
             const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000);
             
-            const upcomingPosts = await Posting.find({
+                const fourMinutesAgo = new Date(Date.now() - MIN_GAP_MS);
+            
+            const conflictingPosts = await Posting.find({
                 userId: userId,
                 profileId: profileId,
                 status: 'scheduled',
                 scheduledTime: {
-                    $gte: new Date(), // From now
-                    $lte: fiveMinutesFromNow // To 5 minutes from now
+                    $gte: fourMinutesAgo, // Check explicitly for conflicts in the "danger zone" (recent past)
+                    $lte: fiveMinutesFromNow 
                 }
             }).sort({ scheduledTime: 1 }); // Ascending order
 
-            if (upcomingPosts.length > 0) {
+            if (conflictingPosts.length > 0) {
                 // There are upcoming posts in the next 5 minutes
                 // Find the LAST scheduled post for this profile (not just in next 5 min, but overall)
                 const lastScheduledPost = await Posting.findOne({

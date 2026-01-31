@@ -10,14 +10,15 @@ const eventQueues = new Map(); // orgId -> array of events
 const activeProfiles = new Map();
 
 // Cleanup stale active profiles every minute
+// Cleanup stale active profiles every 10 seconds
 setInterval(() => {
     const now = Date.now();
     for (const [key, lastSeen] of activeProfiles.entries()) {
-        if (now - lastSeen > 60000) { // 1 minute timeout
+        if (now - lastSeen > 10000) { // 10 seconds timeout
             activeProfiles.delete(key);
         }
     }
-}, 60000);
+}, 10000);
 
 export function updateActiveProfile(userId, profileId) {
     if (!userId || !profileId) return;
@@ -30,8 +31,8 @@ export function isProfileActive(userId, profileId) {
     const key = `${userId}:${profileId}`;
     const lastSeen = activeProfiles.get(key);
     if (!lastSeen) return false;
-    // Consider active if seen in last 45 seconds
-    return (Date.now() - lastSeen) < 45000;
+    // Consider active if seen in last 15 seconds (matching cleanup logic)
+    return (Date.now() - lastSeen) < 15000;
 }
 
 // Poll for events (called by extension every 5 seconds)

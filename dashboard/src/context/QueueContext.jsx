@@ -59,10 +59,14 @@ export const QueueProvider = ({ children }) => {
         newSocket.on('queue-progress', (data) => {
              console.log('[Dashboard Socket] Progress:', data);
              if (data.type === 'progress') {
-                 setQueueProgress(prev => ({
+                     setQueueProgress(prev => ({
                      ...prev,
                      active: true,
                      message: data.message,
+                     // If adding new jobs, percent might change, so we trust backend calculation usually.
+                     // But if it jumps to 0 inappropriately, we can guard it?
+                     // Backend now re-emits correct global percent immediately. 
+                     // Let's just trust data.percent but ensure we don't accidentally hide it.
                      percent: data.percent,
                      completed: false,
                      error: false
@@ -99,13 +103,22 @@ export const QueueProvider = ({ children }) => {
 
     const queuePosting = useCallback(async (payload, token, onSuccess) => {
         // Initialize progress UI immediately
-        setQueueProgress({
-            active: true,
-            message: 'Initializing queue...',
-            percent: 0,
-            completed: false,
-            error: false
-        });
+        if (queueProgress.active) {
+            // If already active, don't reset percent to 0, just update message
+            setQueueProgress(prev => ({
+                ...prev,
+                message: 'Adding to queue...'
+            }));
+        } else {
+            // Fresh start
+            setQueueProgress({
+                active: true,
+                message: 'Initializing queue...',
+                percent: 0,
+                completed: false,
+                error: false
+            });
+        }
 
         const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api-flash.adaptusgroup.ca') + '/api';
 
@@ -136,7 +149,8 @@ export const QueueProvider = ({ children }) => {
             setQueueProgress(prev => ({
                 ...prev,
                 message: data.message || 'Request queued. Waiting for processor...',
-                percent: 0
+                // Don't reset percent here either if we were already active
+                // if it was 0, it stays 0. If it was 50, it stays 50 until backend emits new total.
             }));
 
         } catch (error) {
