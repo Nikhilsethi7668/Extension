@@ -1,0 +1,21 @@
+# Task List: Per-User Posting Queue
+
+- [x] Explore existing posting and vehicle route logic <!-- id: 0 -->
+- [x] Design per-user queue architecture <!-- id: 1 -->
+- [x] Create implementation plan <!-- id: 2 -->
+- [x] Implement queue manager (in-memory or DB/Redis based logic) <!-- id: 3 -->
+    - [x] Create Queue Manager Class/Module
+    - [x] Handle Add to Queue
+    - [x] Handle Process Queue
+- [x] Refactor `vehicle.routes.js` to use the queue <!-- id: 4 -->
+- [x] Implement socket progress updates <!-- id: 5 -->
+- [x] Verify functionality <!-- id: 6 -->
+- [x] Connect QueueManager to Dashboard Socket Room <!-- id: 7 -->
+- [x] Update Dashboard to listen for `queue-progress` <!-- id: 8 -->
+- [x] Update Dashboard to listen for `queue-progress` <!-- id: 8 -->
+- [x] Display progress UI in Dashboard <!-- id: 9 -->
+- [x] Fix Post Now Persistence (Missing DB Record) <!-- id: 10 -->
+- [x] Refactor `Post Now` to use Cron Job <!-- id: 11 -->
+- [x] Improve Batch Progress Reporting <!-- id: 12 -->
+- [x] Implement Separate AI Descriptions for Post Now <!-- id: 13 -->
+- [x] Refactor Batch Scheduling to Single-Item Queue Jobs <!-- id: 14 -->

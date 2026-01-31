@@ -5,10 +5,15 @@ dotenv.config();
 
 const connectDB = async () => {
     try {
-        const conn = await mongoose.connect(`mongodb://${process.env.MONGO_USERNAME}:${process.env.MONGO_PASSWORD}@${process.env.MONGO_HOST}:${process.env.MONGO_PORT}/${process.env.MONGO_DATABASE}?authSource=${process.env.MONGO_AUTH_SOURCE}`);
-        console.log(`MongoDB Connected: ${conn.connection.host}`);
+        // Use MONGO_URI directly from environment
+        const mongoUri = process.env.MONGO_URI;
+        console.log(`[DB] Attempting to connect to MongoDB...`);
+        console.log(`[DB] Connection string: ${mongoUri.replace(/:[^:]*@/, ':****@')}`); // Hide password
+        
+        const conn = await mongoose.connect(mongoUri);
+        console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
     } catch (error) {
-        console.error(`Error: ${error.message}`);
+        console.error(`❌ MongoDB Connection Error: ${error.message}`);
         process.exit(1);
     }
 };
