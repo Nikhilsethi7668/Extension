@@ -13,6 +13,12 @@
 </head>
 
 <body>
+  <!-- Internet Status Warning (Fixed at Top Right) -->
+  <div id="internet-warning" class="internet-warning hidden">
+    <span class="warning-icon">⚠️</span>
+    <span class="warning-text">Unstable Internet - Please use a stable connection</span>
+  </div>
+
   <div class="container">
     <!-- Header Section -->
     <div class="header">
@@ -245,6 +251,7 @@
 
   <script src="loader-functions.js"></script>
   <script src="../utils/config.js"></script>
+  <script src="../utils/internet-monitor.js"></script>
   <script src="popup.js"></script>
 </body>
 
