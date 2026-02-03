@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flash Fender Auto-Poster</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <div class="container">
+    <header>
+      <div class="header-content">
+        <h1>⚡ Flash Fender Auto-Poster</h1>
+        <div class="status-indicator">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="statusText">Stopped</span>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <!-- Configuration Section -->
+      <section class="card">
+        <h2>⚙️ Configuration</h2>
+
+        <div class="form-group">
+          <label for="apiUrl">API URL</label>
+          <input type="text" id="apiUrl" placeholder="https://api-flash.adaptusgroup.ca/api">
+        </div>
+
+        <div class="form-group">
+          <label for="apiToken">API Token</label>
+          <input type="password" id="apiToken" placeholder="Your API authentication token">
+          <small>Get this from your Flash Fender dashboard</small>
+        </div>
+
+        <div class="form-group">
+          <label for="pollingInterval">Check Interval (minutes)</label>
+          <input type="number" id="pollingInterval" min="1" max="60" value="5">
+          <small>How often to check for new vehicles</small>
+        </div>
+
+        <div class="form-group">
+          <label for="extensionPath">Extension Path (optional)</label>
+          <input type="text" id="extensionPath" placeholder="Leave empty to use default location">
+          <small>Path to the Flash Fender extension folder</small>
+        </div>
+
+        <div class="form-group checkbox-group">
+          <label>
+            <input type="checkbox" id="autoStart">
+            <span>Auto-start when app launches</span>
+          </label>
+        </div>
+
+        <div class="button-group">
+          <button id="saveConfig" class="btn btn-primary">💾 Save Configuration</button>
+          <button id="testConnection" class="btn btn-secondary">🔗 Test Connection</button>
+        </div>
+      </section>
+
+      <!-- Control Section -->
+      <section class="card">
+        <h2>🎮 Automation Control</h2>
+
+        <div class="control-panel">
+          <button id="startBtn" class="btn btn-success btn-large">
+            ▶️ Start Automation
+          </button>
+          <button id="stopBtn" class="btn btn-danger btn-large" disabled>
+            ⏸️ Stop Automation
+          </button>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Last Check</div>
+            <div class="stat-value" id="lastCheck">Never</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Vehicles Posted</div>
+            <div class="stat-value" id="vehiclesPosted">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Errors</div>
+            <div class="stat-value" id="errors">0</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Activity Log -->
+      <section class="card">
+        <h2>📋 Activity Log</h2>
+        <div id="activityLog" class="activity-log">
+          <div class="log-entry info">
+            <span class="log-time">Ready</span>
+            <span class="log-message">Configure your settings and start automation</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>Flash Fender Auto-Poster v1.0.0 | Running in background when minimized</p>
+    </footer>
+  </div>
+
+  <script src="renderer.js"></script>
+</body>
+
+</html>

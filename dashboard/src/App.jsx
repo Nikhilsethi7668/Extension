@@ -3,6 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { ThemeProvider, createTheme, CssBaseline, GlobalStyles } from '@mui/material';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeModeProvider, useThemeMode } from './context/ThemeContext';
+import { SocketProvider } from './context/SocketContext';
+import { ToastProvider } from './context/ToastContext';
 
 // Pages
 import Login from './pages/Login';
@@ -183,39 +185,43 @@ const ThemedApp = () => {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <AuthProvider>
-        <Router>
-          <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
-            <Route path="/reset-password" element={<ResetPassword />} />
-            <Route path="/update-password" element={<UpdatePassword />} />
-            <Route path="/setup" element={<Setup />} />
-            <Route
-              path="/*"
-              element={
-                <PrivateRoute>
-                  <Routes>
-                    <Route path="/" element={<Dashboard />} />
-                    <Route path="/inventory" element={<Inventory />} />
-                    <Route path="/scheduled-posts" element={<ScheduledPosts />} />
-                    <Route path="/user-posts" element={<UserPosts />} />
-                    <Route path="/organizations" element={<Organizations />} />
-                    <Route
-                      path="/users"
-                      element={
-                        <AdminRoute>
-                          <Users />
-                        </AdminRoute>
-                      }
-                    />
-                    <Route path="/logs" element={<Logs />} />
-                    <Route path="/settings" element={<Settings />} />
-                  </Routes>
-                </PrivateRoute>
-              }
-            />
-          </Routes>
-        </Router>
+        <SocketProvider>
+          <ToastProvider>
+            <Router>
+              <Routes>
+                <Route path="/login" element={<Login />} />
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
+                <Route path="/update-password" element={<UpdatePassword />} />
+                <Route path="/setup" element={<Setup />} />
+                <Route
+                  path="/*"
+                  element={
+                    <PrivateRoute>
+                      <Routes>
+                        <Route path="/" element={<Dashboard />} />
+                        <Route path="/inventory" element={<Inventory />} />
+                        <Route path="/scheduled-posts" element={<ScheduledPosts />} />
+                        <Route path="/user-posts" element={<UserPosts />} />
+                        <Route path="/organizations" element={<Organizations />} />
+                        <Route
+                          path="/users"
+                          element={
+                            <AdminRoute>
+                              <Users />
+                            </AdminRoute>
+                          }
+                        />
+                        <Route path="/logs" element={<Logs />} />
+                        <Route path="/settings" element={<Settings />} />
+                      </Routes>
+                    </PrivateRoute>
+                  }
+                />
+              </Routes>
+            </Router>
+          </ToastProvider>
+        </SocketProvider>
       </AuthProvider>
     </ThemeProvider>
   );

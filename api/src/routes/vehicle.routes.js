@@ -907,6 +907,18 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
         const aiResult = await processImageWithAI(imageUrl, prompt, promptId);
         const processedImageUrl = aiResult.processedUrl;
 
+        // Emit Socket Event for Success
+        const io = req.app.get('io');
+        if (io) {
+            io.to(`org:${req.user.organization._id}`).emit('image-generation-complete', {
+                success: true,
+                vehicleId: vehicle._id,
+                imageUrl: processedImageUrl,
+                originalUrl: imageUrl,
+                message: 'Image background removed successfully'
+            });
+        }
+        
         // Update the image in the vehicle record
         const imageIndex = vehicle.images.indexOf(imageUrl);
         if (imageIndex > -1) {
@@ -948,6 +960,19 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
 
     } catch (error) {
         console.error('Background removal failed:', error);
+        
+        // Emit Socket Event for Failure
+        const io = req.app.get('io');
+        if (io && req.user && req.user.organization) {
+            io.to(`org:${req.user.organization._id}`).emit('image-generation-complete', {
+                success: false,
+                vehicleId: req.params.id,
+                originalUrl: imageUrl,
+                error: error.message,
+                message: 'Failed to remove background'
+            });
+        }
+
         res.status(500).json({ message: 'Background removal failed', error: error.message });
     }
 });

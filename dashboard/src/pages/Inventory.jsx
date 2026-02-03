@@ -10,7 +10,7 @@ import { Plus, Search, RefreshCw, X, Eye, ExternalLink, Image as ImageIcon, Tras
 import apiClient from '../config/axios';
 import Layout from '../components/Layout';
 import { useQueue } from '../context/QueueContext';
-import { io as socketIO } from 'socket.io-client';
+import { useSocket } from '../context/SocketContext';
 
 const Inventory = () => {
     const [vehicles, setVehicles] = useState([]);
@@ -49,7 +49,7 @@ const Inventory = () => {
     const [selectedAgentId, setSelectedAgentId] = useState('');
 
     // Socket.IO and Progress State
-    const [socket, setSocket] = useState(null);
+    const socket = useSocket();
     const [scrapingProgress, setScrapingProgress] = useState({
         active: false,
         scraped: 0,
@@ -113,33 +113,11 @@ const Inventory = () => {
 
 
 
-    // Socket.IO Setup
+    // Socket.IO Listeners
     useEffect(() => {
-        const userStr = localStorage.getItem('user');
-        if (!userStr) return;
+        if (!socket) return;
 
-        const user = JSON.parse(userStr);
-        const organizationId = user.organization?._id || user.organization;
-
-        if (!organizationId) return;
-
-        // Create socket connection
-        const newSocket = socketIO(import.meta.env.VITE_API_BASE_URL, {
-            withCredentials: true,
-            transports: ['websocket', 'polling'],
-            auth: {
-                clientType: 'dashboard'
-            }
-        });
-
-        newSocket.on('connect', () => {
-            console.log('[Socket.IO] Connected:', newSocket.id);
-            // Register as dashboard client
-            newSocket.emit('register-client', { orgId: organizationId, clientType: 'dashboard' });
-            console.log(`[Socket.IO] Registered as dashboard client for org: ${organizationId}`);
-        });
-
-        newSocket.on('scrape:start', (data) => {
+        const onScrapeStart = (data) => {
             console.log('[Socket.IO] Scrape started:', data);
             setScrapingProgress(prev => ({
                 ...prev,
@@ -153,9 +131,9 @@ const Inventory = () => {
                 message: `Starting to scrape ${data.total} item(s)...`
             }));
             setProgressDialogOpen(true);
-        });
+        };
 
-        newSocket.on('scrape:progress', (data) => {
+        const onProgress = (data) => {
             console.log('[Socket.IO] Progress update:', data);
             setScrapingProgress(prev => ({
                 ...prev,
@@ -167,9 +145,9 @@ const Inventory = () => {
                 currentUrl: data.currentUrl,
                 message: `Processing: ${data.currentUrl.substring(0, 60)}...`
             }));
-        });
+        };
 
-        newSocket.on('scrape:vehicle', (data) => {
+        const onVehicle = (data) => {
             console.log('[Socket.IO] Vehicle scraped:', data);
             setScrapingProgress(prev => ({
                 ...prev,
@@ -177,18 +155,18 @@ const Inventory = () => {
                 failed: data.failed,
                 message: `✓ Successfully added: ${data.vehicle.title}`
             }));
-        });
+        };
 
-        newSocket.on('scrape:error', (data) => {
+        const onError = (data) => {
             console.log('[Socket.IO] Scrape error:', data);
             setScrapingProgress(prev => ({
                 ...prev,
                 failed: data.failed,
                 message: `✗ Failed: ${data.url} - ${data.error}`
             }));
-        });
+        };
 
-        newSocket.on('scrape:complete', (data) => {
+        const onComplete = (data) => {
             console.log('[Socket.IO] Scrape complete:', data);
             setScrapingProgress(prev => ({
                 ...prev,
@@ -197,20 +175,25 @@ const Inventory = () => {
                 message: `Completed! ${data.success} succeeded, ${data.failed} failed.`
             }));
             // Refresh vehicle list
-            fetchVehicles();
-        });
-
-        newSocket.on('disconnect', () => {
-            console.log('[Socket.IO] Disconnected');
-        });
-
-        setSocket(newSocket);
-
-        // Cleanup on unmount
-        return () => {
-            newSocket.disconnect();
+            if (typeof fetchVehicles === 'function') fetchVehicles();
         };
-    }, []);
+
+        // Attach listeners
+        socket.on('scrape:start', onScrapeStart);
+        socket.on('scrape:progress', onProgress);
+        socket.on('scrape:vehicle', onVehicle);
+        socket.on('scrape:error', onError);
+        socket.on('scrape:complete', onComplete);
+
+        // Cleanup
+        return () => {
+            socket.off('scrape:start', onScrapeStart);
+            socket.off('scrape:progress', onProgress);
+            socket.off('scrape:vehicle', onVehicle);
+            socket.off('scrape:error', onError);
+            socket.off('scrape:complete', onComplete);
+        };
+    }, [socket]);
 
     // ... (Existing Functions: getFilteredImages, handleDeleteImage) ...
     // Note: Re-implementing them or keeping them if not replaced by range. 

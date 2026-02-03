@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flash Fender Auto-Poster</title>
+    <link rel="stylesheet" href="dashboard.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <div class="header-content">
+                <h1><img src="icon.png" alt="Logo" class="app-icon"> Flash Fender</h1>
+                <div class="header-controls">
+                    <div class="status-indicator">
+                        <span class="status-dot" id="socketDot"></span>
+                        <span id="socketText">Socket: Disconnected</span>
+                    </div>
+                    <button id="logoutBtn" class="btn-logout" title="Logout">🚪 Logout</button>
+                </div>
+            </div>
+        </header>
+
+        <main>
+
+
+            <!-- Unified Profiles Section -->
+            <section class="card">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <h2 style="margin: 0;">Chrome Profiles</h2>
+                        <span id="profileCountBadge"
+                            style="background: #e0e0e0; padding: 2px 8px; border-radius: 12px; font-size: 0.8em; font-weight: bold;">0</span>
+                    </div>
+                    <div>
+                        <label style="margin-right: 15px; font-size: 0.9em; cursor: pointer;">
+                            <input default checked type="checkbox" id="showAllProfilesCheckbox"> Show All
+                        </label>
+                        <button id="refreshProfilesBtn" class="btn btn-secondary">🔄 Refresh</button>
+                    </div>
+                </div>
+
+                <div id="profilesList" class="profiles-grid">
+                    <div class="empty-state">Loading profiles...</div>
+                </div>
+            </section>
+            <!-- forceSyncBtn removed as we use selective upload now, or kept as "Sync All" if needed. User asked for selective. I'll hide/remove forceSyncBtn or repurpose it? The user said "give option to refresh... select... upload". I will keep forceSyncBtn hidden or remove it to avoid confusion, or keep it as "Force Full Sync" -->
+
+
+
+
+            <!-- Settings Section -->
+            <section class="card">
+                <h2>⚙️ Settings</h2>
+                <div class="settings-grid">
+                    <label class="setting-item">
+                        <input type="checkbox" id="runOnStartupCheckbox">
+                        <span>Run on Startup</span>
+                    </label>
+                </div>
+            </section>
+
+            <!-- Activity Log -->
+            <section class="card">
+                <h2>📋 Activity Log</h2>
+                <div id="activityLog" class="activity-log">
+                    <div class="log-entry info">
+                        <span class="log-time">Ready</span>
+                        <span class="log-message">Configure your settings and start automation</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Flash Fender Auto-Poster v1.0.0 | Running in background when minimized</p>
+        </footer>
+    </div>
+
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="dashboard-renderer.js"></script>
+    <style>
+        .profiles-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 20px;
+            margin-top: 15px;
+        }
+
+        .profile-card {
+            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+            border: 1px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            transition: border-color 0.2s;
+            position: relative;
+        }
+
+        .profile-card:hover {
+            border-color: #2196F3;
+        }
+
+        .profile-avatar {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0 auto 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            font-weight: 600;
+            color: white;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+
+        .profile-name {
+            font-weight: 600;
+            font-size: 16px;
+            margin-bottom: 8px;
+            color: #1a1a1a;
+        }
+
+        .profile-dir {
+            font-size: 11px;
+            color: #6c757d;
+            margin-bottom: 15px;
+            word-break: break-all;
+            line-height: 1.4;
+        }
+
+        .btn-launch {
+            background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            width: 100%;
+            cursor: pointer;
+            font-weight: 500;
+            font-size: 14px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn-launch:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+        }
+
+        .btn-launch:active {
+            transform: translateY(0);
+        }
+
+        .empty-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 40px 20px;
+            color: #6c757d;
+            font-size: 14px;
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .toast {
+            background-color: #333;
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            margin-top: 10px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.3s, transform 0.3s;
+            display: flex;
+            align-items: center;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .toast.success {
+            background-color: #4CAF50;
+        }
+
+        .toast.error {
+            background-color: #F44336;
+        }
+
+        .toast.info {
+            background-color: #2196F3;
+        }
+
+        /* Profile Card Actions */
+        .profile-actions {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 12px;
+            gap: 8px;
+        }
+
+        .btn-remove {
+            background: #ff5252;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn-remove:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(255, 82, 82, 0.4);
+        }
+
+        .btn-remove:active {
+            transform: translateY(0);
+        }
+    </style>
+</body>
+
+</html>
