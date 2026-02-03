@@ -500,6 +500,22 @@ router.get('/', protect, async (req, res) => {
         const baseUrl = getBaseUrl(req);
         vehicles = vehicles.map(vehicle => {
             const v = vehicle.toObject();
+
+            // Apply User-Specific AI Content Mappings (Isolation)
+            if (req.user && v.userAIContent && v.userAIContent.length > 0) {
+                // Find content for this user (Note: v.userAIContent is now a plain object array)
+                const userContent = v.userAIContent.find(c => c.userId?.toString() === req.user._id?.toString());
+                
+                if (userContent && userContent.imageMappings && userContent.imageMappings.length > 0) {
+                    if (v.images && v.images.length > 0) {
+                        v.images = v.images.map(imgUrl => {
+                            const mapping = userContent.imageMappings.find(m => m.originalUrl === imgUrl);
+                            return mapping ? mapping.processedUrl : imgUrl;
+                        });
+                    }
+                }
+            }
+
             if (v.preparedImages && v.preparedImages.length > 0) {
                 v.preparedImages = v.preparedImages.map(url => toFullUrl(url, baseUrl));
             }
@@ -597,6 +613,31 @@ router.get('/:id', protect, async (req, res, next) => {
         if (!vehicle) {
             res.status(404);
             return next(new Error('Vehicle not found'));
+        }
+
+        // Apply User-Specific AI Content (Isolation)
+        if (req.user && vehicle.userAIContent && vehicle.userAIContent.length > 0) {
+            const userContent = vehicle.userAIContent.find(c => c.userId?.toString() === req.user._id.toString());
+            
+            if (userContent) {
+                // Overlay AI mappings onto main images
+                if (userContent.imageMappings && userContent.imageMappings.length > 0) {
+                    vehicle.images = vehicle.images.map(imgUrl => {
+                        const mapping = userContent.imageMappings.find(m => m.originalUrl === imgUrl);
+                        return mapping ? mapping.processedUrl : imgUrl;
+                    });
+                }
+                
+                // Overlay AI Content
+                if (userContent.aiContent) {
+                    vehicle.aiContent = { ...vehicle.aiContent, ...userContent.aiContent };
+                }
+                
+                // Expose specific aiImages list if needed by frontend
+                if (userContent.aiImages) {
+                    vehicle.aiImages = userContent.aiImages;
+                }
+            }
         }
 
         // Ensure vehicle belongs to user's organization
@@ -921,13 +962,35 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
             });
         }
         
-        // Update the image in the vehicle record
-        const imageIndex = vehicle.images.indexOf(imageUrl);
-        if (imageIndex > -1) {
-            vehicle.images[imageIndex] = processedImageUrl;
-        } else {
-            vehicle.images.push(processedImageUrl);
+        // Update the image in the vehicle record (PER USER ISOLATION)
+        // Find or create user content section
+        let userContentIndex = vehicle.userAIContent.findIndex(c => c.userId.toString() === req.user._id.toString());
+        
+        if (userContentIndex === -1) {
+            vehicle.userAIContent.push({
+                userId: req.user._id,
+                aiImages: [],
+                imageMappings: [],
+                aiContent: {}
+            });
+            userContentIndex = vehicle.userAIContent.length - 1;
         }
+
+        // Add to user's AI images & Mappings
+        vehicle.userAIContent[userContentIndex].aiImages.push(processedImageUrl);
+        
+        // Update Mapping
+        const existingMappingIndex = vehicle.userAIContent[userContentIndex].imageMappings.findIndex(m => m.originalUrl === imageUrl);
+        if (existingMappingIndex > -1) {
+            vehicle.userAIContent[userContentIndex].imageMappings[existingMappingIndex].processedUrl = processedImageUrl;
+        } else {
+            vehicle.userAIContent[userContentIndex].imageMappings.push({
+                originalUrl: imageUrl,
+                processedUrl: processedImageUrl
+            });
+        }
+        
+        vehicle.userAIContent[userContentIndex].updatedAt = new Date();
 
         await vehicle.save();
         if (promptId) {
@@ -2253,16 +2316,22 @@ router.post('/posting-result', async (req, res) => {
 
             // Also update Vehicle status
             const vehicle = await Vehicle.findById(posting.vehicleId);
+            const user = await User.findById(posting.userId); // Fetch user for agentName
+
             if (vehicle) {
                 vehicle.status = 'posted';
                 if (!vehicle.postingHistory) vehicle.postingHistory = [];
+                
                 vehicle.postingHistory.push({
-                    platform: 'facebook',
+                    userId: posting.userId,
+                    platform: 'facebook_marketplace',
                     listingUrl: listingUrl,
                     timestamp: new Date(),
-                    status: 'active',
-                    user: posting.userId
+                    action: 'post',
+                    agentName: user ? user.name : 'Unknown',
+                    profileId: posting.profileId || ''
                 });
+                
                 await vehicle.save();
             }
         } else {

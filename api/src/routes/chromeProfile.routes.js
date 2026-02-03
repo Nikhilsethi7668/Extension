@@ -46,7 +46,15 @@ router.post('/add', protect, async (req, res) => {
  */
 router.get('/', protect, async (req, res) => {
   try {
-    const profiles = await ChromeProfile.find({ user: req.user._id }).sort({ name: 1 });
+    const { ids } = req.query;
+    const query = { user: req.user._id };
+
+    if (ids) {
+        const idList = ids.split(',');
+        query.uniqueId = { $in: idList };
+    }
+
+    const profiles = await ChromeProfile.find(query).sort({ name: 1 });
     res.json(profiles);
   } catch (error) {
     res.status(500).json({ message: 'Server Error' });

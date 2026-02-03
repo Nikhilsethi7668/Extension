@@ -685,7 +685,12 @@ ipcMain.handle('get-db-profiles', async () => {
 
   const axios = require('axios');
   try {
+    // Get local profiles to filter the request
+    const localProfiles = getChromeProfiles();
+    const localIds = localProfiles.map(p => p.id).join(',');
+
     const response = await axios.get(`${config.apiUrl}/chrome-profiles`, {
+      params: { ids: localIds },
       headers: {
         'Authorization': `Bearer ${config.apiToken}`
       },

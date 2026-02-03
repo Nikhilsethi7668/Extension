@@ -58,6 +58,24 @@ const vehicleSchema = mongoose.Schema(
             description: String,
             lastGenerated: Date,
         },
+        // Isolated AI content per user
+        userAIContent: [{
+            userId: {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'User'
+            },
+            aiImages: [String], // User-specific AI images list
+            imageMappings: [{   // Map original URL to processed URL for replacement
+                originalUrl: String,
+                processedUrl: String
+            }],
+            aiContent: {        // User-specific AI text
+                title: String,
+                description: String,
+                lastGenerated: Date
+            },
+            updatedAt: { type: Date, default: Date.now }
+        }],
         postingHistory: [
             {
                 userId: {

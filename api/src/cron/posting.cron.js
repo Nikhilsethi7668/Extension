@@ -46,7 +46,67 @@ export const initPostingCron = (io) => {
             console.error('[Cron] Error processing postings:', error);
         }
     });
+
+    // Run every 2 minutes to check for stuck 'processing' posts
+    cron.schedule('*/2 * * * *', async () => {
+         try {
+            const tenMinutesAgo = new Date(Date.now() - 10 * 60000);
+            
+            const stuckPostings = await Posting.find({
+                status: 'processing',
+                scheduledTime: { $lt: tenMinutesAgo }
+            });
+
+            if (stuckPostings.length > 0) {
+                console.log(`[Cron-Rescue] Found ${stuckPostings.length} stuck postings. Rescheduling...`);
+                
+                for (const post of stuckPostings) {
+                    await rescheduleStuckPost(post);
+                }
+            }
+         } catch(error) {
+             console.error('[Cron-Rescue] Error:', error);
+         }
+    });
 };
+
+async function rescheduleStuckPost(post) {
+    try {
+        console.log(`[Cron-Rescue] Rescheduling stuck post ${post._id} for vehicle ${post.vehicleId}`);
+        
+        // Find the last scheduled post for this profile to determine new time
+        const lastScheduled = await Posting.findOne({
+            userId: post.userId,
+            profileId: post.profileId,
+            status: 'scheduled'
+        }).sort({ scheduledTime: -1 });
+
+        let newTime;
+        const randomDelay = Math.floor((4 + Math.random() * 3) * 60000); // 4-7 min delay
+
+        if (lastScheduled) {
+            // Append to end of queue
+            newTime = new Date(new Date(lastScheduled.scheduledTime).getTime() + randomDelay);
+        } else {
+            // Queue is empty, start soon
+            newTime = new Date(Date.now() + randomDelay);
+        }
+
+        post.status = 'scheduled';
+        post.scheduledTime = newTime;
+        post.failureReason = null; // Clear previous failure
+        post.logs.push({ 
+            message: 'Rescheduled by cron (detected stuck in processing > 10m)', 
+            timestamp: new Date() 
+        });
+
+        await post.save();
+        console.log(`[Cron-Rescue] Post ${post._id} rescheduled to ${newTime.toLocaleTimeString()}`);
+
+    } catch (err) {
+        console.error(`[Cron-Rescue] Failed to reschedule post ${post._id}:`, err);
+    }
+}
 
 async function processSinglePosting(io, posting) {
     const { orgId, userId, vehicleId, profileId } = posting;

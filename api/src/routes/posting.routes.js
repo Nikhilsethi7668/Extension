@@ -11,12 +11,20 @@ const router = express.Router();
 router.get('/', protect, async (req, res) => {
     try {
         const { page = 1, limit = 20, status } = req.query;
-        const orgId = req.user.organization._id || req.user.organization;
+        const orgId = req.user.organization?._id || req.user.organization;
 
-        const query = { orgId };
+        // Ensure Org ID is present for non-super-admins
+        if (!orgId && req.user.role !== 'super_admin') {
+            return res.status(403).json({ message: 'Organization context required' });
+        }
 
-        // Agent restriction
-        if (req.user.role === 'agent') {
+        const query = {};
+        if (orgId) {
+            query.orgId = orgId;
+        }
+
+        // Restrict to specific user unless they are an admin
+        if (req.user.role !== 'org_admin' && req.user.role !== 'super_admin') {
             query.userId = req.user._id;
         }
 
@@ -91,8 +99,8 @@ router.post('/:id/complete', protect, async (req, res) => {
         console.log(`[Posting Complete] Updated posting status to: ${posting.status}`);
 
         // 2. If successful, update vehicle status and posting history
-        if (status === 'completed' && vehicleId) {
-            const vehicle = await Vehicle.findById(vehicleId);
+        if (status === 'completed' && posting.vehicleId) {
+            const vehicle = await Vehicle.findById(posting.vehicleId);
             
             if (vehicle) {
                 // Update vehicle status
