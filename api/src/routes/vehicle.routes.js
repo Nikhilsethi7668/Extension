@@ -2190,6 +2190,17 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
                 results
             }
         }) + '\n');
+
+        // Emit socket event for Dashboard notification
+        const io = req.app.get('io');
+        // Emit to the specific user's dashboard room
+        io.to(`user:${req.user._id}:dashboard`).emit('image-generation-complete', {
+            success: processedCount > 0,
+            vehicleId: vehicle._id,
+            count: processedCount,
+            results,
+            error: failedCount > 0 ? 'Some images failed' : null
+        });
         
         res.end();
 
