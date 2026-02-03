@@ -28,9 +28,9 @@ class AutomationEngine extends EventEmitter {
   }
 
   updateConfig(newConfig) {
-      console.log('Updating configuration...');
-      this.config = { ...this.config, ...newConfig };
-      console.log('Active Profile ID:', this.config.activeProfileId);
+    console.log('Updating configuration...');
+    this.config = { ...this.config, ...newConfig };
+    console.log('Active Profile ID:', this.config.activeProfileId);
   }
 
   isRunning() {
@@ -51,8 +51,8 @@ class AutomationEngine extends EventEmitter {
     }
 
     if (!this.config.activeProfileId) {
-        console.warn('WARNING: No Chrome Profile selected. Automation might not work correctly.');
-        this.emit('status', { running: true, message: 'Warning: No Chrome Profile selected.' });
+      console.warn('WARNING: No Chrome Profile selected. Automation might not work correctly.');
+      this.emit('status', { running: true, message: 'Warning: No Chrome Profile selected.' });
     }
 
     console.log('Starting automation engine...');
@@ -140,14 +140,14 @@ class AutomationEngine extends EventEmitter {
   async fetchPendingVehicles() {
     try {
       console.log('=== FETCHING VEHICLES ===');
-      
+
       const params = {
-          status: 'scraped',
-          limit: 10
+        status: 'scraped',
+        limit: 10
       };
 
       if (this.config.activeProfileId) {
-          params.profileId = this.config.activeProfileId;
+        params.profileId = this.config.activeProfileId;
       }
 
       const response = await axios.get(`${this.config.apiUrl}/vehicles`, {
@@ -192,8 +192,45 @@ class AutomationEngine extends EventEmitter {
       // Wait for the extension to load
       await this.sleep(3000);
 
+      // ⭐ NEW: Generate fresh stealth images for THIS posting
+      console.log(`[Posting] Preparing fresh stealth images for profile: ${this.config.activeProfileId || 'default'}...`);
+      let freshPreparedImages = null;
+
+      try {
+        const prepResponse = await axios.post(
+          `${this.config.apiUrl}/vehicles/${vehicle._id}/prepare-for-posting`,
+          { profileId: this.config.activeProfileId || 'default' },
+          {
+            headers: {
+              'Authorization': `Bearer ${this.config.apiToken}`
+            },
+            timeout: 60000 // 60 seconds for image processing
+          }
+        );
+
+        if (prepResponse.data.success) {
+          freshPreparedImages = prepResponse.data.preparedImages;
+          console.log(`[Posting] ✅ Generated ${freshPreparedImages.length} fresh stealth images`);
+          console.log(`[Posting] Camera: ${prepResponse.data.metadata.camera}`);
+          console.log(`[Posting] Folder: ${prepResponse.data.metadata.folder}`);
+        } else {
+          console.warn('[Posting] ⚠️ Fresh image generation failed, will use existing preparedImages');
+        }
+      } catch (prepError) {
+        console.error('[Posting] ⚠️ Error generating fresh images:', prepError.message);
+        console.log('[Posting] Falling back to existing preparedImages');
+      }
+
       // Fetch formatted vehicle data from API
       const vehicleData = await this.fetchVehicleData(vehicle._id);
+
+      // ⭐ Override with freshly generated images if available
+      if (freshPreparedImages && freshPreparedImages.length > 0) {
+        vehicleData.data.preparedImages = freshPreparedImages;
+        console.log(`[Posting] Using ${freshPreparedImages.length} freshly stealthed images`);
+      } else {
+        console.log(`[Posting] Using ${vehicleData.data.preparedImages?.length || 0} existing prepared images`);
+      }
 
       // Send data to extension via page context
       await page.evaluate((data) => {
@@ -232,7 +269,7 @@ class AutomationEngine extends EventEmitter {
     try {
       const response = await axios.get(`${this.config.apiUrl}/vehicles/${vehicleId}`, {
         headers: {
-            'Authorization': `Bearer ${this.config.apiToken}`
+          'Authorization': `Bearer ${this.config.apiToken}`
         },
         timeout: 30000
       });
@@ -249,9 +286,9 @@ class AutomationEngine extends EventEmitter {
         platform: 'facebook_marketplace',
         action: 'posted_via_automation'
       };
-      
+
       if (this.config.activeProfileId) {
-          payload.profileId = this.config.activeProfileId;
+        payload.profileId = this.config.activeProfileId;
       }
 
       await axios.post(`${this.config.apiUrl}/vehicles/${vehicleId}/posted`, payload, {
@@ -326,10 +363,22 @@ class AutomationEngine extends EventEmitter {
 
     console.log(`Loading extension from: ${extensionPath}`);
 
+    // Get user data directory based on platform
+    let userDataDir;
+    if (process.platform === 'win32') {
+      userDataDir = path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data');
+    } else if (process.platform === 'darwin') {
+      userDataDir = path.join(process.env.HOME, 'Library', 'Application Support', 'Google', 'Chrome');
+    } else if (process.platform === 'linux') {
+      userDataDir = path.join(process.env.HOME, '.config', 'google-chrome');
+    } else {
+      throw new Error(`Unsupported platform: ${process.platform}`);
+    }
+
     this.browser = await puppeteer.launch({
       headless: false, // Must be non-headless for extensions
       executablePath: chromePath,
-      userDataDir: path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data'),
+      userDataDir: userDataDir,
       args: [
         `--disable-extensions-except=${extensionPath}`,
         `--load-extension=${extensionPath}`,
@@ -343,10 +392,12 @@ class AutomationEngine extends EventEmitter {
       defaultViewport: null
     });
 
-      console.log('Browser initialized successfully');
-    }
+    console.log('Browser initialized successfully');
+  }
 
   findChrome() {
+    if (process.platform === 'win32') {
+      // Windows paths
       const possiblePaths = [
         'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
         'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
@@ -354,18 +405,43 @@ class AutomationEngine extends EventEmitter {
         'C:\\Program Files\\Chromium\\Application\\chrome.exe'
       ];
 
-      for(const chromePath of possiblePaths) {
+      for (const chromePath of possiblePaths) {
         if (fs.existsSync(chromePath)) {
+          console.log(`Found Chrome at: ${chromePath}`);
           return chromePath;
         }
       }
+    } else if (process.platform === 'darwin') {
+      // macOS path
+      const macPath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+      if (fs.existsSync(macPath)) {
+        console.log(`Found Chrome at: ${macPath}`);
+        return macPath;
+      }
+    } else if (process.platform === 'linux') {
+      // Linux paths
+      const linuxPaths = [
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium-browser',
+        '/snap/bin/chromium'
+      ];
 
-    return null;
+      for (const chromePath of linuxPaths) {
+        if (fs.existsSync(chromePath)) {
+          console.log(`Found Chrome at: ${chromePath}`);
+          return chromePath;
+        }
+      }
     }
+
+    console.error(`Chrome not found on ${process.platform}`);
+    return null;
+  }
 
   sleep(ms) {
-      return new Promise(resolve => setTimeout(resolve, ms));
-    }
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
 }
 
 module.exports = AutomationEngine;

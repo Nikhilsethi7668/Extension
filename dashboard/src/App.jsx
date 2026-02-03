@@ -21,6 +21,9 @@ import ResetPassword from './pages/ResetPassword';
 import UserPosts from './pages/UserPosts';
 import ScheduledPosts from './pages/ScheduledPosts';
 
+// Components
+import InternetWarning from './components/InternetWarning';
+
 // --- Theme Configuration Function ---
 const getTheme = (mode) => createTheme({
   palette: {
@@ -184,6 +187,7 @@ const ThemedApp = () => {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <InternetWarning />
       <AuthProvider>
         <SocketProvider>
           <ToastProvider>

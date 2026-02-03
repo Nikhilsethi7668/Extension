@@ -29,7 +29,7 @@ const cleanJson = (text) => {
 };
 
 
-export const generateVehicleContent = async (vehicle, instructions, sentiment = 'professional') => {
+export const generateVehicleContent = async (vehicle, instructions, sentiment = 'professional', contactNumber = null) => {
     try {
         if (!process.env.OPENROUTER_API_KEY) {
             console.error('[AI Service] OPENROUTER_API_KEY is missing from environment variables!');
@@ -49,9 +49,12 @@ export const generateVehicleContent = async (vehicle, instructions, sentiment = 
       Price: ${vehicle.price || ''}
       Mileage: ${vehicle.mileage || ''}
       Location: ${vehicle.location || ''}
+      ${contactNumber ? `Contact Number: ${contactNumber}` : ''}
       
       User Instructions: ${instructions || 'No specific instructions.'}
       Sentiment: ${sentiment}
+
+      ${contactNumber ? 'IMPORTANT: You MUST include the Contact Number in the description so potential buyers can reach the seller.' : ''}
 
       Please provide:
       Title: (A catchy title under 100 characters)

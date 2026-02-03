@@ -12,7 +12,7 @@ services:
       - MONGO_PORT=${MONGO_PORT}
       - MONGO_DATABASE=${MONGO_DATABASE}
       - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE}
-      - MONGO_URI=${MONGO_URI}
+      - MONGO_URI=mongodb://extension:Password1234@mongo:27017/facebookmark?authSource=admin
       - JWT_SECRET=${JWT_SECRET}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -49,8 +49,8 @@ services:
 
   mongo:
     image: mongo:latest
-    ports:
-      - "0.0.0.0:27018:27017" # Mapped to 27018 to avoid conflict with existing MongoDB on 27017
+    # ports:
+    #   - "0.0.0.0:27018:27017" # Not needed - internal Docker networking only
     environment:
       - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME}
       - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}

@@ -25,6 +25,9 @@ let selectedPromptId = null;
 let currentVehicleVin = null;
 let currentVehicleId = null;
 
+// Internet Monitor
+let internetMonitor = null;
+
 function generateSessionId() {
   return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
 }
@@ -102,6 +105,9 @@ async function loadUserSession() {
       if (isValid) {
         currentUser = stored.userSession;
         showMainControls();
+
+        // Start internet monitoring for existing session
+        startInternetMonitorOnLogin();
       } else {
         currentUser = null;
         await safeChromeCall(() => chrome.storage.local.remove('userSession'), 'Failed to clear session');
@@ -248,6 +254,9 @@ async function login() {
       await safeChromeCall(() => chrome.storage.local.set({ userSession: currentUser }), 'Failed to save session');
       showMainControls();
       showNotification('Logged in successfully!', 'success');
+
+      // Start internet monitoring
+      startInternetMonitorOnLogin();
     } else {
       console.error('Login Failed Response:', response.status, data);
       let errorMsg = data.message || 'Login failed';
@@ -268,6 +277,9 @@ async function login() {
 
 // Logout function
 async function logout() {
+  // Stop internet monitoring
+  stopInternetMonitorOnLogout();
+
   currentUser = null;
   await safeChromeCall(() => chrome.storage.local.remove('userSession'), 'Failed to clear session');
   showLoginSection();
@@ -311,119 +323,119 @@ async function validateSession(session) {
 // Load Chrome Profiles
 // Load Chrome Profiles with Caching and Logging
 async function loadProfiles() {
-    console.log('[loadProfiles] Starting...');
-    const profileSelect = document.getElementById('profileSelect');
-    if (!profileSelect) return;
+  console.log('[loadProfiles] Starting...');
+  const profileSelect = document.getElementById('profileSelect');
+  if (!profileSelect) return;
 
-    try {
-        // Get stored profile ID and cached list
-        const stored = await safeChromeCall(() => chrome.storage.local.get(['chromeProfileId', 'chromeProfilesList']), 'Failed to get stored data');
-        console.log('[loadProfiles] Stored data:', { 
-            hasProfileId: !!stored.chromeProfileId, 
-            cachedListSize: stored.chromeProfilesList?.length 
-        });
-        
-        const currentProfileId = stored.chromeProfileId;
-        const cachedProfiles = stored.chromeProfilesList;
+  try {
+    // Get stored profile ID and cached list
+    const stored = await safeChromeCall(() => chrome.storage.local.get(['chromeProfileId', 'chromeProfilesList']), 'Failed to get stored data');
+    console.log('[loadProfiles] Stored data:', {
+      hasProfileId: !!stored.chromeProfileId,
+      cachedListSize: stored.chromeProfilesList?.length
+    });
 
-        // Function to render options
-        const renderOptions = (profiles, selectedId) => {
-            console.log('[loadProfiles] Rendering options:', profiles.length);
-            if (!profiles || profiles.length === 0) {
-                profileSelect.innerHTML = '<option value="">No profiles found</option>';
-                return;
-            }
+    const currentProfileId = stored.chromeProfileId;
+    const cachedProfiles = stored.chromeProfilesList;
 
-            // Default "Unselected" State
-            profileSelect.innerHTML = '<option value="" disabled selected>-- Select Profile --</option>';
-            
-            profiles.forEach(p => {
-                const option = document.createElement('option');
-                option.value = p.uniqueId || p.id || p.name; 
-                option.textContent = `${p.name} (${p.shortcutName || 'No shortcut'})`;
-                
-                if (selectedId && (option.value === selectedId)) {
-                    option.selected = true;
-                    // If we have a stored selection, we must unselect the default disabled one? 
-                    // Browser handles single select, but let's be safe.
-                    // Actually, if we set selected=true here, it overrides the default from innerHTML string? 
-                    // No, "disabled selected" in HTML string sets initial. 
-                    // If we find a match, setting option.selected = true is enough.
-                }
-                profileSelect.appendChild(option);
-            });
-            
-            // If we have a selectedId but it wasn't found in list, should we revert to default?
-            // The disabled selected option covers it.
-        };
+    // Function to render options
+    const renderOptions = (profiles, selectedId) => {
+      console.log('[loadProfiles] Rendering options:', profiles.length);
+      if (!profiles || profiles.length === 0) {
+        profileSelect.innerHTML = '<option value="">No profiles found</option>';
+        return;
+      }
 
-        // 1. Initial Render from Cache (if available)
-        if (cachedProfiles && Array.isArray(cachedProfiles) && cachedProfiles.length > 0) {
-            console.log('[loadProfiles] Rendering profiles from cache');
-            renderOptions(cachedProfiles, currentProfileId);
-        } else {
-            // Only show "Loading..." if we have nothing to show
-            console.log('[loadProfiles] No cache, showing loading state');
-            profileSelect.innerHTML = '<option value="">Loading profiles...</option>';
+      // Default "Unselected" State
+      profileSelect.innerHTML = '<option value="" disabled selected>-- Select Profile --</option>';
+
+      profiles.forEach(p => {
+        const option = document.createElement('option');
+        option.value = p.uniqueId || p.id || p.name;
+        option.textContent = `${p.name} (${p.shortcutName || 'No shortcut'})`;
+
+        if (selectedId && (option.value === selectedId)) {
+          option.selected = true;
+          // If we have a stored selection, we must unselect the default disabled one? 
+          // Browser handles single select, but let's be safe.
+          // Actually, if we set selected=true here, it overrides the default from innerHTML string? 
+          // No, "disabled selected" in HTML string sets initial. 
+          // If we find a match, setting option.selected = true is enough.
         }
+        profileSelect.appendChild(option);
+      });
 
-        if (!currentUser || !currentUser.apiKey) {
-            console.error('[loadProfiles] No current user or API key', currentUser);
-            if (!cachedProfiles || cachedProfiles.length === 0) {
-                 profileSelect.innerHTML = '<option value="">Log in to view profiles</option>';
-            }
-            return;
-        }
+      // If we have a selectedId but it wasn't found in list, should we revert to default?
+      // The disabled selected option covers it.
+    };
 
-        // 2. Background Fetch to update cache
-        console.log('[loadProfiles] Fetching profiles from API...');
-        fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.chromeProfiles, {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': currentUser.apiKey
-            }
-        })
-        .then(async (response) => {
-            console.log('[loadProfiles] Fetch response status:', response.status);
-            if (response.ok) {
-                const profiles = await response.json();
-                console.log('[loadProfiles] Fetched profiles:', profiles.length);
-                
-                if (profiles && Array.isArray(profiles)) {
-                    // Check if data actually changed to avoid unnecessary re-renders (which can close the dropdown)
-                    if (cachedProfiles && JSON.stringify(profiles) === JSON.stringify(cachedProfiles)) {
-                        console.log('[loadProfiles] Profiles unchanged, skipping re-render');
-                        return;
-                    }
-
-                    // Update cache
-                    await safeChromeCall(() => chrome.storage.local.set({ chromeProfilesList: profiles }), 'Failed to cache profiles');
-                    
-                    // Re-render with new data
-                    const updatedStored = await safeChromeCall(() => chrome.storage.local.get(['chromeProfileId']), 'Failed to get ID');
-                    renderOptions(profiles, updatedStored.chromeProfileId);
-                } else if (!cachedProfiles) {
-                     profileSelect.innerHTML = '<option value="">No profiles found</option>';
-                }
-            } else {
-                console.error('[loadProfiles] Failed to fetch profiles:', response.status);
-                if (!cachedProfiles || cachedProfiles.length === 0) {
-                    profileSelect.innerHTML = '<option value="">Failed to connect</option>';
-                }
-            }
-        })
-        .catch(error => {
-            console.error('[loadProfiles] Error fetching profiles in background:', error);
-            if (!cachedProfiles || cachedProfiles.length === 0) {
-                profileSelect.innerHTML = '<option value="">Error loading profiles</option>';
-            }
-        });
-
-    } catch (error) {
-        console.error('[loadProfiles] Critical error:', error);
-        profileSelect.innerHTML = '<option value="">Error loading profiles</option>';
+    // 1. Initial Render from Cache (if available)
+    if (cachedProfiles && Array.isArray(cachedProfiles) && cachedProfiles.length > 0) {
+      console.log('[loadProfiles] Rendering profiles from cache');
+      renderOptions(cachedProfiles, currentProfileId);
+    } else {
+      // Only show "Loading..." if we have nothing to show
+      console.log('[loadProfiles] No cache, showing loading state');
+      profileSelect.innerHTML = '<option value="">Loading profiles...</option>';
     }
+
+    if (!currentUser || !currentUser.apiKey) {
+      console.error('[loadProfiles] No current user or API key', currentUser);
+      if (!cachedProfiles || cachedProfiles.length === 0) {
+        profileSelect.innerHTML = '<option value="">Log in to view profiles</option>';
+      }
+      return;
+    }
+
+    // 2. Background Fetch to update cache
+    console.log('[loadProfiles] Fetching profiles from API...');
+    fetch(API_CONFIG.baseUrl + API_CONFIG.endpoints.chromeProfiles, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': currentUser.apiKey
+      }
+    })
+      .then(async (response) => {
+        console.log('[loadProfiles] Fetch response status:', response.status);
+        if (response.ok) {
+          const profiles = await response.json();
+          console.log('[loadProfiles] Fetched profiles:', profiles.length);
+
+          if (profiles && Array.isArray(profiles)) {
+            // Check if data actually changed to avoid unnecessary re-renders (which can close the dropdown)
+            if (cachedProfiles && JSON.stringify(profiles) === JSON.stringify(cachedProfiles)) {
+              console.log('[loadProfiles] Profiles unchanged, skipping re-render');
+              return;
+            }
+
+            // Update cache
+            await safeChromeCall(() => chrome.storage.local.set({ chromeProfilesList: profiles }), 'Failed to cache profiles');
+
+            // Re-render with new data
+            const updatedStored = await safeChromeCall(() => chrome.storage.local.get(['chromeProfileId']), 'Failed to get ID');
+            renderOptions(profiles, updatedStored.chromeProfileId);
+          } else if (!cachedProfiles) {
+            profileSelect.innerHTML = '<option value="">No profiles found</option>';
+          }
+        } else {
+          console.error('[loadProfiles] Failed to fetch profiles:', response.status);
+          if (!cachedProfiles || cachedProfiles.length === 0) {
+            profileSelect.innerHTML = '<option value="">Failed to connect</option>';
+          }
+        }
+      })
+      .catch(error => {
+        console.error('[loadProfiles] Error fetching profiles in background:', error);
+        if (!cachedProfiles || cachedProfiles.length === 0) {
+          profileSelect.innerHTML = '<option value="">Error loading profiles</option>';
+        }
+      });
+
+  } catch (error) {
+    console.error('[loadProfiles] Critical error:', error);
+    profileSelect.innerHTML = '<option value="">Error loading profiles</option>';
+  }
 }
 
 // UI Functions
@@ -728,19 +740,19 @@ function attachEventListeners() {
   const profileSelect = document.getElementById('profileSelect');
   if (profileSelect) {
     profileSelect.addEventListener('change', async (e) => {
-        const profileId = e.target.value;
-        try {
-            if (profileId) {
-                await safeChromeCall(() => chrome.storage.local.set({ chromeProfileId: profileId }), 'Failed to save profile');
-                showNotification(`Profile set to: ${profileId}`, 'success');
-            } else {
-                await safeChromeCall(() => chrome.storage.local.remove('chromeProfileId'), 'Failed to remove profile');
-                showNotification('Profile selection cleared', 'info');
-            }
-        } catch (error) {
-            console.error('Error saving profile:', error);
-            showNotification('Failed to save profile selection', 'error');
+      const profileId = e.target.value;
+      try {
+        if (profileId) {
+          await safeChromeCall(() => chrome.storage.local.set({ chromeProfileId: profileId }), 'Failed to save profile');
+          showNotification(`Profile set to: ${profileId}`, 'success');
+        } else {
+          await safeChromeCall(() => chrome.storage.local.remove('chromeProfileId'), 'Failed to remove profile');
+          showNotification('Profile selection cleared', 'info');
         }
+      } catch (error) {
+        console.error('Error saving profile:', error);
+        showNotification('Failed to save profile selection', 'error');
+      }
     });
   }
 }
@@ -2592,7 +2604,7 @@ function createVehicleCard(vehicle) {
   const imagesArray = ((vehicle.preparedImages && vehicle.preparedImages.length > 0)
     ? vehicle.preparedImages
     : vehicle.images || []).filter(url => url !== EXCLUDED_IMAGE_URL);
-  
+
   const imageUrl = imagesArray.length > 0
     ? imagesArray[0]
     : '';
@@ -3758,6 +3770,103 @@ function showRecommendationModal(prompts) {
       processBatchImages(); // Recursively call with prompt now set
     };
   });
+}
+
+// ========== Internet Connectivity Monitor ==========
+
+/**
+ * Initialize internet connectivity monitor
+ */
+function initInternetMonitor() {
+  console.log('[InternetMonitor] Initializing...');
+
+  // Check if InternetMonitor class is available
+  if (typeof InternetMonitor === 'undefined') {
+    console.error('[InternetMonitor] InternetMonitor class not found. Please ensure internet-monitor.js is loaded.');
+    return;
+  }
+
+  // Create monitor instance
+  internetMonitor = new InternetMonitor({
+    checkInterval: 5000,  // Check every 5 seconds
+    timeout: 3000,        // 3 second timeout
+    maxRetries: 3         // Mark offline after 3 failures
+  });
+
+  // Get warning element
+  const warningElement = document.getElementById('internet-warning');
+  if (!warningElement) {
+    console.error('[InternetMonitor] Warning element not found');
+    return;
+  }
+
+  // Listen for connection status changes
+  internetMonitor.on('status-change', (data) => {
+    console.log('[InternetMonitor] Status changed:', data);
+    updateInternetWarning(data.newStatus, data.latency);
+  });
+
+  // Start monitoring
+  internetMonitor.start();
+  console.log('[InternetMonitor] Started');
+}
+
+/**
+ * Update internet warning display based on status
+ */
+function updateInternetWarning(status, latency) {
+  const warningElement = document.getElementById('internet-warning');
+  if (!warningElement) return;
+
+  const warningText = warningElement.querySelector('.warning-text');
+
+  if (status === 'good') {
+    // Hide warning
+    warningElement.classList.add('hidden');
+    warningElement.classList.remove('offline');
+  } else if (status === 'poor') {
+    // Show warning for slow connection
+    warningElement.classList.remove('hidden', 'offline');
+    if (latency) {
+      warningText.textContent = `Slow Internet (${latency}ms) - Please use a stable connection`;
+    } else {
+      warningText.textContent = 'Unstable Internet - Please use a stable connection';
+    }
+  } else if (status === 'offline') {
+    // Show critical warning for offline
+    warningElement.classList.remove('hidden');
+    warningElement.classList.add('offline');
+    warningText.textContent = 'No Internet Connection - Please check your network';
+  }
+}
+
+/**
+ * Stop internet monitor (called on logout or close)
+ */
+function stopInternetMonitor() {
+  if (internetMonitor) {
+    console.log('[InternetMonitor] Stopping...');
+    internetMonitor.stop();
+    internetMonitor = null;
+  }
+}
+
+// Initialize internet monitor when user logs in successfully
+// This is called in the login() function after successful authentication
+function startInternetMonitorOnLogin() {
+  if (!internetMonitor) {
+    initInternetMonitor();
+  }
+}
+
+// Stop monitor on logout
+// This should be called in logout() function
+function stopInternetMonitorOnLogout() {
+  stopInternetMonitor();
+  const warningElement = document.getElementById('internet-warning');
+  if (warningElement) {
+    warningElement.classList.add('hidden');
+  }
 }
 
 window.startBulkUpload = startBulkUpload;

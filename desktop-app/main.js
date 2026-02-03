@@ -45,84 +45,122 @@ ipcMain.handle('log-to-file', (event, message) => {
   return true;
 });
 
-// Update startup settings via PowerShell
+// Update startup settings (Cross-platform)
 function updateStartupSettings(config) {
   const appPath = app.isPackaged ? app.getPath('exe') : process.execPath;
-  const appName = "FlashFenderAutoPoster.lnk";
-  
-  logToFile(`[Startup] Updating Startup (PowerShell Method)`);
+
+  logToFile(`[Startup] Updating Startup (Cross-platform)`);
+  logToFile(`[Startup] Platform: ${process.platform}`);
   logToFile(`[Startup] Mode: ${app.isPackaged ? 'Packaged' : 'Development'}`);
   logToFile(`[Startup] Target State: ${config.runOnStartup}`);
   logToFile(`[Startup] Exe Path: ${appPath}`);
 
+  // Only enable/disable on Windows and macOS (when packaged)
+  if (!app.isPackaged) {
+    logToFile('[Startup] Skipping startup settings in development mode');
+    return;
+  }
+
   if (config.runOnStartup) {
-    enableAutoStart(appPath, appName);
+    enableAutoStart(appPath);
   } else {
-    disableAutoStart(appName);
+    disableAutoStart();
   }
 }
 
-function enableAutoStart(exePath, shortcutName) {
-  const psCommand = `
-    $exePath = "${exePath}"
-    $shortcutName = "${shortcutName}"
-    $startupFolder = "$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
-    $shortcutPath = Join-Path $startupFolder $shortcutName
-    
-    $shell = New-Object -ComObject WScript.Shell
-    $shortcut = $shell.CreateShortcut($shortcutPath)
-    $shortcut.TargetPath = $exePath
-    $shortcut.WorkingDirectory = Split-Path $exePath
-    $shortcut.Save()
-  `;
+function enableAutoStart(exePath) {
+  try {
+    if (process.platform === 'win32') {
+      // Windows: Use PowerShell
+      const shortcutName = "FlashFenderAutoPoster.lnk";
+      const psCommand = `
+        $exePath = "${exePath}"
+        $shortcutName = "${shortcutName}"
+        $startupFolder = "$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
+        $shortcutPath = Join-Path $startupFolder $shortcutName
+        
+        $shell = New-Object -ComObject WScript.Shell
+        $shortcut = $shell.CreateShortcut($shortcutPath)
+        $shortcut.TargetPath = $exePath
+        $shortcut.WorkingDirectory = Split-Path $exePath
+        $shortcut.Save()
+      `;
 
-  logToFile('[Startup] Executing Enable PowerShell script...');
-  
-  const ps = spawn('powershell.exe', ['-Command', psCommand]);
+      logToFile('[Startup] Executing Enable PowerShell script...');
+      const ps = spawn('powershell.exe', ['-Command', psCommand]);
 
-  ps.stdout.on('data', (data) => {
-    logToFile(`[Startup-PS] ${data.toString()}`);
-  });
+      ps.stdout.on('data', (data) => {
+        logToFile(`[Startup-PS] ${data.toString()}`);
+      });
 
-  ps.stderr.on('data', (data) => {
-    logToFile(`[Startup-PS-ERR] ${data.toString()}`);
-    console.error(`[Startup-PS-ERR] ${data.toString()}`);
-  });
+      ps.stderr.on('data', (data) => {
+        logToFile(`[Startup-PS-ERR] ${data.toString()}`);
+      });
 
-  ps.on('close', (code) => {
-    logToFile(`[Startup] Enable script finished with code ${code}`);
-  });
+      ps.on('close', (code) => {
+        logToFile(`[Startup] Enable script finished with code ${code}`);
+      });
+    } else if (process.platform === 'darwin') {
+      // macOS: Use Login Items (Electron app.setLoginItemSettings)
+      app.setLoginItemSettings({
+        openAtLogin: true,
+        openAsHidden: false
+      });
+      logToFile('[Startup] Enabled auto-start on macOS');
+    } else {
+      logToFile('[Startup] Auto-start not supported on this platform');
+    }
+  } catch (error) {
+    logToFile(`[Startup] Error enabling auto-start: ${error.message}`);
+    console.error('[Startup] Error enabling auto-start:', error);
+  }
 }
 
-function disableAutoStart(shortcutName) {
-  const psCommand = `
-    $shortcutName = "${shortcutName}"
-    $startupFolder = "$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
-    $shortcutPath = Join-Path $startupFolder $shortcutName
-    
-    if (Test-Path $shortcutPath) {
-      Remove-Item $shortcutPath -Force
-      Write-Host "Shortcut removed."
+function disableAutoStart() {
+  try {
+    if (process.platform === 'win32') {
+      // Windows: Use PowerShell
+      const shortcutName = "FlashFenderAutoPoster.lnk";
+      const psCommand = `
+        $shortcutName = "${shortcutName}"
+        $startupFolder = "$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
+        $shortcutPath = Join-Path $startupFolder $shortcutName
+        
+        if (Test-Path $shortcutPath) {
+          Remove-Item $shortcutPath -Force
+          Write-Host "Shortcut removed."
+        } else {
+          Write-Host "Shortcut not found, nothing to remove."
+        }
+      `;
+
+      logToFile('[Startup] Executing Disable PowerShell script...');
+      const ps = spawn('powershell.exe', ['-Command', psCommand]);
+
+      ps.stdout.on('data', (data) => {
+        logToFile(`[Startup-PS] ${data.toString()}`);
+      });
+
+      ps.stderr.on('data', (data) => {
+        logToFile(`[Startup-PS-ERR] ${data.toString()}`);
+      });
+
+      ps.on('close', (code) => {
+        logToFile(`[Startup] Disable script finished with code ${code}`);
+      });
+    } else if (process.platform === 'darwin') {
+      // macOS: Use Login Items
+      app.setLoginItemSettings({
+        openAtLogin: false
+      });
+      logToFile('[Startup] Disabled auto-start on macOS');
     } else {
-      Write-Host "Shortcut not found, nothing to remove."
+      logToFile('[Startup] Auto-start not supported on this platform');
     }
-  `;
-
-  logToFile('[Startup] Executing Disable PowerShell script...');
-
-  const ps = spawn('powershell.exe', ['-Command', psCommand]);
-  
-  ps.stdout.on('data', (data) => {
-     logToFile(`[Startup-PS] ${data.toString()}`);
-  });
-
-  ps.stderr.on('data', (data) => {
-    logToFile(`[Startup-PS-ERR] ${data.toString()}`);
-  });
-
-  ps.on('close', (code) => {
-    logToFile(`[Startup] Disable script finished with code ${code}`);
-  });
+  } catch (error) {
+    logToFile(`[Startup] Error disabling auto-start: ${error.message}`);
+    console.error('[Startup] Error disabling auto-start:', error);
+  }
 }
 
 // Load configuration
@@ -141,10 +179,10 @@ function loadConfig() {
       }
 
       const finalConfig = { ...DEFAULT_CONFIG, ...savedConfig };
-      
+
       // Apply startup settings
       updateStartupSettings(finalConfig);
-      
+
       return finalConfig;
     }
   } catch (error) {
@@ -157,7 +195,7 @@ function loadConfig() {
 function saveConfig(config) {
   try {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
-    
+
     // Update automation engine config if it exists
     if (automationEngine) {
       automationEngine.updateConfig(config);
@@ -165,7 +203,7 @@ function saveConfig(config) {
 
     // Update startup settings
     updateStartupSettings(config);
-    
+
     return true;
   } catch (error) {
     console.error('Error saving config:', error);
@@ -381,7 +419,7 @@ ipcMain.handle('check-auth', () => {
 ipcMain.handle('logout', () => {
   clearSession();
   stopSync();
-  
+
   // Stop automation on logout
   if (automationEngine) {
     automationEngine.stop();
@@ -426,12 +464,12 @@ ipcMain.handle('set-active-profile', async (event, profileId) => {
   const config = loadConfig();
   config.activeProfileId = profileId;
   saveConfig(config);
-  
+
   if (automationEngine && automationEngine.isRunning()) {
-      // Maybe restart logic if needed, or just update config (which we did in saveConfig)
-      // automationEngine.updateConfig(config) was called in saveConfig
+    // Maybe restart logic if needed, or just update config (which we did in saveConfig)
+    // automationEngine.updateConfig(config) was called in saveConfig
   }
-  
+
   return { success: true };
 });
 
@@ -471,24 +509,24 @@ ipcMain.handle('get-status', () => {
 ipcMain.handle('start-automation', () => {
   console.log('Starting automation...');
   const config = loadConfig();
-  
+
   if (!automationEngine) {
     automationEngine = new AutomationEngine(config);
-    
+
     // Relay events to renderer
     automationEngine.on('status', (status) => {
       if (mainWindow) mainWindow.webContents.send('automation-status', status);
     });
-    
+
     automationEngine.on('vehicle-posted', (vehicle) => {
       if (mainWindow) mainWindow.webContents.send('vehicle-posted', vehicle);
     });
-    
+
     automationEngine.on('error', (error) => {
       if (mainWindow) mainWindow.webContents.send('automation-error', error);
     });
   }
-  
+
   automationEngine.start();
   return { success: true };
 });
@@ -502,20 +540,34 @@ ipcMain.handle('stop-automation', () => {
 });
 
 ipcMain.handle('get-socket-status', () => {
-    return { 
-        connected: socket && socket.connected, 
-        error: null 
-    };
+  return {
+    connected: socket && socket.connected,
+    error: null
+  };
 });
 
 // Chrome Profile Management
 function getChromeProfiles() {
   try {
-    const userDataPath = path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data');
+    let userDataPath;
+
+    // Determine Chrome user data path based on platform
+    if (process.platform === 'win32') {
+      userDataPath = path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data');
+    } else if (process.platform === 'darwin') {
+      userDataPath = path.join(process.env.HOME, 'Library', 'Application Support', 'Google', 'Chrome');
+    } else if (process.platform === 'linux') {
+      userDataPath = path.join(process.env.HOME, '.config', 'google-chrome');
+    } else {
+      console.error('Unsupported platform for Chrome profiles');
+      return [];
+    }
+
     const localStatePath = path.join(userDataPath, 'Local State');
 
     if (!fs.existsSync(localStatePath)) {
-      console.error('Chrome Local State file not found');
+      console.error('Chrome Local State file not found at:', localStatePath);
+      console.log('Searched in:', userDataPath);
       return [];
     }
 
@@ -525,13 +577,14 @@ function getChromeProfiles() {
     const profileList = [];
     for (const [key, value] of Object.entries(profiles)) {
       profileList.push({
-        id: key, // e.g., "Profile 1"
+        id: key, // e.g., "Profile 1" or "Default"
         name: value.name, // e.g., "Person 1"
         shortcut_name: value.shortcut_name,
         avatar_icon: value.avatar_icon
       });
     }
 
+    console.log(`Found ${profileList.length} Chrome profiles on ${process.platform}`);
     return profileList;
   } catch (error) {
     console.error('Error getting Chrome profiles:', error);
@@ -549,25 +602,52 @@ const launchedProfiles = new Map();
 
 function launchChromeProfile(profileDir) {
   try {
-    // Check if already running - REMOVED per user request
-    // if (launchedProfiles.has(profileDir)) {
-    //   console.log(`Profile ${profileDir} is already running.`);
-    //   return { success: true, message: 'Profile already running' };
-    // }
+    console.log(`Launching Chrome profile: ${profileDir} on ${process.platform}`);
 
-    console.log(`Launching Chrome profile: ${profileDir}`);
-    // typical path for Windows
-    const chromePath = path.join(process.env.ProgramFiles, 'Google', 'Chrome', 'Application', 'chrome.exe');
-    const chromePath86 = path.join(process.env["ProgramFiles(x86)"], 'Google', 'Chrome', 'Application', 'chrome.exe');
+    let executable;
 
-    let executable = chromePath;
-    if (!fs.existsSync(executable)) {
-      if (fs.existsSync(chromePath86)) {
+    // Find Chrome executable based on platform
+    if (process.platform === 'win32') {
+      const chromePath = path.join(process.env.ProgramFiles, 'Google', 'Chrome', 'Application', 'chrome.exe');
+      const chromePath86 = path.join(process.env["ProgramFiles(x86)"], 'Google', 'Chrome', 'Application', 'chrome.exe');
+
+      if (fs.existsSync(chromePath)) {
+        executable = chromePath;
+      } else if (fs.existsSync(chromePath86)) {
         executable = chromePath86;
       } else {
-        throw new Error('Chrome executable not found');
+        throw new Error('Chrome executable not found on Windows');
       }
+    } else if (process.platform === 'darwin') {
+      // macOS Chrome path
+      executable = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+
+      if (!fs.existsSync(executable)) {
+        throw new Error('Chrome not found. Please install Google Chrome.');
+      }
+    } else if (process.platform === 'linux') {
+      // Linux - try common locations
+      const linuxPaths = [
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/chromium-browser'
+      ];
+
+      for (const chromePath of linuxPaths) {
+        if (fs.existsSync(chromePath)) {
+          executable = chromePath;
+          break;
+        }
+      }
+
+      if (!executable) {
+        throw new Error('Chrome/Chromium not found on Linux');
+      }
+    } else {
+      throw new Error(`Unsupported platform: ${process.platform}`);
     }
+
+    console.log(`Using Chrome executable: ${executable}`);
 
     const child = spawn(executable, [`--profile-directory=${profileDir}`], {
       detached: true,
@@ -673,7 +753,7 @@ if (!gotTheLock) {
 
     // Auto-start if configured
     const config = loadConfig();
-    
+
     // Re-enable socket connection on startup if authenticated
     if (isAuthenticated()) {
       console.log('User authenticated on startup, connecting socket...');
@@ -715,7 +795,7 @@ function connectSocket() {
   // Socket.IO usually connects to the root, not /api
   const socketUrl = `${apiUrl.protocol}//${apiUrl.hostname}${apiUrl.port ? ':' + apiUrl.port : ''}`;
   console.log('DEBUG: connectSocket socketUrl:', socketUrl);
-  
+
   try {
     const debugPath = path.join(app.getPath('userData'), 'debug.txt');
     fs.appendFileSync(debugPath, `${new Date().toISOString()} - Socket URL (HARDCODED): ${socketUrl}\n`);
@@ -869,25 +949,25 @@ async function uploadProfiles(profiles) {
   if (!config.apiToken) return;
 
   if (!profiles || !Array.isArray(profiles) || profiles.length === 0) {
-      console.error('[Upload] No profiles provided for upload.');
-      return;
+    console.error('[Upload] No profiles provided for upload.');
+    return;
   }
 
   console.log(`[Upload] Uploading ${profiles.length} profiles:`, profiles.map(p => p.name).join(', '));
 
   const axios = require('axios');
   const apiUrl = config.apiUrl;
-  
+
   try {
     // Backend now accepts ONLY one profile at a time at /add
     // We must loop and send individually
     for (const profile of profiles) {
-        await axios.post(`${apiUrl}/chrome-profiles/add`, profile, {
-          headers: {
-            'Authorization': `Bearer ${config.apiToken}`
-          }
-        });
-        console.log(`[Upload] Successfully uploaded: ${profile.name}`);
+      await axios.post(`${apiUrl}/chrome-profiles/add`, profile, {
+        headers: {
+          'Authorization': `Bearer ${config.apiToken}`
+        }
+      });
+      console.log(`[Upload] Successfully uploaded: ${profile.name}`);
     }
   } catch (error) {
     console.error('[Upload] Failed to upload profiles:', error.message);
