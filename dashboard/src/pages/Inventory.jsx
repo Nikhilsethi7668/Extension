@@ -207,17 +207,22 @@ const Inventory = () => {
         // Specific placeholder image to remove
         const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
         
-        const original = (selectedVehicle.images || [])
+        const aiUrls = selectedVehicle.aiImages || [];
+        const allImages = selectedVehicle.images || [];
+
+        // Unique set of URLs to avoid duplicates (Backend might append AI images to main list)
+        const uniqueUrls = [...new Set([...allImages, ...aiUrls])];
+
+        const processed = uniqueUrls
             .filter(url => url !== PLACEHOLDER_URL)
-            .map(url => ({ url, type: 'original' }));
-            
-        const ai = (selectedVehicle.aiImages || [])
-            .filter(url => url !== PLACEHOLDER_URL)
-            .map(url => ({ url, type: 'ai' }));
-            
-        if (imageFilter === 'original') return original;
-        if (imageFilter === 'ai') return ai;
-        return [...original, ...ai];
+            .map(url => ({
+                url,
+                type: aiUrls.includes(url) ? 'ai' : 'original'
+            }));
+
+        if (imageFilter === 'original') return processed.filter(img => img.type === 'original');
+        if (imageFilter === 'ai') return processed.filter(img => img.type === 'ai');
+        return processed;
     };
 
     const handleDeleteImage = async (imageUrl) => {

@@ -35,7 +35,11 @@ export const SocketProvider = ({ children }) => {
 
         newSocket.on('connect', () => {
             console.log('[SocketContext] Connected:', newSocket.id);
-            newSocket.emit('register-client', { orgId: organizationId, clientType: 'dashboard' });
+            newSocket.emit('register-client', { 
+                orgId: organizationId, 
+                userId: user._id, 
+                clientType: 'dashboard' 
+            });
         });
 
         newSocket.on('disconnect', () => {

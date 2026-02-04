@@ -16,6 +16,12 @@ const useInternetMonitor = (config = {}) => {
     const consecutiveFailuresRef = useRef(0);
     const consecutiveSuccessesRef = useRef(0);
     const intervalIdRef = useRef(null);
+    const statusRef = useRef(status);
+
+    // Sync ref with state
+    useEffect(() => {
+        statusRef.current = status;
+    }, [status]);
 
     // Health check function
     const checkConnection = async () => {
@@ -39,24 +45,23 @@ const useInternetMonitor = (config = {}) => {
             clearTimeout(timeoutId);
 
             const responseLatency = Date.now() - startTime;
-            setLatency(responseLatency);
 
-            if (response.ok) {
+            // Accept 2xx and 304 (Not Modified) as success
+            if (response.ok || response.status === 304) {
                 // Success
                 handleSuccess(responseLatency);
             } else {
                 // Server error
-                handleFailure('Server error: ' + response.status);
+                handleFailure('Server error: ' + response.status, null);
             }
         } catch (error) {
             // Network error or timeout
             const responseLatency = Date.now() - startTime;
-            setLatency(responseLatency);
 
             if (error.name === 'AbortError') {
-                handleFailure('Timeout after ' + timeout + 'ms');
+                handleFailure('Timeout after ' + timeout + 'ms', responseLatency);
             } else {
-                handleFailure('Network error: ' + error.message);
+                handleFailure('Network error: ' + error.message, null);
             }
         }
     };
@@ -70,20 +75,30 @@ const useInternetMonitor = (config = {}) => {
 
         // Determine status based on latency
         let newStatus;
-        if (responseLatency < 3000) {
-            newStatus = 'good';
+        if (responseLatency > 2000) {
+            newStatus = 'offline'; // User requested > 2s to be considered offline
+        } else if (responseLatency > 400) {
+            newStatus = 'poor'; // User requested > 400ms to be considered poor
         } else {
-            newStatus = 'poor'; // Slow but working
+            newStatus = 'good';
         }
 
-        // Only update status if we have 2 consecutive successes (to avoid flickering)
-        if (consecutiveSuccessesRef.current >= 2 || status === 'unknown') {
-            updateStatus(newStatus);
+        // Update status immediately if we are good, or if we have sustained 2 successes.
+        // The goal is to clear warnings immediately when connection improves.
+        
+        if (newStatus === 'good' || consecutiveSuccessesRef.current >= 2 || statusRef.current === 'unknown') {
+            updateState(newStatus, responseLatency);
+        } else {
+            // We are in debounce for non-good statuses (though logically newStatus='good' is handled above).
+            // If we are consistent with current status, update the latency.
+            if (statusRef.current === newStatus) {
+                 updateState(newStatus, responseLatency);
+            }
         }
     };
 
     // Handle failed connection check
-    const handleFailure = (reason) => {
+    const handleFailure = (reason, failedLatency) => {
         consecutiveSuccessesRef.current = 0;
         consecutiveFailuresRef.current++;
 
@@ -91,20 +106,41 @@ const useInternetMonitor = (config = {}) => {
 
         // Mark as offline after maxRetries consecutive failures
         if (consecutiveFailuresRef.current >= maxRetries) {
-            updateStatus('offline');
+            updateState('offline', failedLatency);
         } else if (consecutiveFailuresRef.current === 1) {
             // First failure, mark as poor immediately
-            updateStatus('poor');
+            updateState('poor', failedLatency);
         }
     };
 
-    // Update connection status
-    const updateStatus = (newStatus) => {
-        if (status !== newStatus) {
-            console.log(`[InternetMonitor] Status changed: ${status} → ${newStatus}`);
-            setStatus(newStatus);
-            setIsOnline(newStatus !== 'offline');
-            setIsUnstable(newStatus === 'poor' || newStatus === 'offline');
+    // Update connection status and latency together
+    const updateState = (newStatus, newLatency) => {
+        // Safe update: ensure we don't set a "good" latency with a "poor" status unless it's a timeout
+        
+        // If status is poor/offline, and latency is low (<3000) and not null, it's confusing.
+        // But failedLatency is passed as null for network errors.
+        
+        let finalLatency = newLatency;
+        
+        // If we are setting status to 'poor' or 'offline', and we have no valid latency (null), 
+        // make sure we pass null to clear any old "good" latency.
+        if ((newStatus === 'poor' || newStatus === 'offline') && newLatency === null) {
+            finalLatency = null;
+        }
+
+        // Use ref to check current status to avoid closure staleness
+        if (statusRef.current !== newStatus || latency !== finalLatency) {
+             if (statusRef.current !== newStatus) {
+                console.log(`[InternetMonitor] Status changed: ${statusRef.current} → ${newStatus}`);
+                setStatus(newStatus);
+                setIsOnline(newStatus !== 'offline');
+                setIsUnstable(newStatus === 'poor' || newStatus === 'offline');
+             }
+             
+             // Always update latency if passed (and differs)
+             if (finalLatency !== undefined) {
+                 setLatency(finalLatency);
+             }
         }
     };
 
