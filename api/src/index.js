@@ -15,6 +15,7 @@ import dashboardRoutes from './routes/dashboard.routes.js';
 import chromeProfileRoutes from './routes/chromeProfile.routes.js';
 import eventsRoutes from './routes/events.routes.js';
 import postingRoutes from './routes/posting.routes.js';
+import uploadRoutes from './routes/upload.routes.js';
 
 dotenv.config();
 
@@ -68,6 +69,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/chrome-profiles', chromeProfileRoutes);
 app.use('/api/events', eventsRoutes);
 app.use('/api/postings', postingRoutes);
+app.use('/api/upload', uploadRoutes);
 
 // Static File Serving (for generated images)
 import path from 'path';

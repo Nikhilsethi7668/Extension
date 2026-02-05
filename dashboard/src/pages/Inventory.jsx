@@ -11,6 +11,7 @@ import apiClient from '../config/axios';
 import Layout from '../components/Layout';
 import { useQueue } from '../context/QueueContext';
 import { useSocket } from '../context/SocketContext';
+import { Upload } from 'lucide-react';
 
 const Inventory = () => {
     const [vehicles, setVehicles] = useState([]);
@@ -502,6 +503,46 @@ const Inventory = () => {
             alert(error.response?.data?.message || 'Failed to update vehicle'); // Replaced toast with alert
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleImageUpload = async (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('image', file);
+
+        setLoading(true);
+        try {
+            // 1. Upload Image
+            const { data: uploadData } = await apiClient.post('/upload', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            if (uploadData.success && uploadData.url) {
+                const newImageUrl = uploadData.url;
+                
+                // 2. Update Vehicle local state
+                const updatedVehicle = { ...selectedVehicle };
+                updatedVehicle.images = [...(updatedVehicle.images || []), newImageUrl];
+                
+                // 3. Persist to Backend
+                await apiClient.put(`/vehicles/${selectedVehicle._id}`, {
+                    images: updatedVehicle.images
+                });
+
+                setSelectedVehicle(updatedVehicle);
+                setVehicles(prev => prev.map(v => v._id === updatedVehicle._id ? updatedVehicle : v));
+                alert('Image uploaded successfully!');
+            }
+        } catch (error) {
+            console.error('Upload failed:', error);
+            alert('Image upload failed: ' + (error.response?.data?.message || error.message));
+        } finally {
+            setLoading(false);
+            // Reset input value to allow uploading same file again
+            event.target.value = '';
         }
     };
 
@@ -1135,6 +1176,21 @@ const Inventory = () => {
                                         Queue Post
                                     </Button>
                                 </Box>
+                                <Button
+                                    component="label"
+                                    variant="outlined"
+                                    color="primary"
+                                    size="small"
+                                    startIcon={<Upload size={16} />}
+                                >
+                                    Upload
+                                    <input
+                                        type="file"
+                                        hidden
+                                        accept="image/*"
+                                        onChange={handleImageUpload}
+                                    />
+                                </Button>
                             </Box>
 
                             {/* Images Grid */}

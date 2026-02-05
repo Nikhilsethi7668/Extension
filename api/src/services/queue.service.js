@@ -68,9 +68,8 @@ class QueueManager {
             targetVehicles = [vehicleId];
         }
 
-        // Current timestamp for scheduling base (if multiple, we increment this base later)
-        // Actually, we should probably pass the schedule parameters and let the worker calculate the exact time relative to the *last* one.
-        // But to keep it simple, we can pass metadata.
+        // Variation Counter
+        let variationCounter = 1;
         
         for (const pid of targetProfiles) {
             for (const vid of targetVehicles) {
@@ -88,14 +87,12 @@ class QueueManager {
                         randomize: randomize !== false && (schedule?.randomize !== false),
                         useStealth: schedule?.stealth === true || data.useStealth === true,
                         // Content Override
-                        selectedImages: selectedImages, // Note: if batching multiple vehicles, selectedImages might not apply to all. usually 'selectedImages' comes from single vehicle select.
-                        // If vehicleIds > 1, selectedImages usually isn't passed (unless bulk action). 
-                        // If bulk action, same images for all cars? Unlikely. 
-                        // Assumption: If vehicleIds.length > 1, selectedImages is null/undefined usually.
+                        selectedImages: selectedImages,
                         prompt: prompt || schedule?.prompt,
                         contactNumber: contactNumber || schedule?.contactNumber,
                         user: user,
-                        isPostNow: type === 'post-now'
+                        isPostNow: type === 'post-now',
+                        variationIndex: variationCounter++ // Track which variation this is
                     }
                 });
             }
@@ -257,7 +254,16 @@ class QueueManager {
         if (prompt) { // prompt is passed from schedule/input
             this.emitProgress(io, userId, `Generating AI description...`, 80);
             try {
-                const aiContent = await generateVehicleContent(vehicleData, prompt, 'professional', contactNumber);
+                // INJECT VARIATION if index > 1 or just to ensure uniqueness
+                let finalPrompt = prompt;
+                if (job.data.variationIndex && job.data.variationIndex > 1) {
+                     finalPrompt += `\n\n[System: This is variation #${job.data.variationIndex}. Please generate a unique description different from previous versions.]`;
+                } else if (job.data.variationIndex) {
+                     // Even for the first one, adding ID helps tracking
+                     finalPrompt += `\n\n[System: Variation #${job.data.variationIndex}]`;
+                }
+
+                const aiContent = await generateVehicleContent(vehicleData, finalPrompt, 'professional', contactNumber);
                 if (aiContent && aiContent.description) {
                     customDescription = aiContent.description;
                 }

@@ -25,6 +25,7 @@
         "jsonwebtoken": "^9.0.2",
         "mongoose": "^8.9.2",
         "morgan": "^1.10.0",
+        "multer": "^2.0.2",
         "node-cron": "^4.2.1",
         "piexif-ts": "^2.1.0",
         "puppeteer": "^23.11.1",
