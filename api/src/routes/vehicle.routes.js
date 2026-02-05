@@ -503,15 +503,29 @@ router.get('/', protect, async (req, res) => {
 
             // Apply User-Specific AI Content Mappings (Isolation)
             if (req.user && v.userAIContent && v.userAIContent.length > 0) {
-                // Find content for this user (Note: v.userAIContent is now a plain object array)
+                // Find content for this user
                 const userContent = v.userAIContent.find(c => c.userId?.toString() === req.user._id?.toString());
                 
-                if (userContent && userContent.imageMappings && userContent.imageMappings.length > 0) {
-                    if (v.images && v.images.length > 0) {
-                        v.images = v.images.map(imgUrl => {
-                            const mapping = userContent.imageMappings.find(m => m.originalUrl === imgUrl);
-                            return mapping ? mapping.processedUrl : imgUrl;
-                        });
+                if (userContent) {
+                    // 1. Append AI Images to main images list (if not already there)
+                    if (userContent.aiImages && userContent.aiImages.length > 0) {
+                         const newImages = userContent.aiImages.filter(img => !v.images.includes(img));
+                         v.images = [...v.images, ...newImages];
+                         
+                         // 2. Populate aiImages field so frontend knows which ones are AI
+                         const currentAiImages = v.aiImages || [];
+                         const newAiImages = userContent.aiImages.filter(img => !currentAiImages.includes(img));
+                         v.aiImages = [...currentAiImages, ...newAiImages];
+                    }
+
+                    // 3. Apply Image Mappings (Replacements) - Legacy/Optional support
+                    if (userContent.imageMappings && userContent.imageMappings.length > 0) {
+                        if (v.images && v.images.length > 0) {
+                            v.images = v.images.map(imgUrl => {
+                                const mapping = userContent.imageMappings.find(m => m.originalUrl === imgUrl);
+                                return mapping ? mapping.processedUrl : imgUrl;
+                            });
+                        }
                     }
                 }
             }
@@ -620,13 +634,27 @@ router.get('/:id', protect, async (req, res, next) => {
             const userContent = vehicle.userAIContent.find(c => c.userId?.toString() === req.user._id.toString());
             
             if (userContent) {
-                // Overlay AI mappings onto main images
+                // STRATEGY CHANGE: APPEND AI images instead of Replacing (Overlay)
+                // This allows user to see Original + AI version.
+                if (userContent.aiImages && userContent.aiImages.length > 0) {
+                     // Filter out duplicates just in case
+                     const newImages = userContent.aiImages.filter(img => !vehicle.images.includes(img));
+                     vehicle.images = [...vehicle.images, ...newImages];
+                     
+                     // ALSO populate vehicle.aiImages so frontend knows they are AI
+                     const newAiImages = userContent.aiImages.filter(img => !vehicle.aiImages.includes(img));
+                     vehicle.aiImages = [...vehicle.aiImages, ...newAiImages];
+                }
+
+                // REMOVED: Overlay AI mappings via imageMappings
+                /*
                 if (userContent.imageMappings && userContent.imageMappings.length > 0) {
                     vehicle.images = vehicle.images.map(imgUrl => {
                         const mapping = userContent.imageMappings.find(m => m.originalUrl === imgUrl);
                         return mapping ? mapping.processedUrl : imgUrl;
                     });
                 }
+                */
                 
                 // Overlay AI Content
                 if (userContent.aiContent) {
@@ -953,7 +981,7 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
         // Emit Socket Event for Success
         const io = req.app.get('io');
         if (io) {
-            io.to(`org:${req.user.organization._id}`).emit('image-generation-complete', {
+            io.to(`user:${req.user._id}:dashboard`).emit('image-generation-complete', {
                 success: true,
                 vehicleId: vehicle._id,
                 imageUrl: processedImageUrl,
@@ -1027,9 +1055,8 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
         console.error('Background removal failed:', error);
         
         // Emit Socket Event for Failure
-        const io = req.app.get('io');
         if (io && req.user && req.user.organization) {
-            io.to(`org:${req.user.organization._id}`).emit('image-generation-complete', {
+            io.to(`user:${req.user._id}:dashboard`).emit('image-generation-complete', {
                 success: false,
                 vehicleId: req.params.id,
                 originalUrl: imageUrl,
@@ -1175,7 +1202,8 @@ router.post('/scrape-bulk', protect, async (req, res) => {
 
     // Emit scraping start event
     if (io && organizationId) {
-        io.to(`org:${organizationId}`).emit('scrape:start', {
+        // Updated: Emit only to the user who initiated the scrape
+        io.to(`user:${req.user._id}:dashboard`).emit('scrape:start', {
             total: totalToProcess,
             timestamp: new Date().toISOString()
         });
@@ -1197,7 +1225,8 @@ router.post('/scrape-bulk', protect, async (req, res) => {
             await autoPrepareStealth(vehicle, orgGps);
             totalPreparedCount++;
             if (io && organizationId) {
-                io.to(`org:${organizationId}`).emit('scrape:progress', {
+            if (io && organizationId) {
+                io.to(`user:${req.user._id}:dashboard`).emit('scrape:progress', {
                     scraped: totalScrapedCount,
                     prepared: totalPreparedCount,
                     total: totalToProcess,
@@ -1205,6 +1234,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
                     success: results.success,
                     failed: results.failed
                 });
+            }
             }
         }
         preparationBuffer.length = 0;
@@ -1241,7 +1271,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
 
         // Emit progress for current URL (Initial)
         if (io && organizationId) {
-            io.to(`org:${organizationId}`).emit('scrape:progress', {
+            io.to(`user:${req.user._id}:dashboard`).emit('scrape:progress', {
                 scraped: totalScrapedCount,
                 prepared: totalPreparedCount,
                 total: totalToProcess,
@@ -1359,7 +1389,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
                             results.success++;
 
                             if (io && organizationId) {
-                                io.to(`org:${organizationId}`).emit('scrape:progress', {
+                                io.to(`user:${req.user._id}:dashboard`).emit('scrape:progress', {
                                     scraped: totalScrapedCount,
                                     prepared: totalPreparedCount, // Still same
                                     total: totalToProcess,
@@ -1388,7 +1418,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
                             });
 
                             // Emit vehicle created event
-                            io.to(`org:${organizationId}`).emit('scrape:vehicle', {
+                            io.to(`user:${req.user._id}:dashboard`).emit('scrape:vehicle', {
                                 vehicle: {
                                     id: vehicle._id,
                                     title: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
@@ -1464,7 +1494,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
             results.success++;
 
             if (io && organizationId) {
-                io.to(`org:${organizationId}`).emit('scrape:progress', {
+                io.to(`user:${req.user._id}:dashboard`).emit('scrape:progress', {
                     scraped: totalScrapedCount,
                     prepared: totalPreparedCount,
                     total: totalToProcess,
@@ -1485,7 +1515,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
             results.items.push({ url: trimmedUrl, status: 'success', vehicleId: vehicle._id, title: `${vehicle.year} ${vehicle.make} ${vehicle.model}` });
 
             // Emit vehicle created event
-            io.to(`org:${organizationId}`).emit('scrape:vehicle', {
+            io.to(`user:${req.user._id}:dashboard`).emit('scrape:vehicle', {
                 vehicle: {
                     id: vehicle._id,
                     title: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
@@ -1500,7 +1530,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
             results.items.push({ url: trimmedUrl, status: 'failed', error: error.message });
 
             // Emit error event
-            io.to(`org:${organizationId}`).emit('scrape:error', {
+            io.to(`user:${req.user._id}:dashboard`).emit('scrape:error', {
                 url: trimmedUrl,
                 error: error.message,
                 failed: results.failed
@@ -1513,7 +1543,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
 
     // Emit completion event
     if (io && organizationId) {
-        io.to(`org:${organizationId}`).emit('scrape:complete', {
+        io.to(`user:${req.user._id}:dashboard`).emit('scrape:complete', {
             total: results.total,
             success: results.success,
             failed: results.failed,
@@ -2131,9 +2161,30 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
         const results = await Promise.all(editPromises);
 
         // Update Vehicle with results
+        // Update Vehicle with results (User-Specific Isolation)
+        let userContent = vehicle.userAIContent.find(c => c.userId && c.userId.toString() === req.user._id.toString());
+
+        if (!userContent) {
+            vehicle.userAIContent.push({
+                userId: req.user._id,
+                aiImages: [],
+                imageMappings: [],
+                aiContent: {}
+            });
+            // Get the reference to the newly added subdocument
+            userContent = vehicle.userAIContent[vehicle.userAIContent.length - 1];
+        }
+
         for (const res of results) {
             if (res.success) {
-                    vehicle.images.push(res.processed);
+                    // OLD: vehicle.images.push(res.processed);
+                    
+                    // NEW: Store in User Content
+                    userContent.aiImages.push(res.processed);
+                    
+                    // REMOVED mapping push to prevent replacement. We want to Append.
+                    // userContent.imageMappings.push(...)
+
                 processedCount++;
             }
         }

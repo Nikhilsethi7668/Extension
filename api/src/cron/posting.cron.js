@@ -53,9 +53,8 @@ export const initPostingCron = (io) => {
             const tenMinutesAgo = new Date(Date.now() - 10 * 60000);
             
             const stuckPostings = await Posting.find({
-                status: 'processing',
-                scheduledTime: { $lt: tenMinutesAgo, },
-                createdAt: { $lt: new Date(Date.now() - 6 * 60 * 60 * 1000) }           
+                status:{$in:['processing','scheduled', 'failed']},
+                scheduledTime: { $lt: tenMinutesAgo }
             });
 
             if (stuckPostings.length > 0) {
