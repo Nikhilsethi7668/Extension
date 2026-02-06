@@ -149,9 +149,11 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
         console.log(`[AI Service] Prepared Image URL: ${cleanImageUrl}`);
 
         // Ensure prompt has the required prefix
-        const loraPrompt = visualDescription.startsWith('Add Background')
+        let loraPrompt = visualDescription.startsWith('Add Background')
             ? visualDescription
-            : `Add Background ${visualDescription} `;
+            : `Add Background ${visualDescription}`;
+
+        // Add detailed instructions to preserve the vehicle
         loraPrompt = `${loraPrompt} keep in mind you dont have to do anything with the vehicle either exteriar 
                     or interior of vehicle but I want you to only change its background i.e vehicle will 
                     remain as it is but background or surrounding needs to be changed accordingly 
@@ -159,7 +161,7 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
                     edit just the part of image from where surrounding of vehicle can be seen generally that is possible through
                     mirror when picture is from interior of vehicle but if image contains full exteriar of image i.e image of vehicle 
                     is taken from outside so just have to change background of vehicle dont have to even touch the 
-                    vehicle `
+                    vehicle`;
 
         // 4. CALL FAL.AI (Flux 2 LoRA)
         // Docs: https://fal.ai/models/fal-ai/flux-2-lora-gallery/add-background/api
