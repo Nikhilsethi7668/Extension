@@ -24,47 +24,39 @@ const useInternetMonitor = (config = {}) => {
     }, [status]);
 
     // Health check function
-    const checkConnection = async () => {
-        const startTime = Date.now();
+   const checkConnection = async () => {
+  const startTime = Date.now();
 
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+  const PUBLIC_PING_URL = 'https://cloudflare.com/cdn-cgi/trace';
 
-            // Use environment variable or default to /api/health
-            const healthUrl = import.meta.env.VITE_API_URL
-                ? `${import.meta.env.VITE_API_URL}/health`
-                : '/api/health';
+  try {
+    // 1️⃣ Check public internet FIRST
+    const publicResponse = await fetch(PUBLIC_PING_URL, {
+      method: 'GET',
+      signal: controller.signal,
+      cache: 'no-store'
+    });
 
-            const response = await fetch(healthUrl, {
-                method: 'GET',
-                signal: controller.signal,
-                cache: 'no-cache'
-            });
+    if (!publicResponse.ok && publicResponse.status !== 204) {
+      throw new Error('Public internet unreachable');
+    }
 
-            clearTimeout(timeoutId);
+    const internetLatency = Date.now() - startTime;
 
-            const responseLatency = Date.now() - startTime;
+    handleSuccess(internetLatency);
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      handleFailure('Timeout', null);
+    } else {
+      handleFailure(error.message, null);
+    }
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
 
-            // Accept 2xx and 304 (Not Modified) as success
-            if (response.ok || response.status === 304) {
-                // Success
-                handleSuccess(responseLatency);
-            } else {
-                // Server error
-                handleFailure('Server error: ' + response.status, null);
-            }
-        } catch (error) {
-            // Network error or timeout
-            const responseLatency = Date.now() - startTime;
-
-            if (error.name === 'AbortError') {
-                handleFailure('Timeout after ' + timeout + 'ms', responseLatency);
-            } else {
-                handleFailure('Network error: ' + error.message, null);
-            }
-        }
-    };
 
     // Handle successful connection check
     const handleSuccess = (responseLatency) => {
