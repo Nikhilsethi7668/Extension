@@ -191,7 +191,7 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
             // Construct full URL (Internal localhost for now, routes will handle full URL mapping)
             // But we need to return something the frontend can use or the backend saves.
             // savedPath was relative. stealthResult.relativePath is `/uploads/prepared/...`
-            const processedUrl =`https://api-flash.adaptusgroup.ca${stealthResult.relativePath}`;
+            const processedUrl =`https://api.flashfender.com${stealthResult.relativePath}`;
 
             return {
                 success: true,

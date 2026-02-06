@@ -31,7 +31,7 @@ export const QueueProvider = ({ children }) => {
         const user = JSON.parse(storedUser);
         if (!user || !user._id || !user.organization) return;
 
-        const API_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api-flash.adaptusgroup.ca');
+        const API_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com');
         
         const newSocket = io(API_URL, {
              auth: {
@@ -120,7 +120,7 @@ export const QueueProvider = ({ children }) => {
             });
         }
 
-        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api-flash.adaptusgroup.ca') + '/api';
+        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com') + '/api';
 
         try {
             // We use simple FETCH now, because socket will handle updates!
@@ -177,7 +177,7 @@ export const QueueProvider = ({ children }) => {
             error: false
         });
 
-        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api-flash.adaptusgroup.ca') + '/api';
+        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com') + '/api';
 
         try {
             const response = await fetch(`${API_BASE_URL}/vehicles/post-now`, {
@@ -239,7 +239,7 @@ export const QueueProvider = ({ children }) => {
             completed: false
         });
 
-        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api-flash.adaptusgroup.ca') + '/api';
+        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com') + '/api';
 
         try {
             const response = await fetch(`${API_BASE_URL}/vehicles/${vehicleId}/batch-edit-images`, {

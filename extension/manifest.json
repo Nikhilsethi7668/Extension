@@ -21,9 +21,9 @@
         "https://www.facebook.com/*",
         "https://marketplace.facebook.com/*",
         "https://autobridge-backend.dchatpar.workers.dev/*",
-        "https://api-flash.adaptusgroup.ca/*",
+        "https://api.flashfender.com/*",
         "http://localhost:5000/*",
-        "https://api-flash.adaptusgroup.ca/*",
+        "https://api.flashfender.com/*",
         "http://66.94.120.78:5573/*",
         "http://localhost:5573/*"
     ],

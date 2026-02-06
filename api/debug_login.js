@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const API_KEY = 'a3181b4d-fb45-4906-a990-2fa35e441129';
-const URL = 'https://api-flash.adaptusgroup.ca/api/auth/dashboard-api-login';
+const URL = 'https://api.flashfender.com/api/auth/dashboard-api-login';
 
 async function testLogin() {
     try {

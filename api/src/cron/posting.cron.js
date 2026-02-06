@@ -8,7 +8,7 @@ import { queueEvent, isProfileActive } from '../routes/events.routes.js';
 
 const toFullUrl = (url) => {
     // Hardcoded as per user request to ensure stability
-    const BASE_URL = 'https://api-flash.adaptusgroup.ca';
+    const BASE_URL = 'https://api.flashfender.com';
     if (!url) return url;
     if (url.startsWith('http')) return url;
     return `${BASE_URL}${url}`;
@@ -22,7 +22,7 @@ export const initPostingCron = (io) => {
         const now = new Date();
         console.log(`[Cron] Post Scheduler running at ${now.toLocaleTimeString()}`);
         
-        const twoMinutesAgo = new Date(now.getTime() - 120 * 60000);
+        const twoMinutesAgo = new Date(now.getTime() - 10 * 60000);
         const oneMinuteFuture = new Date(now.getTime() + 1 * 60000);
 
         try {
@@ -50,12 +50,13 @@ export const initPostingCron = (io) => {
     // Run every 2 minutes to check for stuck 'processing' posts
     cron.schedule('*/2 * * * *', async () => {
          try {
-            const tenMinutesAgo = new Date(Date.now() - 10 * 60000);
+            const tenMinutesAgo = new Date(Date.now() - 60 * 60000);
             
             const stuckPostings = await Posting.find({
-                status:{$in:['processing','scheduled', 'failed']},
+                status:{$in:['scheduled', 'failed']},
+                failureReason:{$ne:null},
                 scheduledTime: { $lt: tenMinutesAgo },
-                createdAt: { $lt: new Date(Date.now() - 6 * 60 * 60 * 1000) }   
+                createdAt:{$lt:tenMinutesAgo}   
             });
 
             if (stuckPostings.length > 0) {

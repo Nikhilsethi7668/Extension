@@ -231,7 +231,7 @@ class QueueManager {
                     finalImages = stealthResult.results.map(r => {
                         const url = r.preparedUrl;
                         if (url.startsWith('http')) return url;
-                        return 'https://api-flash.adaptusgroup.ca' + url;
+                        return 'https://api.flashfender.com' + url;
                     });
                 } else {
                     finalImages = sourceImages;
@@ -246,7 +246,7 @@ class QueueManager {
         finalImages = finalImages.map(url => {
              if (!url) return url;
              if (url.startsWith('http')) return url;
-             return 'https://api-flash.adaptusgroup.ca' + url;
+             return 'https://api.flashfender.com' + url;
         });
 
         // 3. AI GENERATION (80%)

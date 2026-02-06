@@ -21,7 +21,7 @@ cp .env.example .env
 npm install
 npm run dev
 ```
-Runs on `https://api-flash.adaptusgroup.ca`.
+Runs on `https://api.flashfender.com`.
 
 ### 2. Dashboard
 ```bash

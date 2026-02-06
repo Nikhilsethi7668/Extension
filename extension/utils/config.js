@@ -10,7 +10,7 @@ var CONFIG = {
   version: '1.0.0',
   
   // Backend URL
-  backendUrl: 'https://api-flash.adaptusgroup.ca/api',
+  backendUrl: 'https://api.flashfender.com/api',
 
   // Supported Sites
   supportedSites: [

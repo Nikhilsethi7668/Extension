@@ -3,7 +3,7 @@ console.log('Service Worker Logic Starting...');
 
 // Logic from service-worker.js, assuming CONFIG and io are already loaded globally
 
-const BACKEND_URL = (typeof CONFIG !== 'undefined' && CONFIG.backendUrl) ? CONFIG.backendUrl : 'https://api-flash.adaptusgroup.ca/api';
+const BACKEND_URL = (typeof CONFIG !== 'undefined' && CONFIG.backendUrl) ? CONFIG.backendUrl : 'https://api.flashfender.com/api';
 // Socket.IO Setup
 let socket = null;
 
@@ -233,7 +233,7 @@ async function handleFillFormWithTestData(testData, tabId = null) {
 
 async function handleFillFormWithTestDataFromAPI(customData = null, tabId = null) {
   try {
-    const API_BASE_URL = 'https://api-flash.adaptusgroup.ca/api';
+    const API_BASE_URL = 'https://api.flashfender.com/api';
     const url = `${API_BASE_URL}/test-data`;
     const options = {
       method: customData ? 'POST' : 'GET',
