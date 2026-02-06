@@ -154,14 +154,11 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
             : `Add Background ${visualDescription}`;
 
         // Add detailed instructions to preserve the vehicle
-        loraPrompt = `${loraPrompt} keep in mind you dont have to do anything with the vehicle either exteriar 
-                    or interior of vehicle but I want you to only change its background i.e vehicle will 
-                    remain as it is but background or surrounding needs to be changed accordingly 
-                    if the image contains interiar of car so dont change anything in vehicle or of vehicle instead
-                    edit just the part of image from where surrounding of vehicle can be seen generally that is possible through
-                    mirror when picture is from interior of vehicle but if image contains full exteriar of image i.e image of vehicle 
-                    is taken from outside so just have to change background of vehicle dont have to even touch the 
-                    vehicle`;
+        loraPrompt = `${loraPrompt} *CRITICAL CONSTRAINTS:*
+1.⁠ ⁠*Detection & Filtering:* Analyze the image. If the image depicts the *INTERIOR* of a car (dashboard, seats, steering wheel, or views from inside), *STOP*. Do not apply any changes. Skip the background replacement entirely for interior shots.
+2.⁠ ⁠*Subject Preservation:* If the image is an *EXTERIOR* shot, you are permitted to change only the surroundings. The vehicle itself must remain 100% untouched. Do not modify the paint, wheels, windows, or body lines. 
+3.⁠ ⁠*Environment Replacement:* Replace the entire background and floor/ground surface according to the style context provided above. 
+4.⁠ ⁠*No Bleed:* Ensure no "environmental blending" occurs on the car's surface. The car should look as if it was professionally cut out and placed into the new setting without any digital alteration to the original pixels of the vehicle.`;
 
         // 4. CALL FAL.AI (Flux 2 LoRA)
         // Docs: https://fal.ai/models/fal-ai/flux-2-lora-gallery/add-background/api
