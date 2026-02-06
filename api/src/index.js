@@ -36,8 +36,8 @@ app.use(cors({
         const allowedOrigins = [
             "http://localhost:5173", 
             "http://localhost:5000", 
-            "https://flash.adaptusgroup.ca", 
-            "https://api-flash.adaptusgroup.ca",
+            "https://app.flashfender.com", 
+            "https://api.flashfender.com",
             "http://localhost:3682", 
             "http://66.94.120.78:3682"
         ];
@@ -108,7 +108,7 @@ const io = new Server(httpServer, {
         origin: function (origin, callback) {
             if (!origin) return callback(null, true);
             if (origin.startsWith('chrome-extension://')) return callback(null, true);
-            const allowedOrigins = ["http://localhost:5173", "https://flash.adaptusgroup.ca", "https://api-flash.adaptusgroup.ca", "http://localhost:3682", "http://66.94.120.78:3682"];
+            const allowedOrigins = ["http://localhost:5173", "https://app.flashfender.com", "https://api.flashfender.com", "http://localhost:3682", "http://66.94.120.78:3682"];
             if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('localhost')) {
                 return callback(null, true);
             }

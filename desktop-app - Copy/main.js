@@ -18,7 +18,7 @@ const AutomationEngine = require('./automation-engine');
 
 // Default configuration
 const DEFAULT_CONFIG = {
-  apiUrl: 'https://api-flash.adaptusgroup.ca/api',
+  apiUrl: 'https://api.flashfender.com/api',
   apiToken: '',
   pollingInterval: 5, // minutes
   autoStart: false,

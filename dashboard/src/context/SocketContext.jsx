@@ -25,7 +25,7 @@ export const SocketProvider = ({ children }) => {
         if (!organizationId) return;
 
         // Initialize Socket
-        const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'https://api-flash.adaptusgroup.ca', {
+        const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com', {
             withCredentials: true,
             transports: ['websocket', 'polling'],
             auth: {
