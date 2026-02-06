@@ -23,7 +23,7 @@ const useInternetMonitor = (config = {}) => {
         statusRef.current = status;
     }, [status]);
 
-    // Health check function
+    // Health check function - Ping Google.com to check internet connectivity
     const checkConnection = async () => {
         const startTime = Date.now();
 
@@ -31,29 +31,21 @@ const useInternetMonitor = (config = {}) => {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-            // Use environment variable or default to /api/health
-            const healthUrl = import.meta.env.VITE_API_URL
-                ? `${import.meta.env.VITE_API_URL}/health`
-                : '/api/health';
-
-            const response = await fetch(healthUrl, {
+            // Ping google.com with a cache-bust parameter to test internet connectivity
+            const response = await fetch('https://www.google.com/favicon.ico?mch_cache_bust=' + Date.now(), {
                 method: 'GET',
                 signal: controller.signal,
-                cache: 'no-cache'
+                cache: 'no-cache',
+                mode: 'no-cors'  // Allow cross-origin for google.com
             });
 
             clearTimeout(timeoutId);
 
             const responseLatency = Date.now() - startTime;
 
-            // Accept 2xx and 304 (Not Modified) as success
-            if (response.ok || response.status === 304) {
-                // Success
-                handleSuccess(responseLatency);
-            } else {
-                // Server error
-                handleFailure('Server error: ' + response.status, null);
-            }
+            // Accept any response (mode: 'no-cors' returns opaque responses)
+            // If we get here without error, connection is good
+            handleSuccess(responseLatency);
         } catch (error) {
             // Network error or timeout
             const responseLatency = Date.now() - startTime;

@@ -50,13 +50,13 @@ export const initPostingCron = (io) => {
     // Run every 2 minutes to check for stuck 'processing' posts
     cron.schedule('*/2 * * * *', async () => {
          try {
-            const tenMinutesAgo = new Date(Date.now() - 60 * 60000);
+            const tenMinutesAgo = new Date(Date.now() - 10 * 60000);
             
             const stuckPostings = await Posting.find({
                 status:{$in:['scheduled', 'failed']},
                 failureReason:{$ne:null},
                 scheduledTime: { $lt: tenMinutesAgo },
-                createdAt:{$lt:tenMinutesAgo}   
+                createdAt:{$lt: new Date(Date.now() - 60 * 60000)} // Ensure it's not a recently failed post
             });
 
             if (stuckPostings.length > 0) {
