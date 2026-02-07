@@ -7,7 +7,7 @@
 var CONFIG = {
   // Extension Information
   name: 'Vehicle Scraper & FB Marketplace Auto-Lister',
-  version: '1.0.0',
+  version: '1.0.1',
   
   // Backend URL
   backendUrl: 'https://api.flashfender.com/api',
@@ -164,6 +164,29 @@ var CONFIG = {
     }
   }
 };
+
+// Initialize: Clear old stored configurations to prevent stale API URLs
+(async function initializeConfig() {
+  try {
+    const stored = await chrome.storage.local.get(['configVersion']);
+    const currentVersion = CONFIG.version;
+    
+    // If config version mismatch or none exists, clear old stored data
+    if (!stored.configVersion || stored.configVersion !== currentVersion) {
+      console.log('[Config] Version mismatch or first load. Clearing old stored configurations...');
+      
+      // Clear old API URL storage that might have old domains
+      await chrome.storage.local.remove(['apiUrl', 'backendUrl', 'currentApiUrl']);
+      
+      // Save current config version
+      await chrome.storage.local.set({ configVersion: currentVersion });
+      
+      console.log('[Config] Configuration reset complete. Using current URL:', CONFIG.backendUrl);
+    }
+  } catch (error) {
+    console.error('[Config] Initialization error:', error);
+  }
+})();
 
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {

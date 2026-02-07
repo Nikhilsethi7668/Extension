@@ -1,12 +1,13 @@
 /**
  * Internet Monitor
- * Monitors internet connectivity by pinging the backend health endpoint
+ * Monitors internet connectivity by checking public internet (Cloudflare)
  * Emits events when connection quality changes
  */
 
 class InternetMonitor {
     constructor(config = {}) {
-        this.apiUrl = config.apiUrl || CONFIG.backendUrl.replace('/api', '') + '/api/health';
+        // Note: We check public internet (cloudflare.com) for reliability
+        // This ensures we detect actual internet problems, not just API downtime
         this.checkInterval = config.checkInterval || 5000; // 5 seconds
         this.timeout = config.timeout || 3000; // 3 seconds
         this.maxRetries = config.maxRetries || 3;
@@ -66,33 +67,32 @@ class InternetMonitor {
     }
 
     /**
-     * Check connection by pinging health endpoint
+     * Check connection by pinging public internet first
      */
     async checkConnection() {
         const startTime = Date.now();
+        const PUBLIC_PING_URL = 'https://cloudflare.com/cdn-cgi/trace';
 
         try {
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-            const response = await fetch(this.apiUrl, {
+            // 1️⃣ Check public internet FIRST
+            const publicResponse = await fetch(PUBLIC_PING_URL, {
                 method: 'GET',
                 signal: controller.signal,
-                cache: 'no-cache'
+                cache: 'no-store'
             });
 
             clearTimeout(timeoutId);
 
+            if (!publicResponse.ok && publicResponse.status !== 204) {
+                throw new Error('Public internet unreachable');
+            }
+
             const latency = Date.now() - startTime;
             this.lastLatency = latency;
-
-            if (response.ok) {
-                // Success
-                this.handleSuccess(latency);
-            } else {
-                // Server error
-                this.handleFailure('Server error: ' + response.status);
-            }
+            this.handleSuccess(latency);
         } catch (error) {
             // Network error or timeout
             const latency = Date.now() - startTime;
@@ -115,17 +115,26 @@ class InternetMonitor {
 
         console.log(`[InternetMonitor] Connection OK - Latency: ${latency}ms`);
 
-        // Determine status based on latency
+        // Determine status based on latency thresholds
         let newStatus;
-        if (latency < 3000) {
-            newStatus = 'good';
+        if (latency > 2000) {
+            newStatus = 'offline'; // > 2s considered offline
+        } else if (latency > 400) {
+            newStatus = 'poor';    // > 400ms considered poor
         } else {
-            newStatus = 'poor'; // Slow but working
+            newStatus = 'good';    // < 400ms is good
         }
 
-        // Only update status if we have 2 consecutive successes (to avoid flickering)
-        if (this.consecutiveSuccesses >= 2 || this.currentStatus === 'unknown') {
+        // Update status immediately if good, or if we have sustained 2 successes.
+        // The goal is to clear warnings immediately when connection improves.
+        if (newStatus === 'good' || this.consecutiveSuccesses >= 2 || this.currentStatus === 'unknown') {
             this.updateStatus(newStatus, latency);
+        } else {
+            // We are in debounce for non-good statuses
+            // If we are consistent with current status, update the latency
+            if (this.currentStatus === newStatus) {
+                this.lastLatency = latency;
+            }
         }
     }
 
@@ -138,7 +147,7 @@ class InternetMonitor {
 
         console.warn(`[InternetMonitor] Connection check failed: ${reason} (Failures: ${this.consecutiveFailures})`);
 
-        // Mark as offline after 3 consecutive failures
+        // Mark as offline after maxRetries consecutive failures
         if (this.consecutiveFailures >= this.maxRetries) {
             this.updateStatus('offline', null);
         } else if (this.consecutiveFailures === 1) {
@@ -153,25 +162,39 @@ class InternetMonitor {
     updateStatus(newStatus, latency) {
         const oldStatus = this.currentStatus;
 
+        // Safe state update: ensure we don't set confusing state/latency combinations
+        let finalLatency = latency;
+        
+        // If we are setting status to 'poor' or 'offline', and we have no valid latency (null), 
+        // make sure we pass null to clear any old "good" latency.
+        if ((newStatus === 'poor' || newStatus === 'offline') && latency === null) {
+            finalLatency = null;
+        }
+
+        // Only emit events if status actually changed
         if (oldStatus !== newStatus) {
             console.log(`[InternetMonitor] Status changed: ${oldStatus} → ${newStatus}`);
             this.currentStatus = newStatus;
+            
+            if (finalLatency !== undefined) {
+                this.lastLatency = finalLatency;
+            }
 
             // Emit status change event
             this.emit('status-change', {
                 oldStatus,
                 newStatus,
-                latency,
+                latency: this.lastLatency,
                 timestamp: Date.now()
             });
 
-            // Emit specific event
+            // Emit specific event based on new status
             switch (newStatus) {
                 case 'good':
-                    this.emit('connection-good', { latency });
+                    this.emit('connection-good', { latency: this.lastLatency });
                     break;
                 case 'poor':
-                    this.emit('connection-poor', { latency });
+                    this.emit('connection-poor', { latency: this.lastLatency });
                     break;
                 case 'offline':
                     this.emit('connection-offline', {});
