@@ -58,6 +58,10 @@ const postingSchema = new mongoose.Schema({
     failureReason: {
         type: String // Reason why posting wasn't attempted (e.g., "Desktop App Disconnected")
     },
+    listingUrl: {
+        type: String,
+        default: null // URL of the posted listing
+    },
     schedulerOptions: {
         delay: { type: Number, default: 0 }, // Delay in minutes
         stealth: { type: Boolean, default: false }

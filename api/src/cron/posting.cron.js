@@ -28,10 +28,12 @@ export const initPostingCron = (io) => {
         try {
             // Find active scheduled postings
             // REMOVE LIMIT to support concurrency (processed in parallel below)
+            // Safety: Only fetch 'scheduled' status (not 'completed', 'triggered', 'processing')
             const postings = await Posting.find({
                 status: 'scheduled',
                 scheduledTime: { $gte: twoMinutesAgo, $lte: oneMinuteFuture },
-                failureReason: null
+                failureReason: null,
+                completedAt: null  // Extra safety: ensure not already completed
             }).populate('vehicleId');
 
             if (postings.length > 0) {

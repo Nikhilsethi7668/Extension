@@ -109,36 +109,80 @@ router.get('/vehicle/:vehicleId/recent', protect, async (req, res) => {
 // @desc    Mark posting as complete and update vehicle status
 // @route   POST /api/postings/:id/complete
 // @access  Protected (API Key from extension)
-router.post('/:id/complete', protect, async (req, res) => {
+router.post('/:id/complete', async (req, res) => {
     try {
         const { status, error, listingUrl, vehicleId } = req.body;
         const postingId = req.params.id;
 
-        console.log(`[Posting Complete] Processing completion for posting ${postingId}`, { status, vehicleId });
+        // Validate status is one of the expected values
+        const validStatuses = ['completed', 'failed', 'timeout'];
+        if (!status || !validStatuses.includes(status)) {
+            return res.status(400).json({ 
+                success: false, 
+                message: `Invalid status: ${status}. Must be one of: ${validStatuses.join(', ')}` 
+            });
+        }
 
-        // 1. Find and update the posting record
+        console.log(`[Posting Complete] Processing completion for posting ${postingId}`, { 
+            status, 
+            vehicleId,
+            requestUserId: req.user._id,
+            listingUrl 
+        });
+
+        // 1. Find and validate the posting record
         const posting = await Posting.findById(postingId);
         
         if (!posting) {
             return res.status(404).json({ success: false, message: 'Posting not found' });
         }
 
-        // Update posting status
-        posting.status = status === 'completed' ? 'completed' : status === 'failed' ? 'failed' : 'timeout';
+        // 2. Verify ownership - posting must belong to same org
+        const userOrgId = req.user.organization._id ? req.user.organization._id.toString() : req.user.organization.toString();
+        const postOrgId = posting.orgId.toString();
+        if (userOrgId !== postOrgId) {
+            console.warn(`[Posting Complete] Unauthorized attempt to update posting from different org`);
+            return res.status(403).json({ success: false, message: 'Not authorized to update this posting' });
+        }
+
+        // 3. Check if posting has already been completed (prevent re-marking)
+        if (posting.status === 'completed') {
+            console.warn(`[Posting Complete] Attempt to re-mark already completed posting ${postingId}`);
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Posting already marked as completed' 
+            });
+        }
+
+        // 4. Update posting status with validation
+        const previousStatus = posting.status;
+        posting.status = status; // Use status directly since we've validated it above
         posting.completedAt = new Date();
         
         if (error) {
             posting.error = error;
         }
+        
+        if (listingUrl) {
+            posting.listingUrl = listingUrl;
+        }
+
+        // Add completion log
+        posting.logs.push({
+            message: `Status changed from '${previousStatus}' to '${status}'${error ? ` - Error: ${error}` : ''}`,
+            timestamp: new Date()
+        });
 
         await posting.save();
-        console.log(`[Posting Complete] Updated posting status to: ${posting.status}`);
+        console.log(`[Posting Complete] Updated posting status: ${previousStatus} → ${posting.status}`);
 
-        // 2. If successful, update vehicle status and posting history
+        // 5. If successful, update vehicle status and posting history
         if (status === 'completed' && posting.vehicleId) {
             const vehicle = await Vehicle.findById(posting.vehicleId);
             
             if (vehicle) {
+                const previousVehicleStatus = vehicle.status;
+                
                 // Update vehicle status
                 vehicle.status = 'posted';
                 
@@ -154,19 +198,30 @@ router.post('/:id/complete', protect, async (req, res) => {
                 });
 
                 await vehicle.save();
-                console.log(`[Posting Complete] Updated vehicle ${vehicleId} status to 'posted' and added posting history`);
+                console.log(`[Posting Complete] Updated vehicle ${posting.vehicleId.toString()}: '${previousVehicleStatus}' → 'posted'`);
+                console.log(`[Posting Complete] Added posting history for vehicle: ${listingUrl}`);
             } else {
-                console.warn(`[Posting Complete] Vehicle ${vehicleId} not found`);
+                console.warn(`[Posting Complete] Vehicle ${posting.vehicleId} not found - cannot update status to 'posted'`);
+                // Log this issue in the posting for debugging
+                posting.logs.push({
+                    message: `WARNING: Vehicle ${posting.vehicleId} not found when marking posting complete`,
+                    timestamp: new Date()
+                });
+                await posting.save();
             }
+        } else if (status !== 'completed') {
+            console.log(`[Posting Complete] Posting status is '${status}' (not 'completed') - vehicle status not updated`);
         }
 
         res.json({
             success: true,
-            message: 'Posting completed successfully',
+            message: `Posting marked as ${status}`,
             posting: {
                 id: posting._id,
                 status: posting.status,
-                completedAt: posting.completedAt
+                previousStatus,
+                completedAt: posting.completedAt,
+                listingUrl: posting.listingUrl
             }
         });
     } catch (error) {
