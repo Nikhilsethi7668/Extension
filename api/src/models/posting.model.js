@@ -40,7 +40,7 @@ const postingSchema = new mongoose.Schema({
     },
     status: {
         type: String,
-        enum: ['scheduled','processing', 'completed', 'failed', 'timeout'],
+        enum: ['scheduled','triggered', 'processing', 'completed', 'failed', 'timeout', 'rescheduled'],
         default: 'scheduled'
     },
     jobId: {

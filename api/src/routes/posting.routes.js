@@ -106,6 +106,58 @@ router.get('/vehicle/:vehicleId/recent', protect, async (req, res) => {
     }
 });
 
+// @desc    Update posting status (lightweight - just status + log)
+// @route   PATCH /api/postings/:id/status
+// @access  Protected (API Key from extension)
+router.patch('/:id/status', async (req, res) => {
+    try {
+        const { status, log } = req.body;
+        const postingId = req.params.id;
+
+        if (!status) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Status is required' 
+            });
+        }
+
+        // Find the posting
+        const posting = await Posting.findById(postingId);
+        if (!posting) {
+            return res.status(404).json({ success: false, message: 'Posting not found' });
+        }
+
+        // Update status
+        const previousStatus = posting.status;
+        posting.status = status;
+
+        // Add log if provided
+        if (log) {
+            posting.logs.push({
+                message: log,
+                timestamp: new Date()
+            });
+        }
+
+        await posting.save();
+        
+        console.log(`[Posting Status] ${postingId}: ${previousStatus} → ${status}${log ? ` (${log})` : ''}`);
+
+        res.json({
+            success: true,
+            message: `Status updated to ${status}`,
+            posting: {
+                id: posting._id,
+                status: posting.status,
+                previousStatus
+            }
+        });
+    } catch (error) {
+        console.error('[Posting Status] Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 // @desc    Mark posting as complete and update vehicle status
 // @route   POST /api/postings/:id/complete
 // @access  Protected (API Key from extension)

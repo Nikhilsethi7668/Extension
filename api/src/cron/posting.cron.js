@@ -1,6 +1,5 @@
 import cron from 'node-cron';
 import Posting from '../models/posting.model.js';
-import Vehicle from '../models/Vehicle.js';
 import ChromeProfile from '../models/ChromeProfile.js';
 import { queueEvent, isProfileActive } from '../routes/events.routes.js';
 
@@ -142,16 +141,37 @@ async function rescheduleStuckPost(post) {
             newTime = new Date(Date.now() + randomDelay);
         }
 
-        post.status = 'scheduled';
-        post.scheduledTime = newTime;
-        post.failureReason = null; // Clear previous failure
+        // 1. Mark the original post as 'rescheduled' so it won't be used anywhere
+        post.status = 'rescheduled';
+        post.failureReason = `Rescheduled - new posting created with ID to be tracked`;
         post.logs.push({ 
-            message: `Rescheduled by cron (retry attempt)`, 
+            message: `Marked as rescheduled by cron (original posting - no longer active)`, 
             timestamp: new Date() 
         });
-
         await post.save();
-        console.log(`[Cron-Rescue] Post ${post._id} rescheduled to ${newTime.toLocaleTimeString()}`);
+        console.log(`[Cron-Rescue] Post ${post._id} marked as 'rescheduled'`);
+
+        // 2. Create a new posting document with the new scheduled time
+        const newPosting = new Posting({
+            vehicleId: post.vehicleId,
+            userId: post.userId,
+            orgId: post.orgId,
+            profileId: post.profileId,
+            selectedImages: post.selectedImages,
+            prompt: post.prompt,
+            customDescription: post.customDescription,
+            scheduledTime: newTime,
+            status: 'scheduled',
+            failureReason: null,
+            rescheduledFromId: post._id, // Link back to original post
+            logs: [{ 
+                message: `Created as rescheduled attempt (original post: ${post._id})`,
+                timestamp: new Date()
+            }]
+        });
+
+        await newPosting.save();
+        console.log(`[Cron-Rescue] New post ${newPosting._id} created and scheduled to ${newTime.toLocaleTimeString()}`);
 
     } catch (err) {
         console.error(`[Cron-Rescue] Failed to reschedule post ${post._id}:`, err);
