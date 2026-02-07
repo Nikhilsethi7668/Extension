@@ -70,6 +70,42 @@ router.get('/', protect, async (req, res) => {
     }
 });
 
+// @desc    Check for recent postings of a vehicle (prevents duplicate postings)
+// @route   GET /api/postings/vehicle/:vehicleId/recent
+// @access  Protected (API Key from extension)
+router.get('/vehicle/:vehicleId/recent', protect, async (req, res) => {
+    try {
+        const { vehicleId } = req.params;
+        const { hours = 24 } = req.query;
+
+        const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+        // Find successfully completed postings for this vehicle in the time window
+        const recentPostings = await Posting.find({
+            vehicleId,
+            status: 'completed',
+            completedAt: { $gte: cutoff }
+        }).sort({ completedAt: -1 });
+
+        const count = recentPostings.length;
+        const lastPosting = recentPostings[0];
+
+        res.json({
+            count,
+            hours: parseInt(hours),
+            lastPostedAt: lastPosting?.completedAt || null,
+            postings: recentPostings.map(p => ({
+                id: p._id,
+                completedAt: p.completedAt,
+                platform: 'facebook_marketplace'
+            }))
+        });
+    } catch (error) {
+        console.error('Error checking recent postings:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
 // @desc    Mark posting as complete and update vehicle status
 // @route   POST /api/postings/:id/complete
 // @access  Protected (API Key from extension)

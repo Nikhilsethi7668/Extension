@@ -30,7 +30,8 @@ export const initPostingCron = (io) => {
             // REMOVE LIMIT to support concurrency (processed in parallel below)
             const postings = await Posting.find({
                 status: 'scheduled',
-                scheduledTime: { $gte: twoMinutesAgo, $lte: oneMinuteFuture }
+                scheduledTime: { $gte: twoMinutesAgo, $lte: oneMinuteFuture },
+                failureReason: null
             }).populate('vehicleId');
 
             if (postings.length > 0) {
@@ -47,22 +48,67 @@ export const initPostingCron = (io) => {
         }
     });
 
-    // Run every 2 minutes to check for stuck 'processing' posts
+    // Run every 2 minutes to check for stuck postings & timeouts
+    // Note: Posting takes ~4 minutes, so triggered timeout < processing timeout
     cron.schedule('*/2 * * * *', async () => {
          try {
-            const tenMinutesAgo = new Date(Date.now() - 10 * 60000);
-            
+            // 1. Mark postings stuck in 'triggered' for >3 min as failed (should connect quickly)
+            const threeMinutesAgo = new Date(Date.now() - 3 * 60000);
+            const triggeredTimeouts = await Posting.find({
+                status: 'triggered',
+                updatedAt: { $lt: threeMinutesAgo }
+            });
+
+            if (triggeredTimeouts.length > 0) {
+                console.log(`[Cron-Timeout] Found ${triggeredTimeouts.length} triggered postings timed out (>3min).`);
+                for (const post of triggeredTimeouts) {
+                    post.status = 'failed';
+                    post.failureReason = 'Extension connection timeout (>3min in triggered state)';
+                    post.logs.push({ message: 'Marked as failed - triggered timeout (>3min)', timestamp: new Date() });
+                    await post.save();
+                    console.log(`[Cron-Timeout] Marked triggered posting ${post._id} as failed`);
+                }
+            }
+
+            // 2. Mark postings stuck in 'processing' for >8 min as failed (4min posting + 4min buffer)
+            const eightMinutesAgo = new Date(Date.now() - 8 * 60000);
+            const processingTimeouts = await Posting.find({
+                status: 'processing',
+                updatedAt: { $lt: eightMinutesAgo }
+            });
+
+            if (processingTimeouts.length > 0) {
+                console.log(`[Cron-Timeout] Found ${processingTimeouts.length} processing postings timed out (>8min).`);
+                for (const post of processingTimeouts) {
+                    post.status = 'failed';
+                    post.failureReason = 'Posting timeout (>8min in processing state). Posting takes ~4min, timeout allows for delays.';
+                    post.logs.push({ message: 'Marked as failed - processing timeout (>8min). Expected: ~4min', timestamp: new Date() });
+                    await post.save();
+                    console.log(`[Cron-Timeout] Marked processing posting ${post._id} as failed`);
+                }
+            }
+
+            // 3. Reschedule failed postings that are eligible for retry
+            const oneHourAgo = new Date(Date.now() - 60 * 60000); // 1 Hour
+            const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60000); // 6 Hours
+
             const stuckPostings = await Posting.find({
-                status:{$in:['scheduled', 'failed']},
-                failureReason:{$ne:null},
-                scheduledTime: { $lt: tenMinutesAgo },
-                createdAt:{$lt: new Date(Date.now() - 60 * 60000)} // Ensure it's not a recently failed post
+                status: { $in: ['scheduled', 'failed', 'timeout'] },
+                failureReason: { $ne: null }, // Must have a failure reason
+                scheduledTime: { $lt: oneHourAgo }, // Scheduled time passed by 1 hour
+                createdAt: { $lt: sixHoursAgo } // Created at least 6 hours ago
             });
 
             if (stuckPostings.length > 0) {
                 console.log(`[Cron-Rescue] Found ${stuckPostings.length} stuck postings. Rescheduling...`);
                 
                 for (const post of stuckPostings) {
+                    // Check retry count - max 3 attempts
+                    const retryCount = post.logs.filter(l => l.message.includes('Rescheduled')).length;
+                    if (retryCount >= 3) {
+                        console.log(`[Cron-Rescue] Post ${post._id} has reached max retries (3). Keeping as failed.`);
+                        continue;
+                    }
                     await rescheduleStuckPost(post);
                 }
             }
@@ -98,7 +144,7 @@ async function rescheduleStuckPost(post) {
         post.scheduledTime = newTime;
         post.failureReason = null; // Clear previous failure
         post.logs.push({ 
-            message: 'Rescheduled by cron (detected stuck in processing > 10m)', 
+            message: `Rescheduled by cron (retry attempt)`, 
             timestamp: new Date() 
         });
 
@@ -118,8 +164,50 @@ async function processSinglePosting(io, posting) {
         console.error(`[Cron] Posting ${posting._id} has no vehicle.`);
         posting.status = 'failed';
         posting.error = 'Vehicle not found';
+        posting.logs.push({ message: 'Vehicle not found', timestamp: new Date() });
         await posting.save();
         return;
+    }
+
+    // CHECK 1: Prevent duplicate - Check if vehicle already has active posting (scheduled, triggered, processing)
+    const activePosting = await Posting.findOne({
+        vehicleId: vehicleId,
+        status: { $in: ['scheduled', 'triggered', 'processing'] },
+        _id: { $ne: posting._id } // Exclude current posting
+    });
+
+    if (activePosting) {
+        console.warn(`[Cron] Vehicle ${vehicleId} already has active posting ${activePosting._id}. Skipping.`);
+        posting.failureReason = 'Vehicle already has active posting';
+        posting.logs.push({ message: 'Skipped - vehicle has concurrent active posting', timestamp: new Date() });
+        await posting.save();
+        return;
+    }
+
+    // CHECK 2: Prevent reposting - Check if vehicle already posted
+    if (vehicle.status === 'posted') {
+        console.warn(`[Cron] Vehicle ${vehicleId} already marked as posted. Completing this posting.`);
+        posting.status = 'completed';
+        posting.completedAt = new Date();
+        posting.logs.push({ message: 'Vehicle already posted - skipping posting attempt', timestamp: new Date() });
+        await posting.save();
+        return;
+    }
+
+    // CHECK 3: Check vehicle posting history - prevent reposting within 24 hours on same profile
+    if (posting.profileId && vehicle.postingHistory && vehicle.postingHistory.length > 0) {
+        const recentHistory = vehicle.postingHistory.find(h => {
+            const hoursSince = (Date.now() - h.timestamp) / (1000 * 60 * 60);
+            return h.profileId === posting.profileId && hoursSince < 24;
+        });
+
+        if (recentHistory) {
+            console.warn(`[Cron] Vehicle ${vehicleId} already posted to profile ${posting.profileId} in last 24h. Skipping.`);
+            posting.failureReason = 'Vehicle recently posted to this profile';
+            posting.logs.push({ message: 'Skipped - vehicle recently posted to this profile', timestamp: new Date() });
+            await posting.save();
+            return;
+        }
     }
 
     // 1. Connectivity Checks
@@ -131,19 +219,19 @@ async function processSinglePosting(io, posting) {
         if (!desktopConnected) {
             console.warn(`[Cron] Desktop App not connected for User ${userId}. Skipping.`);
             posting.failureReason = 'Desktop App Disconnected';
+            posting.logs.push({ message: 'Desktop app not connected', timestamp: new Date() });
             await posting.save();
             return;
         }
         
-        // Note: Extension check is moved to AFTER the launch/delay phase
     }
 
     console.log(`[Cron] Triggering Posting ${posting._id} for Vehicle ${vehicle._id} (User: ${userId})`);
 
-    // Mark as processing
-    posting.status = 'processing';
+    // Mark as triggered (initially)
+    posting.status = 'triggered';
     posting.failureReason = null; 
-    posting.logs.push({ message: 'Processing started (Launching Profile)', timestamp: new Date() });
+    posting.logs.push({ message: 'Triggered by Cron (Launching/Checking Profile)', timestamp: new Date() });
     await posting.save();
 
 

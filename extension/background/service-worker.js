@@ -316,6 +316,11 @@ async function handlePolledEvent(event) {
     const vehicleId = data.vehicleId || (data.vehicleData && data.vehicleData._id);
     const postingId = data.postingId;
     
+    if (postingId) {
+        // UPDATE STATUS: PROCESSING
+        updatePostingStatus(postingId, 'processing', 'Extension received triggering event');
+    }
+
     if (postingId || vehicleId) {
       showNotification('Auto-Posting Started', `Fetching data for ${postingId ? 'Posting ' + postingId : 'Vehicle ' + vehicleId}`);
       
@@ -389,6 +394,28 @@ async function handlePolledEvent(event) {
       }
     });
   }
+}
+
+// Helper to update status
+async function updatePostingStatus(postingId, status, message = null) {
+    if (!postingId) return;
+    try {
+        const updateUrl = `${BACKEND_URL}/postings/${postingId}/status`; // New Endpoint
+        const payload = { status };
+        if (message) payload.log = message;
+
+        await fetch(updateUrl, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': sessionData.apiKey || ''
+            },
+            body: JSON.stringify(payload)
+        });
+        console.log(`[Extension] Updated posting ${postingId} status to ${status}`);
+    } catch (e) {
+        console.error(`[Extension] Failed to update status for ${postingId}:`, e);
+    }
 }
 
 // Legacy socket variable for compatibility
@@ -599,16 +626,48 @@ const recentlyPosted = new Map();
 
 async function markVehicleAsPosted(vehicleId, listingUrl) {
   const now = Date.now();
+  
+  // QUICK CHECK: In-memory dedup (10 second window for same session)
   if (recentlyPosted.has(vehicleId)) {
     const lastTime = recentlyPosted.get(vehicleId);
     if (now - lastTime < 10000) { 
-      console.log('Duplicate post request ignored for:', vehicleId);
-      return { success: true, duplicated: true };
+      console.log('[Extension] Duplicate post request ignored (recent):', vehicleId);
+      return { success: true, duplicated: true, reason: 'Posted within last 10 seconds' };
     }
   }
 
+  // BACKEND CHECK: Query for recent postings (24 hour window, persists across SW restarts)
+  try {
+    const stored = await chrome.storage.local.get(['userSession']);
+    if (stored.userSession?.apiKey) {
+      const recentResponse = await fetch(`${BACKEND_URL}/postings/vehicle/${vehicleId}/recent?hours=24`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': stored.userSession.apiKey
+        }
+      });
+
+      if (recentResponse.ok) {
+        const data = await recentResponse.json();
+        if (data.count && data.count > 0) {
+          const hoursSince = (now - new Date(data.lastPostedAt)) / (1000 * 60 * 60);
+          if (hoursSince < 24) {
+            console.log(`[Extension] Vehicle ${vehicleId} already posted ${hoursSince.toFixed(1)}h ago. Preventing repost.`);
+            return { success: true, duplicated: true, reason: `Recently posted ${hoursSince.toFixed(1)}h ago` };
+          }
+        }
+      }
+    }
+  } catch (dbError) {
+    console.warn('[Extension] Could not check backend for recent posts:', dbError);
+    // Continue anyway - don't block on backend error
+  }
+
+  // Mark locally to prevent duplicate within this session
   recentlyPosted.set(vehicleId, now);
 
+  // Cleanup old entries (prevent memory leak)
   if (recentlyPosted.size > 100) {
     for (const [key, time] of recentlyPosted) {
       if (now - time > 60000) recentlyPosted.delete(key);
@@ -616,10 +675,9 @@ async function markVehicleAsPosted(vehicleId, listingUrl) {
   }
 
   try {
-
     const stored = await chrome.storage.local.get(['userSession']);
     if (!stored.userSession) {
-      console.error('No session found for marking post');
+      console.error('[Extension] No session found for marking post');
       return { success: false, error: 'No session' };
     }
 
@@ -650,7 +708,7 @@ async function markVehicleAsPosted(vehicleId, listingUrl) {
 
     return { success: true };
   } catch (error) {
-    console.error('Error marking as posted:', error);
+    console.error('[Extension] Error marking as posted:', error);
     return { success: false, error: error.message };
   }
 }
