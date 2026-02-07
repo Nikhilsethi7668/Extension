@@ -109,7 +109,7 @@ router.get('/vehicle/:vehicleId/recent', protect, async (req, res) => {
 // @desc    Update posting status (lightweight - just status + log)
 // @route   PATCH /api/postings/:id/status
 // @access  Protected (API Key from extension)
-router.patch('/:id/status', async (req, res) => {
+router.patch('/:id/status', protect, async (req, res) => {
     try {
         const { status, log } = req.body;
         const postingId = req.params.id;
@@ -161,7 +161,7 @@ router.patch('/:id/status', async (req, res) => {
 // @desc    Mark posting as complete and update vehicle status
 // @route   POST /api/postings/:id/complete
 // @access  Protected (API Key from extension)
-router.post('/:id/complete', async (req, res) => {
+router.post('/:id/complete', protect, async (req, res) => {
     try {
         const { status, error, listingUrl, vehicleId } = req.body;
         const postingId = req.params.id;
