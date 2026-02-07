@@ -53,6 +53,7 @@ export const initPostingCron = (io) => {
     // Note: Posting takes ~4 minutes, so triggered timeout < processing timeout
     cron.schedule('*/2 * * * *', async () => {
          try {
+            
             // 1. Mark postings stuck in 'triggered' for >3 min as failed (should connect quickly)
             const threeMinutesAgo = new Date(Date.now() - 3 * 60000);
             const triggeredTimeouts = await Posting.find({
@@ -90,14 +91,14 @@ export const initPostingCron = (io) => {
             }
 
             // 3. Reschedule failed postings that are eligible for retry
-            const oneHourAgo = new Date(Date.now() - 60 * 60000); // 1 Hour
-            const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60000); // 6 Hours
+            // Check for failures as early as possible - immediately after timeout is detected
+            const twoMinutesAgo = new Date(Date.now() - 2 * 60000); // 2 Minutes (matches cron interval)
 
             const stuckPostings = await Posting.find({
-                status: { $in: ['scheduled', 'failed', 'timeout'] },
+                status: { $in: ['failed', 'timeout'] }, // Only failed/timeout (exclude scheduled)
                 failureReason: { $ne: null }, // Must have a failure reason
-                scheduledTime: { $lt: oneHourAgo }, // Scheduled time passed by 1 hour
-                createdAt: { $lt: sixHoursAgo } // Created at least 6 hours ago
+                updatedAt: { $lt: twoMinutesAgo }, // Updated at least 2 minutes ago (one cron cycle old)
+                rescheduledFromId: null // Not already a rescheduled attempt (avoid infinite chains)
             });
 
             if (stuckPostings.length > 0) {
@@ -123,23 +124,10 @@ async function rescheduleStuckPost(post) {
     try {
         console.log(`[Cron-Rescue] Rescheduling stuck post ${post._id} for vehicle ${post.vehicleId}`);
         
-        // Find the last scheduled post for this profile to determine new time
-        const lastScheduled = await Posting.findOne({
-            userId: post.userId,
-            profileId: post.profileId,
-            status: 'scheduled'
-        }).sort({ scheduledTime: -1 });
-
+        // Schedule immediately (ASAP) rather than after last post
         let newTime;
-        const randomDelay = Math.floor((4 + Math.random() * 3) * 60000); // 4-7 min delay
-
-        if (lastScheduled) {
-            // Append to end of queue
-            newTime = new Date(new Date(lastScheduled.scheduledTime).getTime() + randomDelay);
-        } else {
-            // Queue is empty, start soon
-            newTime = new Date(Date.now() + randomDelay);
-        }
+        const minDelay = Math.floor(Math.random() * 30000); // 0-30 second random delay for staggering
+        newTime = new Date(Date.now() + minDelay);
 
         // 1. Mark the original post as 'rescheduled' so it won't be used anywhere
         post.status = 'rescheduled';
@@ -191,9 +179,10 @@ async function processSinglePosting(io, posting) {
         return;
     }
 
-    // CHECK 1: Prevent duplicate - Check if vehicle already has active posting (scheduled, triggered, processing)
+    // CHECK 1: Prevent duplicate - Check if same profile already has active posting for this vehicle (scheduled, triggered, processing)
     const activePosting = await Posting.findOne({
         vehicleId: vehicleId,
+        profileId: profileId,
         status: { $in: ['scheduled', 'triggered', 'processing'] },
         _id: { $ne: posting._id } // Exclude current posting
     });
@@ -207,13 +196,34 @@ async function processSinglePosting(io, posting) {
     }
 
     // CHECK 2: Prevent reposting - Check if vehicle already posted
+    // Mark as 'already-posted' if posted 2+ hours ago, otherwise 'completed' if posted recently
     if (vehicle.status === 'posted') {
-        console.warn(`[Cron] Vehicle ${vehicleId} already marked as posted. Completing this posting.`);
-        posting.status = 'completed';
-        posting.completedAt = new Date();
-        posting.logs.push({ message: 'Vehicle already posted - skipping posting attempt', timestamp: new Date() });
-        await posting.save();
-        return;
+        // Check if vehicle was posted BEFORE this posting was created
+        const lastPosting = vehicle.postingHistory ? vehicle.postingHistory[vehicle.postingHistory.length - 1] : null;
+        const wasPostedBeforeThisPosting = lastPosting && new Date(lastPosting.timestamp) < new Date(posting.createdAt);
+
+        if (wasPostedBeforeThisPosting) {
+            // Check how long ago it was posted
+            const hoursAgo = (Date.now() - new Date(lastPosting.timestamp).getTime()) / (1000 * 60 * 60);
+            
+            if (hoursAgo >= 2) {
+                // Posted 2+ hours ago
+                console.warn(`[Cron] Vehicle ${vehicleId} already marked as posted ${Math.floor(hoursAgo)} hours ago. Marking as 'already-posted'.`);
+                posting.status = 'already-posted';
+                posting.failureReason = `Vehicle already posted ${Math.floor(hoursAgo)} hours ago`;
+                posting.logs.push({ message: `Marked as 'already-posted' - vehicle posted before this posting was created (${Math.floor(hoursAgo)}h ago)`, timestamp: new Date() });
+                await posting.save();
+                return;
+            } else {
+                // Posted recently (within 2 hours)
+                console.warn(`[Cron] Vehicle ${vehicleId} already marked as posted (${Math.floor(hoursAgo * 60)} minutes ago). Completing this posting.`);
+                posting.status = 'completed';
+                posting.completedAt = new Date();
+                posting.logs.push({ message: `Vehicle already posted recently (${Math.floor(hoursAgo * 60)} min ago) - auto-completed`, timestamp: new Date() });
+                await posting.save();
+                return;
+            }
+        }
     }
 
     // CHECK 3: Check vehicle posting history - prevent reposting within 24 hours on same profile
@@ -227,6 +237,7 @@ async function processSinglePosting(io, posting) {
             console.warn(`[Cron] Vehicle ${vehicleId} already posted to profile ${posting.profileId} in last 24h. Skipping.`);
             posting.failureReason = 'Vehicle recently posted to this profile';
             posting.logs.push({ message: 'Skipped - vehicle recently posted to this profile', timestamp: new Date() });
+            posting.status = 'failed';
             await posting.save();
             return;
         }
@@ -242,6 +253,7 @@ async function processSinglePosting(io, posting) {
             console.warn(`[Cron] Desktop App not connected for User ${userId}. Skipping.`);
             posting.failureReason = 'Desktop App Disconnected';
             posting.logs.push({ message: 'Desktop app not connected', timestamp: new Date() });
+            posting.status = 'failed';
             await posting.save();
             return;
         }
