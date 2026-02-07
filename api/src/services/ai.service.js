@@ -17,7 +17,7 @@ const openRouter = new OpenRouter({
 const cleanJson = (text) => {
     // 1. Remove think blocks
     const withoutThink = text.replace(/<think>[\s\S]*?<\/think>/g, '');
-    
+
     // 2. Try to extract the first valid JSON block ({...} or [...])
     const jsonMatch = withoutThink.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
     if (jsonMatch) {
@@ -117,7 +117,7 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
             throw new Error('FAL_KEY is missing in .env file');
         }
         const imagePrompt = await ImagePrompts.findById(promptId);
-        
+
         // 2. Setup Prompt and Intent
         // Strictly enforcing Background Change mode as per configuration.
         const visualDescription = imagePrompt?.prompt || prompt;
@@ -131,7 +131,7 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
         // Convert to PNG for processing
         const pngBuffer = await sharp(imageBuffer).png().toBuffer();
         const blob = new Blob([pngBuffer], { type: 'image/png' });
-        
+
         // Remove background to isolate the vehicle
         console.log("[AI Service] Removing original background...");
         const bgRemovedBlob = await removeBackground(blob);
@@ -141,17 +141,24 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
         const cleanImageBuffer = await sharp(bgRemovedBuffer)
             .flatten({ background: { r: 255, g: 255, b: 255 } })
             .toBuffer();
-        
+
         console.log("[AI Service] Composited vehicle on white background.");
 
         // Upload prepared image to Fal
         const cleanImageUrl = await uploadToFal(cleanImageBuffer);
         console.log(`[AI Service] Prepared Image URL: ${cleanImageUrl}`);
-        
+
         // Ensure prompt has the required prefix
-        const loraPrompt = visualDescription.startsWith('Add Background') 
-            ? visualDescription 
+        let loraPrompt = visualDescription.startsWith('Add Background')
+            ? visualDescription
             : `Add Background ${visualDescription}`;
+
+        // Add detailed instructions to preserve the vehicle
+        loraPrompt = `${loraPrompt} *CRITICAL CONSTRAINTS:*
+1.⁠ ⁠*Detection & Filtering:* Analyze the image. If the image depicts the *INTERIOR* of a car (dashboard, seats, steering wheel, or views from inside), *STOP*. Do not apply any changes. Skip the background replacement entirely for interior shots.
+2.⁠ ⁠*Subject Preservation:* If the image is an *EXTERIOR* shot, you are permitted to change only the surroundings. The vehicle itself must remain 100% untouched. Do not modify the paint, wheels, windows, or body lines. 
+3.⁠ ⁠*Environment Replacement:* Replace the entire background and floor/ground surface according to the style context provided above. 
+4.⁠ ⁠*No Bleed:* Ensure no "environmental blending" occurs on the car's surface. The car should look as if it was professionally cut out and placed into the new setting without any digital alteration to the original pixels of the vehicle.`;
 
         // 4. CALL FAL.AI (Flux 2 LoRA)
         // Docs: https://fal.ai/models/fal-ai/flux-2-lora-gallery/add-background/api
@@ -191,7 +198,7 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
             // Construct full URL (Internal localhost for now, routes will handle full URL mapping)
             // But we need to return something the frontend can use or the backend saves.
             // savedPath was relative. stealthResult.relativePath is `/uploads/prepared/...`
-            const processedUrl =`https://api.flashfender.com${stealthResult.relativePath}`;
+            const processedUrl = `https://api.flashfender.com${stealthResult.relativePath}`;
 
             return {
                 success: true,
