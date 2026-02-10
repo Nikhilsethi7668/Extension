@@ -240,22 +240,27 @@ function initializeSocket(token = null, apiKey = null) {
       sessionData.orgId = user.organization?._id || user.organization;
       console.log(`[Extension] Got organization ID: ${sessionData.orgId}`);
       
-      // Try to get stored profile ID
-      chrome.storage.local.get(['chromeProfileId'], (result) => {
-        if (result.chromeProfileId) {
-          sessionData.profileId = result.chromeProfileId;
-          console.log(`[Extension] Using stored profile ID: ${sessionData.profileId}`);
-        } else {
-          console.log('[Extension] No profile ID configured - will accept all events');
-        }
-        
-        // Start polling for events
-        startPolling();
-      });
+      refreshProfileIdFromStorage();
+      startPolling();
   })
   .catch(err => {
       console.error('[Extension] Failed to get organization ID:', err);
   });
+}
+
+// Re-read profile ID from storage so each Chrome profile instance uses its own ID
+function refreshProfileIdFromStorage() {
+  try {
+    chrome.storage.local.get(['chromeProfileId'], (result) => {
+      const id = result.chromeProfileId ? String(result.chromeProfileId).trim() : null;
+      if (id !== sessionData.profileId) {
+        sessionData.profileId = id;
+        console.log(`[Extension] Profile ID: ${sessionData.profileId || '(none - open popup and select profile)'}`);
+      }
+    });
+  } catch (e) {
+    console.warn('[Extension] Could not read chromeProfileId:', e);
+  }
 }
 
 function startPolling() {
@@ -267,12 +272,19 @@ function startPolling() {
   isPolling = true;
   console.log('[Extension] Starting event polling...');
 
-  // Poll every 5 seconds
+  // Poll every 5 seconds; re-read profileId each time so each Chrome profile uses its own stored ID
   pollingInterval = setInterval(async () => {
     try {
+      const profileId = await new Promise((resolve) => {
+        chrome.storage.local.get(['chromeProfileId'], (result) => {
+          const id = result.chromeProfileId ? String(result.chromeProfileId).trim() : null;
+          sessionData.profileId = id;
+          resolve(id);
+        });
+      });
       const pollUrl = new URL(`${BACKEND_URL}/events/poll`);
-      if (sessionData.profileId) {
-        pollUrl.searchParams.append('profileId', sessionData.profileId);
+      if (profileId) {
+        pollUrl.searchParams.set('profileId', profileId);
       }
 
       const response = await fetch(pollUrl.toString(), {
@@ -477,14 +489,21 @@ chrome.storage.local.get(['userSession'], (result) => {
 });
 
 chrome.storage.onChanged.addListener((changes, namespace) => {
-    if (namespace === 'local' && changes.userSession) {
+    if (namespace !== 'local') return;
+    if (changes.userSession) {
         const newSession = changes.userSession.newValue;
         if (newSession) {
             initializeSocket(newSession.token, newSession.apiKey);
         } else {
             stopPolling();
-            sessionData = { token: null, apiKey: null, orgId: null };
+            sessionData = { token: null, apiKey: null, orgId: null, profileId: null };
         }
+    }
+    // When user selects a profile in the popup, use it immediately for polling
+    if (changes.chromeProfileId) {
+        const id = changes.chromeProfileId.newValue ? String(changes.chromeProfileId.newValue).trim() : null;
+        sessionData.profileId = id;
+        console.log(`[Extension] Profile ID updated from popup: ${sessionData.profileId || '(cleared)'}`);
     }
 });
 

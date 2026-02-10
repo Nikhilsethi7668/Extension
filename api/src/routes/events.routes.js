@@ -35,14 +35,31 @@ export function isProfileActive(userId, profileId) {
     return (Date.now() - lastSeen) < 15000;
 }
 
-// Poll for events (called by extension every 5 seconds)
+// Resolve event profileId to uniqueId when it's a Mongo ID (so extension "Profile N" still matches)
+let ChromeProfileModel = null;
+async function resolveEventProfileId(eventProfileId, userId) {
+    if (!eventProfileId || typeof eventProfileId !== 'string') return eventProfileId;
+    if (!eventProfileId.match(/^[0-9a-fA-F]{24}$/)) return eventProfileId; // already display id like "Profile 3"
+    try {
+        if (!ChromeProfileModel) ChromeProfileModel = (await import('../models/ChromeProfile.js')).default;
+        const p = await ChromeProfileModel.findOne({ _id: eventProfileId, user: userId }).select('uniqueId').lean();
+        return p ? p.uniqueId : eventProfileId;
+    } catch (e) {
+        return eventProfileId;
+    }
+}
+
 // Poll for events (called by extension every 5 seconds)
 router.get('/poll', protect, async (req, res) => {
     try {
         const userId = req.user._id;
-        const profileId = req.query.profileId; // Optional profile ID
+        const profileId = (req.query.profileId && String(req.query.profileId).trim()) || null;
 
-        // Track Active Profiles logic
+        // Prevent caching so every profile gets fresh response
+        res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+        res.set('Pragma', 'no-cache');
+
+        // Track Active Profiles (so cron knows this profile is connected)
         if (profileId) {
             updateActiveProfile(userId, profileId);
         }
@@ -51,24 +68,18 @@ router.get('/poll', protect, async (req, res) => {
             return res.status(400).json({ success: false, message: 'No User ID found' });
         }
 
-        // Get events for this USER (Strict Isolation)
         const allEvents = eventQueues.get(userId.toString()) || [];
-        
-        // Filter events for this profile (or global events)
         const relevantEvents = [];
         const remainingEvents = [];
-
-        // Default limit to 10 to allow multiple profile-specific events
-        // This ensures all scheduled postings for a profile are retrieved
-        const limit = parseInt(req.query.limit) || 10; 
+        const limit = parseInt(req.query.limit) || 10;
 
         for (const event of allEvents) {
-            // Check if matches profile
-            const eventProfileId = event.data?.profileId;
-            
-            // Match if no profile specified OR profile matches
-            // We already matched userId by pulling from the user's queue
-            const isMatch = !eventProfileId || (profileId && eventProfileId === profileId);
+            let eventProfileId = event.data?.profileId;
+            // Resolve Mongo ID to uniqueId so extension "Profile 3" matches event queued with Mongo ID
+            if (eventProfileId && eventProfileId.match(/^[0-9a-fA-F]{24}$/)) {
+                eventProfileId = await resolveEventProfileId(eventProfileId, userId);
+            }
+            const isMatch = !eventProfileId || (profileId && (eventProfileId === profileId || String(eventProfileId) === String(profileId)));
 
             if (isMatch && relevantEvents.length < limit) {
                 relevantEvents.push(event);
@@ -76,15 +87,14 @@ router.get('/poll', protect, async (req, res) => {
                 remainingEvents.push(event);
             }
         }
-        
-        // Update the queue with remaining events
+
         if (remainingEvents.length > 0) {
             eventQueues.set(userId.toString(), remainingEvents);
         } else {
             eventQueues.delete(userId.toString());
         }
-        
-        res.json({ success: true, events: relevantEvents });
+
+        res.json({ success: true, events: relevantEvents, profileId: profileId || null });
     } catch (error) {
         console.error('[Events] Poll error:', error);
         res.status(500).json({ success: false, message: error.message });
