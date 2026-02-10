@@ -6,9 +6,6 @@ import axios from 'axios';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// FORCE HARDCODE KEY (User Request due to env issues)
-process.env.FAL_KEY = '1e80787c-9a39-4f09-9eac-d89f349f5a1e:9f8d078dce42d7c391b0891bb3bf011a';
-
 const openRouter = new OpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY,
 });
@@ -88,136 +85,93 @@ export const generateVehicleContent = async (vehicle, instructions, sentiment = 
     }
 };
 
-// Fal.ai Integration for Image Generation
-import falPkg from "@fal-ai/client";
-const { fal } = falPkg;
-const { subscribe, storage } = fal;
-import { removeBackground } from '@imgly/background-removal-node';
-import sharp from 'sharp';
+// Image generation via FlashFender Generate API (https://generate.flashfender.com)
 import ImagePrompts from '../models/ImagePrompts.js';
 import { prepareImage } from './image-processor.service.js';
 
-// Helper to upload buffer to Fal
-const uploadToFal = async (buffer, type = 'image/png') => {
-    const blob = new Blob([buffer], { type });
-    const url = await storage.upload(blob);
-    return url;
-};
+const FLASHFENDER_GENERATE_URL = 'https://generate.flashfender.com/api/v1/generate';
 
 export const processImageWithAI = async (imageUrl, prompt = 'Remove background', promptId) => {
     try {
         console.log(`[AI Service] Processing image request. Prompt: "${prompt}"`);
 
-        // 1. Fetch the original image
-        const imageResponse = await axios.get(imageUrl, { responseType: 'arraybuffer' });
-        const imageBuffer = Buffer.from(imageResponse.data);
-
-        // CHECK: Ensure Fal Key is available
-        if (!process.env.FAL_KEY) {
-            throw new Error('FAL_KEY is missing in .env file');
+        if (!process.env.FLASH_FENDER_IMG_KEY) {
+            throw new Error('FLASH_FENDER_IMG_KEY is missing in .env file');
         }
-        const imagePrompt = await ImagePrompts.findById(promptId);
 
-        // 2. Setup Prompt and Intent
-        // Strictly enforcing Background Change mode as per configuration.
+        const imagePrompt = await ImagePrompts.findById(promptId);
         const visualDescription = imagePrompt?.prompt || prompt;
         const intent = 'MODIFY_BACKGROUND';
 
         console.log(`[AI Service] Processing Background Change | Prompt: "${visualDescription}"`);
+        console.log(`[AI Service] Passing image URL directly: ${imageUrl}`);
 
-        // 3. Prepare Image for Flux 2 LoRA (Requires Clean White Background)
-        console.log('[AI Service] Preparing clean white background image...');
-
-        // Convert to PNG for processing
-        const pngBuffer = await sharp(imageBuffer).png().toBuffer();
-        const blob = new Blob([pngBuffer], { type: 'image/png' });
-
-        // Remove background to isolate the vehicle
-        console.log("[AI Service] Removing original background...");
-        const bgRemovedBlob = await removeBackground(blob);
-        const bgRemovedBuffer = Buffer.from(await bgRemovedBlob.arrayBuffer());
-
-        // Composite isolated vehicle onto white background
-        const cleanImageBuffer = await sharp(bgRemovedBuffer)
-            .flatten({ background: { r: 255, g: 255, b: 255 } })
-            .toBuffer();
-
-        console.log("[AI Service] Composited vehicle on white background.");
-
-        // Upload prepared image to Fal
-        const cleanImageUrl = await uploadToFal(cleanImageBuffer);
-        console.log(`[AI Service] Prepared Image URL: ${cleanImageUrl}`);
-
-        // Ensure prompt has the required prefix
         let loraPrompt = visualDescription.startsWith('Add Background')
             ? visualDescription
             : `Add Background ${visualDescription}`;
 
-        // Add detailed instructions to preserve the vehicle
         loraPrompt = `${loraPrompt} *CRITICAL CONSTRAINTS:*
-1.⁠ ⁠*Detection & Filtering:* Analyze the image. If the image depicts the *INTERIOR* of a car (dashboard, seats, steering wheel, or views from inside), *STOP*. Do not apply any changes. Skip the background replacement entirely for interior shots.
-2.⁠ ⁠*Subject Preservation:* If the image is an *EXTERIOR* shot, you are permitted to change only the surroundings. The vehicle itself must remain 100% untouched. Do not modify the paint, wheels, windows, or body lines. 
-3.⁠ ⁠*Environment Replacement:* Replace the entire background and floor/ground surface according to the style context provided above. 
-4.⁠ ⁠*No Bleed:* Ensure no "environmental blending" occurs on the car's surface. The car should look as if it was professionally cut out and placed into the new setting without any digital alteration to the original pixels of the vehicle.`;
+1. *Detection & Filtering:* Analyze the image. If the image depicts the *INTERIOR* of a car (dashboard, seats, steering wheel, or views from inside), *STOP*. Do not apply any changes. Skip the background replacement entirely for interior shots.
+2. *Subject Preservation:* If the image is an *EXTERIOR* shot, you are permitted to change only the surroundings. The vehicle itself must remain 100% untouched. Do not modify the paint, wheels, windows, or body lines.
+3. *Environment Replacement:* Replace the entire background and floor/ground surface according to the style context provided above.
+4. *No Bleed:* Ensure no "environmental blending" occurs on the car's surface. The car should look as if it was professionally cut out and placed into the new setting without any digital alteration to the original pixels of the vehicle.`;
 
-        // 4. CALL FAL.AI (Flux 2 LoRA)
-        // Docs: https://fal.ai/models/fal-ai/flux-2-lora-gallery/add-background/api
-        // No mask support. Input must be subject on white/clean background.
-        const falResult = await subscribe('fal-ai/flux-2-lora-gallery/add-background', {
-            input: {
+        // 2. Call FlashFender Generate API (uses fal add-background under the hood)
+        const generateResponse = await axios.post(
+            FLASHFENDER_GENERATE_URL,
+            {
                 prompt: loraPrompt,
-                image_urls: [cleanImageUrl], // Array of strings
-                enable_safety_checker: false,
-                image_size: "landscape_4_3",
-                lora_scale: 1.0 // Strength of the effect
+                image_url: imageUrl,
+                model: 'fal-ai/flux-2-lora-gallery/add-background',
+                width: 800,
+                height: 600,
+                steps: 40,
+                cfg_scale: 7,
             },
-            logs: true,
-            onQueueUpdate: (update) => {
-                if (update.status === 'IN_PROGRESS') {
-                    update.logs.map((log) => log.message).forEach(msg => console.log(`[Fal] ${msg}`));
-                }
-            },
-        });
-
-        if (falResult.data && falResult.data.images && falResult.data.images.length > 0) {
-            const resultUrl = falResult.data.images[0].url;
-            console.log(`[AI Service] Fal Generation Success: ${resultUrl}`);
-
-            // 5. Apply STEALTH Pipeline to Result (Safeguard)
-            // This ensures AI generated images also have geometric perturbation + fake metadata
-            console.log(`[AI Service] Applying Stealth Protocol to AI result...`);
-
-            const stealthResult = await prepareImage(resultUrl, {
-                // Use default random camera/metadata
-            });
-
-            if (!stealthResult.success) {
-                throw new Error(`Stealth processing failed: ${stealthResult.error}`);
+            {
+                timeout: 120000,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-api-key': process.env.FLASH_FENDER_IMG_KEY,
+                },
             }
+        );
 
-            // Construct full URL (Internal localhost for now, routes will handle full URL mapping)
-            // But we need to return something the frontend can use or the backend saves.
-            // savedPath was relative. stealthResult.relativePath is `/uploads/prepared/...`
-            const processedUrl = `https://api.flashfender.com${stealthResult.relativePath}`;
+        const data = generateResponse.data;
+        const resultImageUrl = data?.image_url;
 
-            return {
-                success: true,
-                originalUrl: imageUrl,
-                processedUrl: processedUrl,
-                provider: 'fal-ai-flux-2-lora',
-                wasGenerated: true,
-                metadata: {
-                    intent: intent,
-                    prompt: loraPrompt,
-                    originalDescription: visualDescription.substring(0, 50) + '...'
-                }
-            };
+        if (!resultImageUrl) {
+            throw new Error(data?.error?.message || 'No image URL in FlashFender generate response');
         }
 
-        throw new Error('No images returned from Fal.ai');
+        console.log(`[AI Service] FlashFender Generate Success: ${resultImageUrl}`);
 
+        // 3. Apply stealth pipeline to result
+        console.log('[AI Service] Applying Stealth Protocol to AI result...');
+        const stealthResult = await prepareImage(resultImageUrl, {});
+
+        if (!stealthResult.success) {
+            throw new Error(`Stealth processing failed: ${stealthResult.error}`);
+        }
+
+        const processedUrl = `https://api.flashfender.com${stealthResult.relativePath}`;
+
+        return {
+            success: true,
+            originalUrl: imageUrl,
+            processedUrl,
+            provider: 'flashfender-generate',
+            wasGenerated: true,
+            metadata: {
+                intent,
+                prompt: loraPrompt,
+                originalDescription: visualDescription.substring(0, 50) + '...',
+                ...(data.fal_usage && { fal_usage: data.fal_usage }),
+            },
+        };
     } catch (error) {
-        console.error('[AI Service] Fal Processing Error:', error);
-        throw new Error(`Failed to process image with Fal: ${error.message}`);
+        console.error('[AI Service] FlashFender Generate Error:', error?.response?.data || error);
+        const msg = error?.response?.data?.error?.message || error.message;
+        throw new Error(`Failed to process image: ${msg}`);
     }
 };

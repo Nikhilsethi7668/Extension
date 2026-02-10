@@ -230,7 +230,11 @@ export const prepareImage = async (imageUrl, options = {}) => {
         console.log(`[Image Processor] Starting preparation for: ${imageUrl}`);
 
         // Step 1: Fetch the original image
-        const response = await axios.get(imageUrl, { responseType: 'arraybuffer' });
+        const axiosConfig = { responseType: 'arraybuffer' };
+        if (imageUrl.includes('generate.flashfender.com') && process.env.FLASH_FENDER_IMG_KEY) {
+            axiosConfig.headers = { 'x-api-key': process.env.FLASH_FENDER_IMG_KEY };
+        }
+        const response = await axios.get(imageUrl, axiosConfig);
         let imageBuffer = Buffer.from(response.data);
 
         // Step 2: Resize for marketplace (2048px max)
