@@ -196,33 +196,43 @@ async function processSinglePosting(io, posting) {
     }
 
     // CHECK 2: Prevent reposting - Check if vehicle already posted
-    // Mark as 'already-posted' if posted 2+ hours ago, otherwise 'completed' if posted recently
-    if (vehicle.status === 'posted') {
-        // Check if vehicle was posted BEFORE this posting was created
-        const lastPosting = vehicle.postingHistory ? vehicle.postingHistory[vehicle.postingHistory.length - 1] : null;
-        const wasPostedBeforeThisPosting = lastPosting && new Date(lastPosting.timestamp) < new Date(posting.createdAt);
+    const lastPosting = vehicle.postingHistory && vehicle.postingHistory.length
+        ? vehicle.postingHistory[vehicle.postingHistory.length - 1]
+        : null;
+    const wasPostedBySameUser = lastPosting && posting.userId &&
+        String(lastPosting.userId) === String(posting.userId);
+
+    if (vehicle.status === 'posted' && lastPosting) {
+        const wasPostedBeforeThisPosting = new Date(lastPosting.timestamp) < new Date(posting.createdAt);
 
         if (wasPostedBeforeThisPosting) {
-            // Check how long ago it was posted
             const hoursAgo = (Date.now() - new Date(lastPosting.timestamp).getTime()) / (1000 * 60 * 60);
-            
+
+            // Only auto-complete if the vehicle was posted by the SAME user who owns this posting
+            if (!wasPostedBySameUser) {
+                console.warn(`[Cron] Vehicle ${vehicleId} was posted by another user. Marking posting as 'already-posted' (not completed).`);
+                posting.status = 'already-posted';
+                posting.failureReason = 'Vehicle already posted by another user';
+                posting.logs.push({ message: 'Marked as already-posted - vehicle was posted by a different user', timestamp: new Date() });
+                await posting.save();
+                return;
+            }
+
             if (hoursAgo >= 2) {
-                // Posted 2+ hours ago
-                console.warn(`[Cron] Vehicle ${vehicleId} already marked as posted ${Math.floor(hoursAgo)} hours ago. Marking as 'already-posted'.`);
+                console.warn(`[Cron] Vehicle ${vehicleId} already marked as posted ${Math.floor(hoursAgo)} hours ago (same user). Marking as 'already-posted'.`);
                 posting.status = 'already-posted';
                 posting.failureReason = `Vehicle already posted ${Math.floor(hoursAgo)} hours ago`;
                 posting.logs.push({ message: `Marked as 'already-posted' - vehicle posted before this posting was created (${Math.floor(hoursAgo)}h ago)`, timestamp: new Date() });
                 await posting.save();
                 return;
-            } else {
-                // Posted recently (within 2 hours)
-                console.warn(`[Cron] Vehicle ${vehicleId} already marked as posted (${Math.floor(hoursAgo * 60)} minutes ago). Completing this posting.`);
-                posting.status = 'completed';
-                posting.completedAt = new Date();
-                posting.logs.push({ message: `Vehicle already posted recently (${Math.floor(hoursAgo * 60)} min ago) - auto-completed`, timestamp: new Date() });
-                await posting.save();
-                return;
             }
+            // Same user, posted recently (within 2 hours) - treat as duplicate, mark already-posted not completed
+            console.warn(`[Cron] Vehicle ${vehicleId} already posted by same user (${Math.floor(hoursAgo * 60)} min ago). Marking as 'already-posted'.`);
+            posting.status = 'already-posted';
+            posting.failureReason = `Vehicle already posted ${Math.floor(hoursAgo * 60)} min ago`;
+            posting.logs.push({ message: `Marked as 'already-posted' - skip duplicate; only extension can mark completed via posting-result`, timestamp: new Date() });
+            await posting.save();
+            return;
         }
     }
 
