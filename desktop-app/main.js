@@ -879,20 +879,20 @@ function connectSocket() {
     });
 
     socket.on('image-generation-complete', (data) => {
-        console.log('[Socket] Image Generation Complete:', data);
-        
-        // System Notification
-        if (Notification.isSupported()) {
-            const title = data.success ? 'Image Generation Successful' : 'Image Generation Failed';
-            const body = data.success ? 'Your vehicle image is ready.' : (data.error || 'Unknown error');
-            
-            new Notification({ title, body }).show();
-        }
-        
-        // Forward to renderer
-        if (mainWindow) {
-             mainWindow.webContents.send('image-generation-complete', data);
-        }
+      console.log('[Socket] Image Generation Complete:', data);
+
+      // System Notification
+      if (Notification.isSupported()) {
+        const title = data.success ? 'Image Generation Successful' : 'Image Generation Failed';
+        const body = data.success ? 'Your vehicle image is ready.' : (data.error || 'Unknown error');
+
+        new Notification({ title, body }).show();
+      }
+
+      // Forward to renderer
+      if (mainWindow) {
+        mainWindow.webContents.send('image-generation-complete', data);
+      }
     });
 
     socket.on('launch-browser-profile', async (data) => {
