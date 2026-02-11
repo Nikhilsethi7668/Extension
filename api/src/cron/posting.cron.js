@@ -195,12 +195,14 @@ async function processSinglePosting(io, posting) {
         return;
     }
 
-    // CHECK 2: Prevent reposting - Check if vehicle already posted
+    // CHECK 2: Prevent reposting - Only mark "already-posted" when THIS user + THIS profile posted this vehicle within 2 hours
     const lastPosting = vehicle.postingHistory && vehicle.postingHistory.length
         ? vehicle.postingHistory[vehicle.postingHistory.length - 1]
         : null;
     const wasPostedBySameUser = lastPosting && posting.userId &&
         String(lastPosting.userId) === String(posting.userId);
+    const wasPostedBySameProfile = lastPosting && posting.profileId && lastPosting.profileId &&
+        String(lastPosting.profileId) === String(posting.profileId);
 
     if (vehicle.status === 'posted' && lastPosting) {
         const wasPostedBeforeThisPosting = new Date(lastPosting.timestamp) < new Date(posting.createdAt);
@@ -208,31 +210,21 @@ async function processSinglePosting(io, posting) {
         if (wasPostedBeforeThisPosting) {
             const hoursAgo = (Date.now() - new Date(lastPosting.timestamp).getTime()) / (1000 * 60 * 60);
 
-            // Only auto-complete if the vehicle was posted by the SAME user who owns this posting
-            if (!wasPostedBySameUser) {
-                console.warn(`[Cron] Vehicle ${vehicleId} was posted by another user. Marking posting as 'already-posted' (not completed).`);
+            // Only mark as duplicate (already-posted) when SAME userId AND SAME profileId posted this vehicle WITHIN 2 hours
+            // If another user or another profile posted, allow this posting to proceed
+            if (!wasPostedBySameUser || !wasPostedBySameProfile) {
+                console.log(`[Cron] Vehicle ${vehicleId} was posted by another user/profile. Allowing this posting to proceed.`);
+                // Fall through - do not return; continue to trigger this posting
+            } else if (hoursAgo < 2) {
+                // Same user + same profile + same vehicle, posted within 2 hours → treat as duplicate
+                console.warn(`[Cron] Vehicle ${vehicleId} already posted by same user/profile (${Math.floor(hoursAgo * 60)} min ago). Marking as 'already-posted'.`);
                 posting.status = 'already-posted';
-                posting.failureReason = 'Vehicle already posted by another user';
-                posting.logs.push({ message: 'Marked as already-posted - vehicle was posted by a different user', timestamp: new Date() });
+                posting.failureReason = `Vehicle already posted ${Math.floor(hoursAgo * 60)} min ago`;
+                posting.logs.push({ message: `Marked as 'already-posted' - same user/profile posted this vehicle within 2h`, timestamp: new Date() });
                 await posting.save();
                 return;
             }
-
-            if (hoursAgo >= 2) {
-                console.warn(`[Cron] Vehicle ${vehicleId} already marked as posted ${Math.floor(hoursAgo)} hours ago (same user). Marking as 'already-posted'.`);
-                posting.status = 'already-posted';
-                posting.failureReason = `Vehicle already posted ${Math.floor(hoursAgo)} hours ago`;
-                posting.logs.push({ message: `Marked as 'already-posted' - vehicle posted before this posting was created (${Math.floor(hoursAgo)}h ago)`, timestamp: new Date() });
-                await posting.save();
-                return;
-            }
-            // Same user, posted recently (within 2 hours) - treat as duplicate, mark already-posted not completed
-            console.warn(`[Cron] Vehicle ${vehicleId} already posted by same user (${Math.floor(hoursAgo * 60)} min ago). Marking as 'already-posted'.`);
-            posting.status = 'already-posted';
-            posting.failureReason = `Vehicle already posted ${Math.floor(hoursAgo * 60)} min ago`;
-            posting.logs.push({ message: `Marked as 'already-posted' - skip duplicate; only extension can mark completed via posting-result`, timestamp: new Date() });
-            await posting.save();
-            return;
+            // Same user + same profile but posted more than 2 hours ago → allow repost, fall through
         }
     }
 

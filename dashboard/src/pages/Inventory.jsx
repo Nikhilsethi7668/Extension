@@ -402,6 +402,20 @@ const Inventory = () => {
         setQueueDialogOpen(true);
     };
 
+    const handleDeleteChromeProfile = async (e, profile) => {
+        e.stopPropagation();
+        if (!window.confirm(`Remove profile "${profile.name}"?`)) return;
+        try {
+            const id = profile._id;
+            await apiClient.delete(`/chrome-profiles/${id}`);
+            setChromeProfiles(prev => prev.filter(p => (p._id || p.uniqueId) !== id));
+            setSelectedProfileIds(prev => prev.filter(pid => pid !== profile.uniqueId));
+        } catch (err) {
+            console.error(err);
+            alert('Failed to delete profile: ' + (err.response?.data?.message || err.message));
+        }
+    };
+
     const { queuePosting, postNow, aiEditing, aiProgress } = useQueue();
 
     const handleQueueSubmit = async () => {
@@ -1741,9 +1755,35 @@ const Inventory = () => {
                                     )}
                                 >
                                     {chromeProfiles.map((p) => (
-                                        <MenuItem key={p.uniqueId} value={p.uniqueId}>
-                                            <Checkbox checked={selectedProfileIds.indexOf(p.uniqueId) > -1} />
-                                            {p.name}
+                                        <MenuItem
+                                            key={p.uniqueId}
+                                            value={p.uniqueId}
+                                            sx={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                gap: 1,
+                                                '&:hover .profile-delete-btn': { opacity: 1 }
+                                            }}
+                                        >
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
+                                                <Checkbox checked={selectedProfileIds.indexOf(p.uniqueId) > -1} size="small" />
+                                                <Typography variant="body2" noWrap>{p.name}</Typography>
+                                            </Box>
+                                            <IconButton
+                                                className="profile-delete-btn"
+                                                size="small"
+                                                sx={{
+                                                    opacity: 0,
+                                                    flexShrink: 0,
+                                                    color: 'text.secondary',
+                                                    '&:hover': { color: 'error.main' }
+                                                }}
+                                                onClick={(e) => handleDeleteChromeProfile(e, p)}
+                                                aria-label={`Delete ${p.name}`}
+                                            >
+                                                <Trash2 size={16} />
+                                            </IconButton>
                                         </MenuItem>
                                     ))}
                                 </Select>

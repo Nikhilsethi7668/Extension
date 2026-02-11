@@ -61,7 +61,7 @@ export const generateVehicleContent = async (vehicle, instructions, sentiment = 
     `;
 
         const completion = await openRouter.chat.send({
-            model: 'deepseek/deepseek-r1',
+            model: 'google/gemini-2.0-flash-001',
             messages: [
                 {
                     role: 'user',
@@ -90,6 +90,55 @@ import ImagePrompts from '../models/ImagePrompts.js';
 import { prepareImage } from './image-processor.service.js';
 
 const FLASHFENDER_GENERATE_URL = 'https://generate.flashfender.com/api/v1/generate';
+// Exterior: Flux add-background. Interior: Qwen integrate-product (background on windows).
+const FLUX_MODEL = 'fal-ai/flux-2-lora-gallery/add-background';
+const INTERIOR_MODEL = 'fal-ai/qwen-image-edit-2509-lora-gallery/integrate-product';
+const OPENROUTER_VISION_MODEL = 'google/gemini-2.0-flash-001';
+
+/**
+ * OpenRouter vision (cheapest model): analyze image and refine prompt.
+ * - Exterior: keep prompt but remove any car-modification wording (paint, wheels, body, etc.).
+ * - Interior: refine to enhance only the view outside the windows; do not modify interior.
+ */
+const analyzeImageAndRefinePrompt = async (imageUrl, userPrompt) => {
+    if (!process.env.OPENROUTER_API_KEY) return null;
+    try {
+        const systemPrompt = `You are an image analyst for car photos. Look at the image and respond with JSON only, no other text.
+Rules:
+1. Decide if the image shows a car's EXTERIOR (outside: body, wheels, full car in a setting) or INTERIOR (inside: dashboard, seats, steering wheel, view from inside).
+2. If EXTERIOR: set "scene" to "exterior". For "refinedPrompt": take the user's prompt and remove any phrases that ask to modify the car itself (e.g. change color, paint, wheels, rims, body, modify car). Keep only background/environment/floor/setting changes. If the user prompt is only about background, keep it as-is.
+3. If INTERIOR: set "scene" to "interior". For "refinedPrompt": write a single clear instruction to enhance or replace ONLY what is visible through the car windows (the outside scenery). Do not mention modifying the interior. Example: "Add Background Beautiful scenic view visible through the car windows - mountains and sky. Do not modify the interior; only change the view through the windows according to user needs and keep background style as is asked by user."
+4. The refinedPrompt must ask for minimal, subtle edits only: the car or interior should look natural and proper. Do not request harsh weather, extreme effects, or dramatic changes—keep lighting, weather, and scenery mild and realistic so the result looks believable.
+Output exactly: {"scene":"exterior"|"interior","refinedPrompt":"..."}`;
+
+        const completion = await openRouter.chat.send({
+            model: OPENROUTER_VISION_MODEL,
+            messages: [
+                { role: 'system', content: systemPrompt },
+                {
+                    role: 'user',
+                    content: [
+                        { type: 'text', text: `User prompt: "${userPrompt}". Analyze this image and respond with the JSON only.` },
+                        { type: 'image_url', imageUrl: { url: imageUrl } },
+                    ],
+                },
+            ],
+            stream: false,
+        });
+
+        const text = completion?.choices?.[0]?.message?.content?.trim() || '';
+        const jsonStr = cleanJson(text);
+        const parsed = JSON.parse(jsonStr);
+        if (parsed && typeof parsed.scene === 'string' && typeof parsed.refinedPrompt === 'string') {
+            const scene = parsed.scene.toLowerCase().includes('interior') ? 'interior' : 'exterior';
+            return { scene, refinedPrompt: parsed.refinedPrompt.trim() };
+        }
+        return null;
+    } catch (err) {
+        console.warn('[AI Service] OpenRouter vision analysis failed, using original prompt:', err?.message);
+        return null;
+    }
+};
 
 export const processImageWithAI = async (imageUrl, prompt = 'Remove background', promptId) => {
     try {
@@ -100,8 +149,15 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
         }
 
         const imagePrompt = await ImagePrompts.findById(promptId);
-        const visualDescription = imagePrompt?.prompt || prompt;
+        let visualDescription = imagePrompt?.prompt || prompt;
         const intent = 'MODIFY_BACKGROUND';
+
+        // OpenRouter: analyze image and refine prompt (exterior: strip car mods; interior: enhance outside windows only)
+        const analysis = await analyzeImageAndRefinePrompt(imageUrl, visualDescription);
+        if (analysis) {
+            visualDescription = analysis.refinedPrompt;
+            console.log(`[AI Service] OpenRouter analysis: scene=${analysis.scene}, refinedPrompt: "${visualDescription.substring(0, 80)}..."`);
+        }
 
         console.log(`[AI Service] Processing Background Change | Prompt: "${visualDescription}"`);
         console.log(`[AI Service] Passing image URL directly: ${imageUrl}`);
@@ -110,22 +166,29 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
             ? visualDescription
             : `Add Background ${visualDescription}`;
 
-        loraPrompt = `${loraPrompt} *CRITICAL CONSTRAINTS:*
-1. *Detection & Filtering:* Analyze the image. If the image depicts the *INTERIOR* of a car (dashboard, seats, steering wheel, or views from inside), *STOP*. Do not apply any changes. Skip the background replacement entirely for interior shots.
-2. *Subject Preservation:* If the image is an *EXTERIOR* shot, you are permitted to change only the surroundings. The vehicle itself must remain 100% untouched. Do not modify the paint, wheels, windows, or body lines.
-3. *Environment Replacement:* Replace the entire background and floor/ground surface according to the style context provided above.
-4. *No Bleed:* Ensure no "environmental blending" occurs on the car's surface. The car should look as if it was professionally cut out and placed into the new setting without any digital alteration to the original pixels of the vehicle.`;
+        const isInterior = analysis?.scene === 'interior';
+        if (isInterior) {
+            loraPrompt = `${loraPrompt} *CRITICAL CONSTRAINTS:*
+1. *Interior shot:* This image is from inside a car. Change ONLY the scenery visible through the windows. Do not modify the interior: dashboard, seats, steering wheel, or any part inside the car must stay 100% unchanged.
+2. *Windows only:* Replace or enhance only what is seen through the glass. The car interior must look as if it was professionally preserved with a new view outside.`;
+        } else {
+            loraPrompt = `${loraPrompt} *CRITICAL CONSTRAINTS:*
+1. *Subject Preservation:* Change only the surroundings. The vehicle itself must remain 100% untouched. Do not modify the paint, wheels, windows, or body lines.
+2. *Environment Replacement:* Replace the entire background and floor/ground surface according to the style context provided above.
+3. *No Bleed:* Ensure no "environmental blending" occurs on the car's surface. The car should look as if it was professionally cut out and placed into the new setting without any digital alteration to the original pixels of the vehicle.`;
+        }
 
-        // 2. Call FlashFender Generate API (uses fal add-background under the hood)
+        const model = isInterior ? INTERIOR_MODEL : FLUX_MODEL;
+        console.log(`[AI Service] Using model: ${model} (${isInterior ? 'interior' : 'exterior'})`);
         const generateResponse = await axios.post(
             FLASHFENDER_GENERATE_URL,
             {
                 prompt: loraPrompt,
                 image_url: imageUrl,
-                model: 'fal-ai/flux-2-lora-gallery/add-background',
+                model,
                 width: 800,
                 height: 600,
-                steps: 40,
+                steps: 20,
                 cfg_scale: 7,
             },
             {
