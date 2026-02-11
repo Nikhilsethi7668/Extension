@@ -180,12 +180,17 @@ const Inventory = () => {
             if (typeof fetchVehicles === 'function') fetchVehicles();
         };
 
+        const onImageGenerationComplete = () => {
+            if (typeof fetchVehicles === 'function') fetchVehicles();
+        };
+
         // Attach listeners
         socket.on('scrape:start', onScrapeStart);
         socket.on('scrape:progress', onProgress);
         socket.on('scrape:vehicle', onVehicle);
         socket.on('scrape:error', onError);
         socket.on('scrape:complete', onComplete);
+        socket.on('image-generation-complete', onImageGenerationComplete);
 
         // Cleanup
         return () => {
@@ -194,6 +199,7 @@ const Inventory = () => {
             socket.off('scrape:vehicle', onVehicle);
             socket.off('scrape:error', onError);
             socket.off('scrape:complete', onComplete);
+            socket.off('image-generation-complete', onImageGenerationComplete);
         };
     }, [socket]);
 
@@ -382,17 +388,16 @@ const Inventory = () => {
         if (!token) return alert('No auth token found');
         
         aiEditing(vehicleId, payload, token, async () => {
-            // onSuccess: Refresh Vehicle Data
+            // onSuccess: Refresh vehicle data and refetch car list
             try {
                 const { data: refreshedData } = await apiClient.get(`/vehicles/${vehicleId}`);
                 if (refreshedData.success && refreshedData.data) {
-                     // Only update if we are still viewing the same vehicle
                      setSelectedVehicle(prev => (prev && prev._id === vehicleId ? refreshedData.data : prev));
                 }
-                fetchVehicles(); // update list
             } catch (err) {
                 console.error('Failed to refresh vehicle after AI edit:', err);
             }
+            fetchVehicles(); // always refetch list when AI image generation completes
         });
     };
 
