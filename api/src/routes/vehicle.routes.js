@@ -2131,34 +2131,40 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
         let completedOperations = 0;
         const totalOperations = images.length;
 
-        // Process in parallel with progress tracking
-        const editPromises = images.map(async (imageUrl) => {
-            try {
-                // processImageWithAI handles promptId lookup if provided
-                const aiResult = await processImageWithAI(imageUrl, prompt, promptId);
-                
-                completedOperations++;
-                const currentPercent = 5 + Math.round((completedOperations / totalOperations) * 90); // Scale 5-95%
-                sendProgress(`Enhanced image ${completedOperations}/${totalOperations}`, currentPercent);
+        // Process in batches to avoid overwhelming the external API
+        const BATCH_SIZE = 3; 
+        const results = [];
 
-                return {
-                    success: true,
-                    original: imageUrl,
-                    processed: aiResult.processedUrl
-                };
-            } catch (err) {
-                console.error(`Batch processing failed for image ${imageUrl}:`, err);
-                 completedOperations++;
-                 // Still report progress even on fail
-                return {
-                    success: false,
-                    original: imageUrl,
-                    error: err.message
-                };
-            }
-        });
+        for (let i = 0; i < images.length; i += BATCH_SIZE) {
+            const batch = images.slice(i, i + BATCH_SIZE);
+            const batchPromises = batch.map(async (imageUrl) => {
+                try {
+                    // processImageWithAI handles promptId lookup if provided
+                    const aiResult = await processImageWithAI(imageUrl, prompt, promptId);
+                    
+                    return {
+                        success: true,
+                        original: imageUrl,
+                        processed: aiResult.processedUrl
+                    };
+                } catch (err) {
+                    console.error(`Batch processing failed for image ${imageUrl}:`, err);
+                    // Still return result even on fail
+                    return {
+                        success: false,
+                        original: imageUrl,
+                        error: err.message
+                    };
+                }
+            });
 
-        const results = await Promise.all(editPromises);
+            const batchResults = await Promise.all(batchPromises);
+            results.push(...batchResults);
+
+            completedOperations += batch.length;
+            const currentPercent = 5 + Math.round((completedOperations / totalOperations) * 90); // Scale 5-95%
+            sendProgress(`Enhanced images ${Math.min(completedOperations, totalOperations)}/${totalOperations}`, currentPercent);
+        }
 
         // Update Vehicle with results
         // Update Vehicle with results (User-Specific Isolation)
