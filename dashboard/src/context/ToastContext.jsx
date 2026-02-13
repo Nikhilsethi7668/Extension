@@ -45,12 +45,14 @@ export const ToastProvider = ({ children }) => {
 
         const handleImageGenComplete = (data) => {
             console.log('[ToastContext] Image Generation Complete:', data);
+            const vehicleLabel = data.vehicleName ? ` for ${data.vehicleName}` : '';
             if (data.success) {
-                showToast(`Image processed successfully!`, 'success');
-                showSystemNotification('Image Ready', 'Your vehicle image has been processed successfully.');
+                const toastMsg = data.vehicleName ? `Image for ${data.vehicleName} processed successfully!` : 'Image processed successfully!';
+                showToast(toastMsg, 'success');
+                showSystemNotification('Image Ready', `Your vehicle image${vehicleLabel} has been processed successfully.`);
             } else {
                 showToast(`Image processing failed: ${data.error || 'Unknown error'}`, 'error');
-                showSystemNotification('Image Processing Failed', data.error || 'Unknown error');
+                showSystemNotification('Image Processing Failed', data.vehicleName ? `${data.vehicleName}: ${data.error || 'Unknown error'}` : (data.error || 'Unknown error'));
             }
         };
 

@@ -981,9 +981,11 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
         // Emit Socket Event for Success
         const io = req.app.get('io');
         if (io) {
+            const vehicleName = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ').trim() || 'Vehicle';
             io.to(`user:${req.user._id}:dashboard`).emit('image-generation-complete', {
                 success: true,
                 vehicleId: vehicle._id,
+                vehicleName,
                 imageUrl: processedImageUrl,
                 originalUrl: imageUrl,
                 message: 'Image background removed successfully'
@@ -1055,10 +1057,12 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
         console.error('Background removal failed:', error);
         
         // Emit Socket Event for Failure
-        if (io && req.user && req.user.organization) {
+        if (io && req.user && req.user.organization && vehicle) {
+            const vehicleName = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ').trim() || 'Vehicle';
             io.to(`user:${req.user._id}:dashboard`).emit('image-generation-complete', {
                 success: false,
                 vehicleId: req.params.id,
+                vehicleName,
                 originalUrl: imageUrl,
                 error: error.message,
                 message: 'Failed to remove background'
@@ -1749,13 +1753,34 @@ router.delete('/:id/images', protect, async (req, res) => {
             deleted = true;
         }
 
-        // Remove from aiImages
-        // aiImages might be undefined if not populated yet
+        // Remove from aiImages (top-level)
         if (vehicle.aiImages && Array.isArray(vehicle.aiImages)) {
             const aiIndex = vehicle.aiImages.indexOf(imageUrl);
             if (aiIndex > -1) {
                 vehicle.aiImages.splice(aiIndex, 1);
                 deleted = true;
+            }
+        }
+
+        // Remove from current user's userAIContent.aiImages (AI-generated images are stored here)
+        if (vehicle.userAIContent && Array.isArray(vehicle.userAIContent)) {
+            const userContent = vehicle.userAIContent.find(
+                c => c.userId && c.userId.toString() === req.user._id.toString()
+            );
+            if (userContent && userContent.aiImages && Array.isArray(userContent.aiImages)) {
+                const userAiIndex = userContent.aiImages.indexOf(imageUrl);
+                if (userAiIndex > -1) {
+                    userContent.aiImages.splice(userAiIndex, 1);
+                    deleted = true;
+                }
+                // Also remove from imageMappings if present (originalUrl or processedUrl match)
+                if (userContent.imageMappings && userContent.imageMappings.length > 0) {
+                    const before = userContent.imageMappings.length;
+                    userContent.imageMappings = userContent.imageMappings.filter(
+                        m => m.originalUrl !== imageUrl && m.processedUrl !== imageUrl
+                    );
+                    if (userContent.imageMappings.length < before) deleted = true;
+                }
             }
         }
 
@@ -2250,10 +2275,11 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
 
         // Emit socket event for Dashboard notification
         const io = req.app.get('io');
-        // Emit to the specific user's dashboard room
+        const vehicleName = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ').trim() || 'Vehicle';
         io.to(`user:${req.user._id}:dashboard`).emit('image-generation-complete', {
             success: processedCount > 0,
             vehicleId: vehicle._id,
+            vehicleName,
             count: processedCount,
             results,
             error: failedCount > 0 ? 'Some images failed' : null

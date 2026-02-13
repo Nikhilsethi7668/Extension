@@ -180,12 +180,17 @@ const Inventory = () => {
             if (typeof fetchVehicles === 'function') fetchVehicles();
         };
 
+        const onImageGenerationComplete = () => {
+            if (typeof fetchVehicles === 'function') fetchVehicles();
+        };
+
         // Attach listeners
         socket.on('scrape:start', onScrapeStart);
         socket.on('scrape:progress', onProgress);
         socket.on('scrape:vehicle', onVehicle);
         socket.on('scrape:error', onError);
         socket.on('scrape:complete', onComplete);
+        socket.on('image-generation-complete', onImageGenerationComplete);
 
         // Cleanup
         return () => {
@@ -194,6 +199,7 @@ const Inventory = () => {
             socket.off('scrape:vehicle', onVehicle);
             socket.off('scrape:error', onError);
             socket.off('scrape:complete', onComplete);
+            socket.off('image-generation-complete', onImageGenerationComplete);
         };
     }, [socket]);
 
@@ -382,17 +388,16 @@ const Inventory = () => {
         if (!token) return alert('No auth token found');
         
         aiEditing(vehicleId, payload, token, async () => {
-            // onSuccess: Refresh Vehicle Data
+            // onSuccess: Refresh vehicle data and refetch car list
             try {
                 const { data: refreshedData } = await apiClient.get(`/vehicles/${vehicleId}`);
                 if (refreshedData.success && refreshedData.data) {
-                     // Only update if we are still viewing the same vehicle
                      setSelectedVehicle(prev => (prev && prev._id === vehicleId ? refreshedData.data : prev));
                 }
-                fetchVehicles(); // update list
             } catch (err) {
                 console.error('Failed to refresh vehicle after AI edit:', err);
             }
+            fetchVehicles(); // always refetch list when AI image generation completes
         });
     };
 
@@ -400,6 +405,20 @@ const Inventory = () => {
     const handleOpenQueueDialog = () => {
         fetchChromeProfiles();
         setQueueDialogOpen(true);
+    };
+
+    const handleDeleteChromeProfile = async (e, profile) => {
+        e.stopPropagation();
+        if (!window.confirm(`Remove profile "${profile.name}"?`)) return;
+        try {
+            const id = profile._id;
+            await apiClient.delete(`/chrome-profiles/${id}`);
+            setChromeProfiles(prev => prev.filter(p => (p._id || p.uniqueId) !== id));
+            setSelectedProfileIds(prev => prev.filter(pid => pid !== profile.uniqueId));
+        } catch (err) {
+            console.error(err);
+            alert('Failed to delete profile: ' + (err.response?.data?.message || err.message));
+        }
     };
 
     const { queuePosting, postNow, aiEditing, aiProgress } = useQueue();
@@ -1741,9 +1760,35 @@ const Inventory = () => {
                                     )}
                                 >
                                     {chromeProfiles.map((p) => (
-                                        <MenuItem key={p.uniqueId} value={p.uniqueId}>
-                                            <Checkbox checked={selectedProfileIds.indexOf(p.uniqueId) > -1} />
-                                            {p.name}
+                                        <MenuItem
+                                            key={p.uniqueId}
+                                            value={p.uniqueId}
+                                            sx={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'space-between',
+                                                gap: 1,
+                                                '&:hover .profile-delete-btn': { opacity: 1 }
+                                            }}
+                                        >
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>
+                                                <Checkbox checked={selectedProfileIds.indexOf(p.uniqueId) > -1} size="small" />
+                                                <Typography variant="body2" noWrap>{p.name}</Typography>
+                                            </Box>
+                                            <IconButton
+                                                className="profile-delete-btn"
+                                                size="small"
+                                                sx={{
+                                                    opacity: 0,
+                                                    flexShrink: 0,
+                                                    color: 'text.secondary',
+                                                    '&:hover': { color: 'error.main' }
+                                                }}
+                                                onClick={(e) => handleDeleteChromeProfile(e, p)}
+                                                aria-label={`Delete ${p.name}`}
+                                            >
+                                                <Trash2 size={16} />
+                                            </IconButton>
                                         </MenuItem>
                                     ))}
                                 </Select>
