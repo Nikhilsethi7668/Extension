@@ -188,7 +188,7 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
                 model,
                 width: 800,
                 height: 600,
-                steps: 20,
+                steps: 30,
                 cfg_scale: 7,
             },
             {
