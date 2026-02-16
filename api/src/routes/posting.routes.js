@@ -129,7 +129,7 @@ router.patch('/:id', protect, async (req, res) => {
 
         const updates = {};
         if (inBrowserStatus !== undefined) {
-            const allowed = ['filling form', 'clicked next', 'clicked publish'];
+            const allowed = ['pending', 'filling form', 'clicked next', 'clicked publish'];
             if (allowed.includes(inBrowserStatus)) {
                 posting.inBrowserStatus = inBrowserStatus;
             }

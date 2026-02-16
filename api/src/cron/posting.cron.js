@@ -23,7 +23,7 @@ export const initPostingCron = (io) => {
         
         const twoMinutesAgo = new Date(now.getTime() - 10 * 60000);
         const oneMinuteFuture = new Date(now.getTime() + 1 * 60000);
-
+        const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
         try {
             // Find active scheduled postings
             // REMOVE LIMIT to support concurrency (processed in parallel below)
@@ -32,8 +32,9 @@ export const initPostingCron = (io) => {
                 status: 'scheduled',
                 scheduledTime: { $gte: twoMinutesAgo, $lte: oneMinuteFuture },
                 failureReason: null,
-                completedAt: null  // Extra safety: ensure not already completed
-            }).populate('vehicleId');
+                completedAt: null,  // Extra safety: ensure not already completed
+                createdAt: { $gte: twoHoursAgo }
+            }).sort({ createdAt: -1 }).populate('vehicleId');
 
             if (postings.length > 0) {
                 console.log(`[Cron] Found ${postings.length} postings to trigger.`);
@@ -93,11 +94,13 @@ export const initPostingCron = (io) => {
             // 3. Reschedule failed postings that are eligible for retry
             // Check for failures as early as possible - immediately after timeout is detected
             const twoMinutesAgo = new Date(Date.now() - 2 * 60000); // 2 Minutes (matches cron interval)
+            const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60000); // 2 Hours
 
             const stuckPostings = await Posting.find({
                 status: { $in: ['failed', 'timeout'] }, // Only failed/timeout (exclude scheduled)
                 failureReason: { $ne: null }, // Must have a failure reason
                 updatedAt: { $lt: twoMinutesAgo }, // Updated at least 2 minutes ago (one cron cycle old)
+                createdAt: { $gte: twoHoursAgo }, // Don't reschedule if created more than 2 hours ago
                 $or: [
                     { inBrowserRetry: { $exists: false } },
                     { inBrowserRetry: { $lt: 3 } }
@@ -146,9 +149,15 @@ async function rescheduleStuckPost(post) {
         post.status = 'scheduled';
         post.scheduledTime = newTime;
         post.failureReason = null;
-        post.inBrowserRetry = (post.inBrowserRetry || 0) + 1;
+        // Only increment inBrowserRetry if they had started in-browser (not still pending)
+        const wasPending = post.inBrowserStatus === 'pending' || post.inBrowserStatus == null;
+        if (!wasPending) {
+            post.inBrowserRetry = (post.inBrowserRetry || 0) + 1;
+        }
         post.logs.push({
-            message: `Rescheduled by cron (retry ${post.inBrowserRetry}/3), next run at ${newTime.toLocaleTimeString()} (4–5 min after last for profile)`,
+            message: wasPending
+                ? `Rescheduled by cron (inBrowserStatus was pending), next run at ${newTime.toLocaleTimeString()} (4–5 min after last for profile)`
+                : `Rescheduled by cron (retry ${post.inBrowserRetry}/3), next run at ${newTime.toLocaleTimeString()} (4–5 min after last for profile)`,
             timestamp: new Date()
         });
         await post.save();

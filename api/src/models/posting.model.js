@@ -60,8 +60,8 @@ const postingSchema = new mongoose.Schema({
     },
     inBrowserStatus: {
         type: String,
-        enum: ['filling form', 'clicked next', 'clicked publish'],
-        default: null // Current step during in-browser posting flow
+        enum: ['pending', 'filling form', 'clicked next', 'clicked publish'],
+        default: 'pending' // Current step during in-browser posting flow
     },
     inBrowserRetry: {
         type: Number,

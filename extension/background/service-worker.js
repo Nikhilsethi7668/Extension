@@ -454,6 +454,27 @@ async function updatePostingStatus(postingId, status, message = null) {
     }
 }
 
+// Helper to update in-browser status (filling form, clicked next, clicked publish)
+async function updatePostingInBrowserStatus(postingId, inBrowserStatus) {
+    if (!postingId) return;
+    const allowed = ['filling form', 'clicked next', 'clicked publish'];
+    if (!allowed.includes(inBrowserStatus)) return;
+    try {
+        const updateUrl = `${BACKEND_URL}/postings/${postingId}`;
+        await fetch(updateUrl, {
+            method: 'PATCH',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': sessionData.apiKey || ''
+            },
+            body: JSON.stringify({ inBrowserStatus })
+        });
+        console.log(`[Extension] Updated posting ${postingId} inBrowserStatus to ${inBrowserStatus}`);
+    } catch (e) {
+        console.error(`[Extension] Failed to update inBrowserStatus for ${postingId}:`, e);
+    }
+}
+
 // Legacy socket variable for compatibility
 let socket = { 
   connected: false,
@@ -527,6 +548,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'post_complete') {
     handlePostComplete(request.data);
     sendResponse({ success: true });
+  }
+
+  if (request.action === 'updateInBrowserStatus') {
+    const { postingId, inBrowserStatus } = request;
+    if (postingId && inBrowserStatus) {
+      updatePostingInBrowserStatus(postingId, inBrowserStatus);
+    }
+    sendResponse({ success: true });
+    return true;
   }
 
   if (request.action === 'api_fillFormWithTestData') {

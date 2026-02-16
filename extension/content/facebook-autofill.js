@@ -15,6 +15,7 @@
   let isFilling = false; // Prevent concurrent fill attempts
   let lastFillTime = 0; // Debounce fills
   let currentRunId = 0; // Prevent concurrent typing loops
+  let inBrowserStatusFillingFormSent = false; // Only report 'filling form' once per run
   
   // Helper function to check if extension context is valid
   function isExtensionContextValid() {
@@ -93,6 +94,7 @@
       fillAttempts = 0;
       isFilling = false;
       currentRunId++; // Invalidate previous runs
+      inBrowserStatusFillingFormSent = false;
 
       // Start observer if not already started
       if (!observer) {
@@ -270,6 +272,16 @@
         }
       }
 
+      // Report in-browser status: filling form (once per run)
+      if (postData.postingId && !inBrowserStatusFillingFormSent) {
+        inBrowserStatusFillingFormSent = true;
+        safeChromeRuntimeSendMessage({
+          action: 'updateInBrowserStatus',
+          postingId: postData.postingId,
+          inBrowserStatus: 'filling form'
+        });
+      }
+
       // Fill different form sections based on what's visible (only if not already filled)
       // Use postData (local copy) instead of pendingPost to prevent null reference errors
       if (!filledFields.has('category')) {
@@ -436,12 +448,26 @@
         const nextClicked = await clickNextButton();
 
         if (nextClicked) {
+          if (postData.postingId) {
+            safeChromeRuntimeSendMessage({
+              action: 'updateInBrowserStatus',
+              postingId: postData.postingId,
+              inBrowserStatus: 'clicked next'
+            });
+          }
           console.log('Next button clicked. Waiting for Publish button...');
           await sleep(3000); // Wait for next page/step
 
           // Auto-Click PUBLISH
           console.log('Auto-clicking "Publish" button...');
           await clickPublishButton();
+          if (postData.postingId) {
+            safeChromeRuntimeSendMessage({
+              action: 'updateInBrowserStatus',
+              postingId: postData.postingId,
+              inBrowserStatus: 'clicked publish'
+            });
+          }
 
           // Report success for queue
           if (postData.postingId) {
@@ -562,6 +588,11 @@
           isMonitorAttached = false;
 
           if (vehicleData.postingId) {
+              safeChromeRuntimeSendMessage({
+                action: 'updateInBrowserStatus',
+                postingId: vehicleData.postingId,
+                inBrowserStatus: 'clicked publish'
+              });
               console.log('Publish detected for Posting Job, sending posting_result...');
               safeChromeRuntimeSendMessage({
                 action: 'posting_result',
