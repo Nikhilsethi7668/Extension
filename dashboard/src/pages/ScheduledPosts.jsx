@@ -109,6 +109,8 @@ const ScheduledPosts = () => {
                                 <TableCell>Price</TableCell>
                                 <TableCell>Scheduled Time</TableCell>
                                 <TableCell>Status</TableCell>
+                                <TableCell>In-browser</TableCell>
+                                <TableCell>Retries</TableCell>
                                 {(currentUser?.role === 'org_admin' || currentUser?.role === 'super_admin') && (
                                     <TableCell>User</TableCell>
                                 )}
@@ -118,13 +120,13 @@ const ScheduledPosts = () => {
                         <TableBody>
                             {loading ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                                    <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                                         <CircularProgress />
                                     </TableCell>
                                 </TableRow>
                             ) : postings.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                                    <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                                         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
                                             <Calendar size={48} style={{ opacity: 0.3 }} />
                                             <Typography color="text.secondary">No {statusFilter === 'all' ? '' : statusFilter} posts found.</Typography>
@@ -176,6 +178,16 @@ const ScheduledPosts = () => {
                                                     </Typography>
                                                 )}
                                             </Box>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Typography variant="body2" color="text.secondary">
+                                                {posting.inBrowserStatus ?? '—'}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Typography variant="body2">
+                                                {posting.inBrowserRetry ?? 0}
+                                            </Typography>
                                         </TableCell>
                                         {(currentUser?.role === 'org_admin' || currentUser?.role === 'super_admin') && (
                                             <TableCell>

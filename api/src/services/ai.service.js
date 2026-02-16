@@ -90,9 +90,9 @@ import ImagePrompts from '../models/ImagePrompts.js';
 import { prepareImage } from './image-processor.service.js';
 
 const FLASHFENDER_GENERATE_URL = 'https://generate.flashfender.com/api/v1/generate';
-// Exterior: Flux add-background. Interior: Qwen integrate-product (background on windows).
+// Exterior: Flux add-background. Interior: Flux 2 edit (image-to-image).
 const FLUX_MODEL = 'fal-ai/flux-2-lora-gallery/add-background';
-const INTERIOR_MODEL = 'fal-ai/qwen-image-edit-2509-lora-gallery/integrate-product';
+const INTERIOR_MODEL = 'fal-ai/flux-2/edit';
 const OPENROUTER_VISION_MODEL = 'google/gemini-2.0-flash-001';
 
 /**
@@ -161,36 +161,27 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
 
         console.log(`[AI Service] Processing Background Change | Prompt: "${visualDescription}"`);
         console.log(`[AI Service] Passing image URL directly: ${imageUrl}`);
-
-        let loraPrompt = visualDescription.startsWith('Add Background')
-            ? visualDescription
-            : `Add Background ${visualDescription}`;
-
+        
         const isInterior = analysis?.scene === 'interior';
-        if (isInterior) {
-            loraPrompt = `${loraPrompt} *CRITICAL CONSTRAINTS:*
-1. *Interior shot:* This image is from inside a car. Change ONLY the scenery visible through the windows. Do not modify the interior: dashboard, seats, steering wheel, or any part inside the car must stay 100% unchanged.
-2. *Windows only:* Replace or enhance only what is seen through the glass. The car interior must look as if it was professionally preserved with a new view outside.`;
-        } else {
-            loraPrompt = `${loraPrompt} *CRITICAL CONSTRAINTS:*
-1. *Subject Preservation:* Change only the surroundings. The vehicle itself must remain 100% untouched. Do not modify the paint, wheels, windows, or body lines.
-2. *Environment Replacement:* Replace the entire background and floor/ground surface according to the style context provided above.
-3. *No Bleed:* Ensure no "environmental blending" occurs on the car's surface. The car should look as if it was professionally cut out and placed into the new setting without any digital alteration to the original pixels of the vehicle.`;
-        }
+        const loraPrompt = visualDescription;
 
+
+
+        // Interior: fal flux-2/edit. Exterior: fal flux add-background.
         const model = isInterior ? INTERIOR_MODEL : FLUX_MODEL;
-        console.log(`[AI Service] Using model: ${model} (${isInterior ? 'interior' : 'exterior'})`);
+        const payload = {
+            prompt: visualDescription,
+            image_url: imageUrl,
+            model,
+            width: 800,
+            height: 600,
+            steps: 30,
+            cfg_scale: 7,
+        };
+        console.log(`[AI Service] Using ${isInterior ? 'fal Flux 2 edit (interior)' : 'fal Flux add-background (exterior)'}: ${model}`);
         const generateResponse = await axios.post(
             FLASHFENDER_GENERATE_URL,
-            {
-                prompt: loraPrompt,
-                image_url: imageUrl,
-                model,
-                width: 800,
-                height: 600,
-                steps: 30,
-                cfg_scale: 7,
-            },
+            payload,
             {
                 timeout: 120000,
                 headers: {
