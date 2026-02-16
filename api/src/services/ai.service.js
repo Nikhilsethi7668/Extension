@@ -93,6 +93,8 @@ const FLASHFENDER_GENERATE_URL = 'https://generate.flashfender.com/api/v1/genera
 // Exterior: Flux add-background. Interior: Flux 2 edit (image-to-image).
 const FLUX_MODEL = 'fal-ai/flux-2-lora-gallery/add-background';
 const INTERIOR_MODEL = 'fal-ai/flux-2/edit';
+// Regenerate: use same Flux 2 edit as interior (flux-2-pro/edit may not be supported by FlashFender).
+const REGENERATE_MODEL = 'fal-ai/flux-2/edit';
 const OPENROUTER_VISION_MODEL = 'google/gemini-2.0-flash-001';
 
 /**
@@ -227,5 +229,97 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
         console.error('[AI Service] FlashFender Generate Error:', error?.response?.data || error);
         const msg = error?.response?.data?.error?.message || error.message;
         throw new Error(`Failed to process image: ${msg}`);
+    }
+};
+
+/**
+ * Regenerate an AI image from its original (or current) image using fal-ai/flux-2-pro/edit.
+ * Used when user clicks "Regenerate" on an existing AI-generated image.
+ * @param {string} originalImageUrl - Original source image URL (from imageMappings or the current AI image if no mapping).
+ * @param {string} prompt - Edit prompt for regeneration.
+ * @param {string} [promptId] - Optional ImagePrompts id for prompt lookup.
+ * @returns {Promise<{ success, originalUrl, processedUrl, provider, wasGenerated, metadata }>}
+ */
+export const regenerateImageWithAI = async (originalImageUrl, prompt = 'Enhance image', promptId) => {
+    try {
+        console.log(`[AI Service] Regenerating image with prompt: "${prompt}"`);
+
+        if (!process.env.FLASH_FENDER_IMG_KEY) {
+            throw new Error('FLASH_FENDER_IMG_KEY is missing in .env file');
+        }
+
+        let visualDescription = prompt;
+        if (promptId) {
+            const imagePrompt = await ImagePrompts.findById(promptId);
+            if (imagePrompt?.prompt) visualDescription = imagePrompt.prompt;
+        }
+
+        const payload = {
+            prompt: visualDescription,
+            image_url: originalImageUrl,
+            model: REGENERATE_MODEL,
+            width: 800,
+            height: 600,
+            steps: 30,
+            cfg_scale: 7,
+        };
+        console.log(`[AI Service] Regenerate using ${REGENERATE_MODEL}`);
+        let generateResponse;
+        try {
+            generateResponse = await axios.post(
+                FLASHFENDER_GENERATE_URL,
+                payload,
+                {
+                    timeout: 120000,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': process.env.FLASH_FENDER_IMG_KEY,
+                    },
+                }
+            );
+        } catch (axiosErr) {
+            const status = axiosErr?.response?.status;
+            const body = axiosErr?.response?.data;
+            console.error('[AI Service] Regenerate FlashFender request failed:', { status, body });
+            const msg = body?.error?.message || body?.message || axiosErr.message;
+            throw new Error(`Failed to regenerate image: ${msg}`);
+        }
+
+        const data = generateResponse.data;
+        const resultImageUrl = data?.image_url;
+        if (!resultImageUrl) {
+            const errMsg = data?.error?.message || data?.error || 'No image URL in FlashFender generate response';
+            console.error('[AI Service] Regenerate FlashFender response missing image_url:', JSON.stringify(data));
+            throw new Error(errMsg);
+        }
+
+        console.log('[AI Service] Regenerate success, applying stealth...');
+        const stealthResult = await prepareImage(resultImageUrl, {});
+        if (!stealthResult.success) {
+            throw new Error(`Stealth processing failed: ${stealthResult.error}`);
+        }
+        const processedUrl = `https://api.flashfender.com${stealthResult.relativePath}`;
+
+        return {
+            success: true,
+            originalUrl: originalImageUrl,
+            processedUrl,
+            provider: 'flashfender-generate',
+            wasGenerated: true,
+            metadata: {
+                intent: 'REGENERATE',
+                prompt: visualDescription,
+                ...(data.fal_usage && { fal_usage: data.fal_usage }),
+            },
+        };
+    } catch (error) {
+        const body = error?.response?.data;
+        console.error('[AI Service] Regenerate Error:', {
+            status: error?.response?.status,
+            data: body,
+            message: error.message
+        });
+        const msg = body?.error?.message || body?.message || error.message;
+        throw new Error(`Failed to regenerate image: ${msg}`);
     }
 };

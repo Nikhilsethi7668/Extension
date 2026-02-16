@@ -5,7 +5,7 @@ import User from '../models/User.js';
 import Posting from '../models/posting.model.js';
 
 import { protect, admin } from '../middleware/auth.js';
-import { generateVehicleContent, processImageWithAI } from '../services/ai.service.js';
+import { generateVehicleContent, processImageWithAI, regenerateImageWithAI } from '../services/ai.service.js';
 import { prepareImageBatch, getAvailableCameras, DEFAULT_GPS } from '../services/image-processor.service.js';
 import { scrapeVehicle } from '../services/scraper.service.js';
 import promptUsed from '../models/promptUsed.js';
@@ -1070,6 +1070,109 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
         }
 
         res.status(500).json({ message: 'Background removal failed', error: error.message });
+    }
+});
+
+// @desc    Regenerate an AI-generated image (use original source + new prompt, flux-2-pro/edit)
+// @route   POST /api/vehicles/:id/regenerate-ai-image
+// @access  Protected
+router.post('/:id/regenerate-ai-image', protect, async (req, res) => {
+    const { imageUrl, prompt, promptId } = req.body;
+    const vehicle = await Vehicle.findById(req.params.id);
+    const io = req.app.get('io');
+
+    if (!vehicle) {
+        res.status(404).json({ message: 'Vehicle not found' });
+        return;
+    }
+    if (req.user.role === 'agent' && (!vehicle.assignedUsers || !vehicle.assignedUsers.some(id => id.toString() === req.user._id.toString()))) {
+        res.status(403).json({ message: 'Not authorized to access this vehicle' });
+        return;
+    }
+    if (!imageUrl) {
+        res.status(400).json({ message: 'Image URL is required' });
+        return;
+    }
+
+    try {
+        const userContent = vehicle.userAIContent?.find(c => c.userId && c.userId.toString() === req.user._id.toString());
+        const mapping = userContent?.imageMappings?.find(m => m.processedUrl === imageUrl);
+        const originalUrl = mapping ? mapping.originalUrl : imageUrl;
+        const promptToUse = prompt || 'Enhance image';
+
+        const aiResult = await regenerateImageWithAI(originalUrl, promptToUse, promptId);
+        const newProcessedUrl = aiResult.processedUrl;
+
+        if (userContent) {
+            const aiIdx = userContent.aiImages?.indexOf(imageUrl);
+            if (aiIdx !== undefined && aiIdx >= 0) {
+                userContent.aiImages[aiIdx] = newProcessedUrl;
+            }
+            const mapIdx = userContent.imageMappings?.findIndex(m => m.processedUrl === imageUrl);
+            if (mapIdx !== undefined && mapIdx >= 0) {
+                userContent.imageMappings[mapIdx].processedUrl = newProcessedUrl;
+            } else {
+                userContent.imageMappings = userContent.imageMappings || [];
+                userContent.imageMappings.push({ originalUrl, processedUrl: newProcessedUrl });
+            }
+            userContent.updatedAt = new Date();
+        }
+        if (vehicle.aiImages && Array.isArray(vehicle.aiImages)) {
+            const topIdx = vehicle.aiImages.indexOf(imageUrl);
+            if (topIdx >= 0) vehicle.aiImages[topIdx] = newProcessedUrl;
+        }
+        await vehicle.save();
+
+        if (promptId) {
+            await promptUsed.create({
+                promptId,
+                vin: vehicle.vin,
+                userId: req.user._id
+            }).catch(() => {});
+        }
+        await AuditLog.create({
+            action: 'Regenerate AI Image',
+            entityType: 'Vehicle',
+            entityId: vehicle._id,
+            user: req.user._id,
+            organization: req.user.organization._id,
+            details: { imageUrl, newProcessedUrl, prompt: promptToUse },
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent'),
+        }).catch(() => {});
+
+        if (io) {
+            const vehicleName = [vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(' ').trim() || 'Vehicle';
+            io.to(`user:${req.user._id}:dashboard`).emit('image-generation-complete', {
+                success: true,
+                vehicleId: vehicle._id,
+                vehicleName,
+                imageUrl: newProcessedUrl,
+                originalUrl: imageUrl,
+                message: 'AI image regenerated successfully'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                originalUrl: imageUrl,
+                processedUrl: newProcessedUrl,
+                vehicle
+            }
+        });
+    } catch (error) {
+        console.error('Regenerate AI image failed:', error);
+        if (io && req.user && vehicle) {
+            io.to(`user:${req.user._id}:dashboard`).emit('image-generation-complete', {
+                success: false,
+                vehicleId: vehicle._id,
+                originalUrl: imageUrl,
+                error: error.message,
+                message: 'Failed to regenerate AI image'
+            });
+        }
+        res.status(500).json({ message: 'Regenerate failed', error: error.message });
     }
 });
 

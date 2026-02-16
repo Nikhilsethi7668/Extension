@@ -81,6 +81,13 @@ const Inventory = () => {
     const [postNowPrompt, setPostNowPrompt] = useState('');
     const [postNowContactNumber, setPostNowContactNumber] = useState('');
 
+    // Regenerate AI Image State
+    const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false);
+    const [regenerateImageUrl, setRegenerateImageUrl] = useState('');
+    const [regeneratePromptId, setRegeneratePromptId] = useState('');
+    const [regenerateCustomPrompt, setRegenerateCustomPrompt] = useState('');
+    const [regenerateLoading, setRegenerateLoading] = useState(false);
+
     useEffect(() => {
         const userStr = localStorage.getItem('user');
         if (userStr) {
@@ -399,6 +406,49 @@ const Inventory = () => {
             }
             fetchVehicles(); // always refetch list when AI image generation completes
         });
+    };
+
+    const handleOpenRegenerateDialog = async (imageUrl) => {
+        setRegenerateImageUrl(imageUrl);
+        setRegeneratePromptId('');
+        setRegenerateCustomPrompt('');
+        try {
+            const { data } = await apiClient.get(`/vehicles/${selectedVehicle._id}/recommend-prompts`);
+            setPrompts(data || []);
+            setRegenerateDialogOpen(true);
+        } catch (err) {
+            console.error(err);
+            alert('Failed to load prompts');
+        }
+    };
+
+    const handleRegenerateSubmit = async () => {
+        if (!regenerateImageUrl || (!regeneratePromptId && !regenerateCustomPrompt)) {
+            alert('Select a prompt or enter a custom one.');
+            return;
+        }
+        setRegenerateLoading(true);
+        try {
+            await apiClient.post(`/vehicles/${selectedVehicle._id}/regenerate-ai-image`, {
+                imageUrl: regenerateImageUrl,
+                promptId: regeneratePromptId || undefined,
+                prompt: regenerateCustomPrompt || undefined
+            });
+            setRegenerateDialogOpen(false);
+            setRegenerateImageUrl('');
+            setRegeneratePromptId('');
+            setRegenerateCustomPrompt('');
+            const { data: refreshedData } = await apiClient.get(`/vehicles/${selectedVehicle._id}`);
+            if (refreshedData?.success && refreshedData?.data) {
+                setSelectedVehicle(prev => (prev && prev._id === selectedVehicle._id ? refreshedData.data : prev));
+            }
+            fetchVehicles();
+        } catch (err) {
+            console.error(err);
+            alert(err.response?.data?.message || err.message || 'Regenerate failed');
+        } finally {
+            setRegenerateLoading(false);
+        }
     };
 
     // Queue Handler (Detail View)
@@ -1266,12 +1316,15 @@ const Inventory = () => {
                                                 />
                                             )}
 
-                                            {/* Delete Overlay */}
+                                            {/* Regenerate (AI images only) + Delete Overlay */}
                                             <Box
                                                 sx={{
                                                     position: 'absolute',
                                                     bottom: 0,
+                                                    left: 0,
                                                     right: 0,
+                                                    display: 'flex',
+                                                    justifyContent: 'space-between',
                                                     p: 0.5,
                                                     opacity: 0,
                                                     transition: 'opacity 0.2s',
@@ -1281,10 +1334,21 @@ const Inventory = () => {
                                                 }}
                                                 className="delete-overlay"
                                             >
+                                                {img.type === 'ai' && (
+                                                    <Tooltip title="Regenerate with new prompt">
+                                                        <IconButton
+                                                            size="small"
+                                                            sx={{ color: 'white', '&:hover': { color: '#90caf9' } }}
+                                                            onClick={(e) => { e.stopPropagation(); handleOpenRegenerateDialog(img.url); }}
+                                                        >
+                                                            <RotateCcw size={16} />
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                )}
                                                 <IconButton
                                                     size="small"
                                                     sx={{ color: 'white', '&:hover': { color: '#ff5252' } }}
-                                                    onClick={() => handleDeleteImage(img.url)}
+                                                    onClick={(e) => { e.stopPropagation(); handleDeleteImage(img.url); }}
                                                 >
                                                     <Trash2 size={16} />
                                                 </IconButton>
@@ -1724,6 +1788,66 @@ const Inventory = () => {
                         startIcon={<Zap size={16} />}
                     >
                         Apply AI Edit
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Regenerate AI Image Dialog */}
+            <Dialog open={regenerateDialogOpen} onClose={() => !regenerateLoading && setRegenerateDialogOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>Regenerate AI Image</DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" color="text.secondary" gutterBottom>
+                        Choose a prompt to regenerate this AI image from its original. The original source image will be used with the new prompt.
+                    </Typography>
+                    <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <FormControl fullWidth size="small">
+                            <InputLabel>Recommended Prompts</InputLabel>
+                            <Select
+                                value={regeneratePromptId}
+                                label="Recommended Prompts"
+                                onChange={(e) => {
+                                    setRegeneratePromptId(e.target.value);
+                                    setRegenerateCustomPrompt('');
+                                }}
+                            >
+                                <MenuItem value="">-- Select a Prompt --</MenuItem>
+                                {prompts.map((p) => (
+                                    <MenuItem key={p._id} value={p._id}>
+                                        <Box>
+                                            <Typography variant="body2" fontWeight={600}>{p.title}</Typography>
+                                            <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', maxWidth: 400 }}>
+                                                {p.prompt}
+                                            </Typography>
+                                        </Box>
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                        <TextField
+                            label="Or Custom Prompt"
+                            multiline
+                            rows={3}
+                            value={regenerateCustomPrompt}
+                            onChange={(e) => {
+                                setRegenerateCustomPrompt(e.target.value);
+                                setRegeneratePromptId('');
+                            }}
+                            placeholder="e.g. Enhance lighting and remove background clutter..."
+                            fullWidth
+                            variant="outlined"
+                        />
+                    </Box>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setRegenerateDialogOpen(false)} disabled={regenerateLoading}>Cancel</Button>
+                    <Button
+                        onClick={handleRegenerateSubmit}
+                        variant="contained"
+                        color="secondary"
+                        disabled={regenerateLoading || (!regeneratePromptId && !regenerateCustomPrompt)}
+                        startIcon={regenerateLoading ? <CircularProgress size={16} color="inherit" /> : <RotateCcw size={16} />}
+                    >
+                        {regenerateLoading ? 'Regenerating…' : 'Regenerate'}
                     </Button>
                 </DialogActions>
             </Dialog>
