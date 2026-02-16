@@ -58,6 +58,15 @@ const postingSchema = new mongoose.Schema({
     failureReason: {
         type: String // Reason why posting wasn't attempted (e.g., "Desktop App Disconnected")
     },
+    inBrowserStatus: {
+        type: String,
+        enum: ['filling form', 'clicked next', 'clicked publish'],
+        default: null // Current step during in-browser posting flow
+    },
+    inBrowserRetry: {
+        type: Number,
+        default: 0 // Number of retries needed/done for in-browser steps
+    },
     listingUrl: {
         type: String,
         default: null // URL of the posted listing

@@ -106,6 +106,65 @@ router.get('/vehicle/:vehicleId/recent', protect, async (req, res) => {
     }
 });
 
+// @desc    Update a posting (in-browser fields, optional status/log)
+// @route   PATCH /api/postings/:id
+// @access  Protected
+// @body    { inBrowserStatus?, inBrowserRetry?, status?, log? }
+router.patch('/:id', protect, async (req, res) => {
+    try {
+        const postingId = req.params.id;
+        const { inBrowserStatus, inBrowserRetry, status, log } = req.body;
+
+        const posting = await Posting.findById(postingId);
+        if (!posting) {
+            return res.status(404).json({ success: false, message: 'Posting not found' });
+        }
+
+        // Org check
+        const userOrgId = req.user.organization?._id?.toString() || req.user.organization?.toString();
+        const postOrgId = posting.orgId?.toString();
+        if (userOrgId && postOrgId && userOrgId !== postOrgId) {
+            return res.status(403).json({ success: false, message: 'Not authorized to update this posting' });
+        }
+
+        const updates = {};
+        if (inBrowserStatus !== undefined) {
+            const allowed = ['filling form', 'clicked next', 'clicked publish'];
+            if (allowed.includes(inBrowserStatus)) {
+                posting.inBrowserStatus = inBrowserStatus;
+            }
+        }
+        if (typeof inBrowserRetry === 'number' && inBrowserRetry >= 0) {
+            posting.inBrowserRetry = inBrowserRetry;
+        }
+        if (status !== undefined) {
+            const validStatuses = ['scheduled', 'triggered', 'processing', 'completed', 'failed', 'timeout', 'rescheduled', 'already-posted'];
+            if (validStatuses.includes(status)) {
+                posting.status = status;
+            }
+        }
+        if (log && typeof log === 'string') {
+            posting.logs.push({ message: log, timestamp: new Date() });
+        }
+
+        await posting.save();
+
+        res.json({
+            success: true,
+            message: 'Posting updated',
+            posting: {
+                id: posting._id,
+                inBrowserStatus: posting.inBrowserStatus,
+                inBrowserRetry: posting.inBrowserRetry,
+                status: posting.status
+            }
+        });
+    } catch (error) {
+        console.error('[Posting Update] Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
 // @desc    Update posting status (lightweight - just status + log)
 // @route   PATCH /api/postings/:id/status
 // @access  Protected (API Key from extension)

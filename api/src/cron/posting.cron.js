@@ -98,19 +98,16 @@ export const initPostingCron = (io) => {
                 status: { $in: ['failed', 'timeout'] }, // Only failed/timeout (exclude scheduled)
                 failureReason: { $ne: null }, // Must have a failure reason
                 updatedAt: { $lt: twoMinutesAgo }, // Updated at least 2 minutes ago (one cron cycle old)
-                rescheduledFromId: null // Not already a rescheduled attempt (avoid infinite chains)
+                $or: [
+                    { inBrowserRetry: { $exists: false } },
+                    { inBrowserRetry: { $lt: 3 } }
+                ] // Don't reschedule if inBrowserRetry is already 3
             });
 
             if (stuckPostings.length > 0) {
                 console.log(`[Cron-Rescue] Found ${stuckPostings.length} stuck postings. Rescheduling...`);
                 
                 for (const post of stuckPostings) {
-                    // Check retry count - max 3 attempts
-                    const retryCount = post.logs.filter(l => l.message.includes('Rescheduled')).length;
-                    if (retryCount >= 3) {
-                        console.log(`[Cron-Rescue] Post ${post._id} has reached max retries (3). Keeping as failed.`);
-                        continue;
-                    }
                     await rescheduleStuckPost(post);
                 }
             }
@@ -124,43 +121,38 @@ async function rescheduleStuckPost(post) {
     try {
         console.log(`[Cron-Rescue] Rescheduling stuck post ${post._id} for vehicle ${post.vehicleId}`);
         
-        // Schedule immediately (ASAP) rather than after last post
-        let newTime;
-        const minDelay = Math.floor(Math.random() * 30000); // 0-30 second random delay for staggering
-        newTime = new Date(Date.now() + minDelay);
+        // Find this user+profile's last scheduled time (any posting except current)
+        const lastForProfile = await Posting.findOne({
+            userId: post.userId,
+            profileId: post.profileId,
+            _id: { $ne: post._id }
+        })
+            .sort({ scheduledTime: -1 })
+            .select('scheduledTime')
+            .lean();
 
-        // 1. Mark the original post as 'rescheduled' so it won't be used anywhere
-        post.status = 'rescheduled';
-        post.failureReason = `Rescheduled - new posting created with ID to be tracked`;
-        post.logs.push({ 
-            message: `Marked as rescheduled by cron (original posting - no longer active)`, 
-            timestamp: new Date() 
+        const gapMs = 4 * 60 * 1000 + Math.floor(Math.random() * 60 * 1000); // 4–5 min
+        const now = Date.now();
+        let newTime;
+        if (lastForProfile && lastForProfile.scheduledTime) {
+            const afterLast = new Date(lastForProfile.scheduledTime.getTime() + gapMs);
+            // Ensure we're at least 4–5 min from now so cron doesn't run it immediately in same cycle
+            newTime = afterLast.getTime() > now ? afterLast : new Date(now + gapMs);
+        } else {
+            newTime = new Date(now + gapMs);
+        }
+
+        // Reuse same posting: set back to scheduled with new time
+        post.status = 'scheduled';
+        post.scheduledTime = newTime;
+        post.failureReason = null;
+        post.inBrowserRetry = (post.inBrowserRetry || 0) + 1;
+        post.logs.push({
+            message: `Rescheduled by cron (retry ${post.inBrowserRetry}/3), next run at ${newTime.toLocaleTimeString()} (4–5 min after last for profile)`,
+            timestamp: new Date()
         });
         await post.save();
-        console.log(`[Cron-Rescue] Post ${post._id} marked as 'rescheduled'`);
-
-        // 2. Create a new posting document with the new scheduled time
-        const newPosting = new Posting({
-            vehicleId: post.vehicleId,
-            userId: post.userId,
-            orgId: post.orgId,
-            profileId: post.profileId,
-            selectedImages: post.selectedImages,
-            prompt: post.prompt,
-            customDescription: post.customDescription,
-            scheduledTime: newTime,
-            status: 'scheduled',
-            failureReason: null,
-            rescheduledFromId: post._id, // Link back to original post
-            logs: [{ 
-                message: `Created as rescheduled attempt (original post: ${post._id})`,
-                timestamp: new Date()
-            }]
-        });
-
-        await newPosting.save();
-        console.log(`[Cron-Rescue] New post ${newPosting._id} created and scheduled to ${newTime.toLocaleTimeString()}`);
-
+        console.log(`[Cron-Rescue] Post ${post._id} set to scheduled at ${newTime.toLocaleTimeString()} (inBrowserRetry: ${post.inBrowserRetry})`);
     } catch (err) {
         console.error(`[Cron-Rescue] Failed to reschedule post ${post._id}:`, err);
     }
