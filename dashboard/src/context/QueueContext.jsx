@@ -12,6 +12,13 @@ export const useQueue = () => {
 
 import { io } from 'socket.io-client';
 
+// Single source for API URLs (avoid double /api)
+const getApiOrigin = () => {
+    const raw = import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com';
+    return raw.replace(/\/api\/?$/, '').replace(/\/+$/, '') || 'https://api.flashfender.com';
+};
+const getApiBaseUrl = () => getApiOrigin() + '/api';
+
 export const QueueProvider = ({ children }) => {
     const [queueProgress, setQueueProgress] = useState({
         active: false,
@@ -31,9 +38,7 @@ export const QueueProvider = ({ children }) => {
         const user = JSON.parse(storedUser);
         if (!user || !user._id || !user.organization) return;
 
-        const API_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com');
-        
-        const newSocket = io(API_URL, {
+        const newSocket = io(getApiOrigin(), {
              auth: {
                  clientType: 'dashboard',
                  token: user.token
@@ -120,15 +125,13 @@ export const QueueProvider = ({ children }) => {
             });
         }
 
-        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com') + '/api';
-
         try {
             // We use simple FETCH now, because socket will handle updates!
             // No need to read stream anymore if backend uses queue.
             // But IF backend sends stream for "initial" progress, we can keep it.
             // QueueManager "addJob" returns immediately.
             
-            const response = await fetch(`${API_BASE_URL}/vehicles/queue-posting`, {
+            const response = await fetch(`${getApiBaseUrl()}/vehicles/queue-posting`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -177,10 +180,8 @@ export const QueueProvider = ({ children }) => {
             error: false
         });
 
-        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com') + '/api';
-
         try {
-            const response = await fetch(`${API_BASE_URL}/vehicles/post-now`, {
+            const response = await fetch(`${getApiBaseUrl()}/vehicles/post-now`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -239,10 +240,8 @@ export const QueueProvider = ({ children }) => {
             completed: false
         });
 
-        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com') + '/api';
-
         try {
-            const response = await fetch(`${API_BASE_URL}/vehicles/${vehicleId}/batch-edit-images`, {
+            const response = await fetch(`${getApiBaseUrl()}/vehicles/${vehicleId}/batch-edit-images`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

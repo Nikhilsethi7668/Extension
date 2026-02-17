@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { ThemeProvider, createTheme, CssBaseline, GlobalStyles } from '@mui/material';
+import { ThemeProvider, createTheme, CssBaseline, GlobalStyles, Box, CircularProgress, Typography } from '@mui/material';
+import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeModeProvider, useThemeMode } from './context/ThemeContext';
 import { SocketProvider } from './context/SocketContext';
@@ -167,15 +168,22 @@ const getTheme = (mode) => createTheme({
   },
 });
 
+const RouteLoading = () => (
+  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', gap: 2 }}>
+    <CircularProgress />
+    <Typography variant="body2" color="text.secondary">Loading...</Typography>
+  </Box>
+);
+
 const PrivateRoute = ({ children }) => {
   const { user, loading } = useAuth();
-  if (loading) return null;
+  if (loading) return <RouteLoading />;
   return user ? children : <Navigate to="/login" />;
 };
 
 const AdminRoute = ({ children }) => {
   const { user, loading } = useAuth();
-  if (loading) return null;
+  if (loading) return <RouteLoading />;
   return user && user.role !== 'agent' ? children : <Navigate to="/" />;
 };
 
@@ -235,11 +243,13 @@ import { QueueProvider } from './context/QueueContext';
 
 function App() {
   return (
-    <ThemeModeProvider>
+    <AppErrorBoundary>
       <QueueProvider>
-        <ThemedApp />
+        <ThemeModeProvider>
+          <ThemedApp />
+        </ThemeModeProvider>
       </QueueProvider>
-    </ThemeModeProvider>
+    </AppErrorBoundary>
   );
 }
 

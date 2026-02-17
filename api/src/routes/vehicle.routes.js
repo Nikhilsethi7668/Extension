@@ -3,6 +3,7 @@ import Vehicle from '../models/Vehicle.js';
 import AuditLog from '../models/AuditLog.js';
 import User from '../models/User.js';
 import Posting from '../models/posting.model.js';
+import ChromeProfile from '../models/ChromeProfile.js';
 
 import { protect, admin } from '../middleware/auth.js';
 import { generateVehicleContent, processImageWithAI, regenerateImageWithAI } from '../services/ai.service.js';
@@ -265,39 +266,35 @@ const autoPrepareStealth = async (vehicle, customGps = null) => {
     return vehicle;
 };
 
-// @desc    Get user posts history (Filtered for User Posts Page)
+// @desc    Get user posts history (Filtered for User Posts Page) — one row per posting
 // @route   GET /api/vehicles/user-posts
 // @access  Protected
 router.get('/user-posts', protect, async (req, res) => {
     const { startDate, endDate, search, assignedUser, page = 1, limit = 20 } = req.query;
     const orgId = req.user.organization._id || req.user.organization;
-    const query = { organization: orgId, status: 'posted' };
+    const matchStage = { organization: new mongoose.Types.ObjectId(orgId), status: 'posted' };
 
     const pageNum = Number(page) || 1;
     const limitNum = Number(limit) || 20;
     const skip = (pageNum - 1) * limitNum;
 
-    // 1. User Filtering Logic
-    if (req.user.role === 'org_admin' || req.user.role === 'super_admin') {
-        // Admins can see all, or filter by specific agent
-        if (assignedUser && assignedUser !== 'all') {
-            query['postingHistory.userId'] = assignedUser;
-        }
-    } else {
-        // Agents ONLY see their own posts
-        query['postingHistory.userId'] = req.user._id;
+    // 1. User Filtering: which postings to include (by postingHistory.userId)
+    const filterByUserId = (req.user.role === 'org_admin' || req.user.role === 'super_admin')
+        ? (assignedUser && assignedUser !== 'all' ? new mongoose.Types.ObjectId(assignedUser) : null)
+        : new mongoose.Types.ObjectId(req.user._id);
+
+    if (filterByUserId) {
+        matchStage['postingHistory.userId'] = filterByUserId;
     }
 
-    // 2. Date Filtering (on createdAt)
+    // 2. Date Filtering (on vehicle createdAt)
     if (startDate || endDate) {
-        query.createdAt = {};
-        if (startDate) {
-            query.createdAt.$gte = new Date(startDate);
-        }
+        matchStage.createdAt = {};
+        if (startDate) matchStage.createdAt.$gte = new Date(startDate);
         if (endDate) {
             const end = new Date(endDate);
             end.setHours(23, 59, 59, 999);
-            query.createdAt.$lte = end;
+            matchStage.createdAt.$lte = end;
         }
     }
 
@@ -305,8 +302,8 @@ router.get('/user-posts', protect, async (req, res) => {
     if (search) {
         const terms = search.trim().split(/\s+/);
         if (terms.length > 0) {
-            query.$and = terms.map(term => {
-                const regex = { $regex: term, $options: 'i' };
+            matchStage.$and = terms.map(term => {
+                const regex = new RegExp(term, 'i');
                 return {
                     $or: [
                         { make: regex },
@@ -320,18 +317,69 @@ router.get('/user-posts', protect, async (req, res) => {
     }
 
     try {
-        const total = await Vehicle.countDocuments(query);
-        const vehicles = await Vehicle.find(query)
-            .populate('assignedUsers', 'name email')
-            .sort('-createdAt')
-            .skip(skip)
-            .limit(limitNum);
+        const unwindStage = { path: '$postingHistory', preserveNullAndEmptyArrays: false };
+        const postMatchStage = filterByUserId ? { 'postingHistory.userId': filterByUserId } : null;
+
+        const pipeline = [
+            { $match: matchStage },
+            { $unwind: unwindStage },
+            ...(postMatchStage ? [{ $match: postMatchStage }] : []),
+            { $sort: { createdAt: -1 } },
+            {
+                $facet: {
+                    totalCount: [{ $count: 'total' }],
+                    rows: [
+                        { $skip: skip },
+                        { $limit: limitNum },
+                        {
+                            $project: {
+                                _id: 1,
+                                year: 1, make: 1, model: 1, vin: 1, images: 1, price: 1, status: 1, createdAt: 1,
+                                aiContent: 1,
+                                postingHistory: ['$postingHistory'],
+                            },
+                        },
+                    ],
+                },
+            },
+        ];
+
+        const [result] = await Vehicle.aggregate(pipeline);
+        const total = result?.totalCount?.[0]?.total ?? 0;
+        const rows = result?.rows ?? [];
+
+        // Resolve profile names for postingHistory.profileId (can be _id or uniqueId)
+        const profileNameByKey = new Map();
+        const pairs = new Set();
+        rows.forEach((row) => {
+            const posting = row.postingHistory?.[0];
+            const pid = posting?.profileId;
+            const uid = posting?.userId?.toString?.() ?? posting?.userId;
+            if (pid && uid) pairs.add(JSON.stringify([uid, pid]));
+        });
+        const isObjectId = (s) => typeof s === 'string' && /^[0-9a-fA-F]{24}$/.test(s);
+        for (const pairStr of pairs) {
+            const [userId, profileId] = JSON.parse(pairStr);
+            let profile = null;
+            if (isObjectId(profileId)) {
+                profile = await ChromeProfile.findById(profileId).select('name').lean();
+            } else {
+                profile = await ChromeProfile.findOne({ user: userId, uniqueId: profileId }).select('name').lean();
+            }
+            profileNameByKey.set(pairStr, profile?.name ?? null);
+        }
 
         const baseUrl = getBaseUrl(req);
-        const formattedVehicles = vehicles.map(vehicle => {
-            const v = vehicle.toObject();
+        const formattedVehicles = rows.map((row) => {
+            const v = { ...row, postingHistory: row.postingHistory || [] };
+            const posting = v.postingHistory?.[0];
+            if (posting) {
+                const uid = posting.userId?.toString?.() ?? posting.userId;
+                const key = uid && posting.profileId ? JSON.stringify([uid, posting.profileId]) : null;
+                posting.profileName = key ? (profileNameByKey.get(key) ?? null) : null;
+            }
             if (v.images && v.images.length > 0) {
-                v.images = v.images.map(url => toFullUrl(url, baseUrl));
+                v.images = v.images.map((url) => toFullUrl(url, baseUrl));
             }
             return v;
         });
@@ -340,7 +388,7 @@ router.get('/user-posts', protect, async (req, res) => {
             vehicles: formattedVehicles,
             total,
             page: pageNum,
-            pages: Math.ceil(total / limitNum)
+            pages: Math.ceil(total / limitNum),
         });
     } catch (error) {
         res.status(500).json({ message: error.message });

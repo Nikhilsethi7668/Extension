@@ -24,8 +24,9 @@ export const SocketProvider = ({ children }) => {
         const organizationId = user.organization?._id || user.organization;
         if (!organizationId) return;
 
-        // Initialize Socket
-        const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com', {
+        // Socket connects to origin (no /api path)
+        const apiOrigin = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com').replace(/\/api\/?$/, '');
+        const newSocket = io(apiOrigin, {
             withCredentials: true,
             transports: ['websocket', 'polling'],
             auth: {

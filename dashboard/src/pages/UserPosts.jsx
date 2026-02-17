@@ -150,66 +150,77 @@ const UserPosts = () => {
                                     <TableCell>Price</TableCell>
                                     <TableCell>Status</TableCell>
                                     <TableCell>Posted By</TableCell>
+                                    <TableCell>Profile</TableCell>
                                     <TableCell>Date Created</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
                                 {loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} align="center" sx={{ py: 4 }}><CircularProgress /></TableCell>
+                                        <TableCell colSpan={6} align="center" sx={{ py: 4 }}><CircularProgress /></TableCell>
                                     </TableRow>
                                 ) : vehicles.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
+                                        <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
                                             <Typography color="text.secondary">No posts found matching criteria.</Typography>
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    vehicles.map((v) => (
-                                        <TableRow key={v._id} hover>
-                                            <TableCell>
-                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                                    <Box
-                                                        component="img"
-                                                        src={v.images?.[0] || '/placeholder.png'}
-                                                        sx={{ width: 60, height: 40, objectFit: 'cover', borderRadius: 1 }}
-                                                    />
-                                                    <Box>
-                                                        <Typography variant="subtitle2" fontWeight={600}>
-                                                            {v.year} {v.make} {v.model}
-                                                        </Typography>
-                                                        <Typography variant="caption" color="text.secondary">
-                                                            {v.vin}
-                                                        </Typography>
+                                    vehicles.map((v) => {
+                                        const posting = v.postingHistory?.[0];
+                                        const rowKey = posting?._id ? `${v._id}-${posting._id}` : v._id;
+                                        return (
+                                            <TableRow key={rowKey} hover>
+                                                <TableCell>
+                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                                        <Box
+                                                            component="img"
+                                                            src={v.images?.[0] || '/placeholder.png'}
+                                                            sx={{ width: 60, height: 40, objectFit: 'cover', borderRadius: 1 }}
+                                                        />
+                                                        <Box>
+                                                            <Typography variant="subtitle2" fontWeight={600}>
+                                                                {v.year} {v.make} {v.model}
+                                                            </Typography>
+                                                            <Typography variant="caption" color="text.secondary">
+                                                                {v.vin}
+                                                            </Typography>
+                                                        </Box>
                                                     </Box>
-                                                </Box>
-                                            </TableCell>
-                                            <TableCell>
-                                                ${Number(v.price).toLocaleString()}
-                                            </TableCell>
-                                            <TableCell>
-                                                <Chip 
-                                                    label={v.status} 
-                                                    size="small" 
-                                                    color={v.status === 'posted' ? 'success' : v.status === 'sold' ? 'error' : 'default'}
-                                                    variant="outlined"
-                                                />
-                                            </TableCell>
-                                            <TableCell>
-                                                 {/* Logic for showing who posted/assigned */}
-                                                {(v.postingHistory && v.postingHistory.length > 0) ? (
-                                                    v.postingHistory.map(u => (
-                                                        <Chip key={u._id} label={u.agentName} size="small" sx={{ mr: 0.5 }} />
-                                                    ))
-                                                ) : (
-                                                    <Typography variant="caption" color="text.secondary">Not posted</Typography>
-                                                )}
-                                            </TableCell>
-                                            <TableCell>
-                                                {new Date(v.createdAt).toLocaleDateString()}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
+                                                </TableCell>
+                                                <TableCell>
+                                                    ${Number(v.price).toLocaleString()}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Chip 
+                                                        label={v.status} 
+                                                        size="small" 
+                                                        color={v.status === 'posted' ? 'success' : v.status === 'sold' ? 'error' : 'default'}
+                                                        variant="outlined"
+                                                    />
+                                                </TableCell>
+                                                <TableCell>
+                                                    {posting?.agentName ? (
+                                                        <Chip label={posting.agentName} size="small" />
+                                                    ) : (
+                                                        <Typography variant="caption" color="text.secondary">—</Typography>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {posting?.profileName ? (
+                                                        <Typography variant="body2">{posting.profileName}</Typography>
+                                                    ) : (
+                                                        <Typography variant="caption" color="text.secondary">—</Typography>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {posting?.timestamp
+                                                        ? new Date(posting.timestamp).toLocaleDateString()
+                                                        : new Date(v.createdAt).toLocaleDateString()}
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    })
                                 )}
                             </TableBody>
                         </Table>

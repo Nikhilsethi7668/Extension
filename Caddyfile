@@ -1,0 +1,4 @@
+# Map https://api.flashfender.com to the API container (port 5573)
+api.flashfender.com {
+    reverse_proxy api:5573
+}

@@ -1,7 +1,9 @@
 import axios from 'axios';
 
-// Get base URL from environment variable or use default
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com') + '/api';
+// Base URL: always exactly one /api (strip any trailing /api from env then add once)
+let base = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com').replace(/\/+$/, '');
+while (base.endsWith('/api')) base = base.slice(0, -4);
+const API_BASE_URL = base ? `${base}/api` : 'https://api.flashfender.com/api';
 
 // Create axios instance with base URL
 const apiClient = axios.create({

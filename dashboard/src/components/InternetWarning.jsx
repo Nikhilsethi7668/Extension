@@ -1,64 +1,42 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Alert, Snackbar, Box } from '@mui/material';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import WifiOffIcon from '@mui/icons-material/WifiOff';
-import useInternetMonitor from '../hooks/useInternetMonitor';
 
+/**
+ * Lightweight connection warning using only navigator.onLine and a simple check.
+ * Does not use useInternetMonitor to avoid "Invalid hook call" from multiple React copies.
+ */
 const InternetWarning = () => {
-    const { isUnstable, status, latency } = useInternetMonitor();
+    const [isOffline, setIsOffline] = useState(false);
 
-    // Determine message based on status
-    const getMessage = () => {
-        if (status === 'offline') {
-            return 'No Internet Connection - Please check your network';
-        } else if (status === 'poor') {
-            if (latency) {
-                return `Slow Internet (${latency}ms) - Please use a stable connection`;
-            }
-            return 'Unstable Internet - Please use a stable connection';
-        }
-        return '';
-    };
+    useEffect(() => {
+        const handleOffline = () => setIsOffline(true);
+        const handleOnline = () => setIsOffline(false);
+        setIsOffline(!navigator.onLine);
+        window.addEventListener('offline', handleOffline);
+        window.addEventListener('online', handleOnline);
+        return () => {
+            window.removeEventListener('offline', handleOffline);
+            window.removeEventListener('online', handleOnline);
+        };
+    }, []);
 
-    // Determine severity and icon
-    const getSeverity = () => {
-        return status === 'offline' ? 'error' : 'warning';
-    };
-
-    const getIcon = () => {
-        return status === 'offline' ? <WifiOffIcon /> : <WarningAmberIcon />;
-    };
+    if (!isOffline) return null;
 
     return (
         <Snackbar
-            open={isUnstable}
+            open
             anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
             sx={{ mt: 2 }}
         >
             <Alert
-                severity={getSeverity()}
-                icon={getIcon()}
-                sx={{
-                    minWidth: '320px',
-                    boxShadow: 3,
-                    '& .MuiAlert-icon': {
-                        fontSize: '24px',
-                        animation: status === 'offline' ? 'none' : 'pulse 2s infinite'
-                    },
-                    '@keyframes pulse': {
-                        '0%, 100%': {
-                            transform: 'scale(1)',
-                            opacity: 1
-                        },
-                        '50%': {
-                            transform: 'scale(1.1)',
-                            opacity: 0.8
-                        }
-                    }
-                }}
+                severity="error"
+                icon={<WifiOffIcon />}
+                sx={{ minWidth: '320px', boxShadow: 3 }}
             >
                 <Box sx={{ fontWeight: 600 }}>
-                    {getMessage()}
+                    No Internet Connection — Please check your network
                 </Box>
             </Alert>
         </Snackbar>

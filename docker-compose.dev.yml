@@ -46,7 +46,8 @@ services:
     ports:
       - "3682:3682"
     environment:
-      - VITE_API_BASE_URL=https://api.flashfender.com/api
+      - VITE_API_BASE_URL=https://api.flashfender.com
+      - VITE_HMR_PUBLIC_HOST=app.flashfender.com
     volumes:
       - ./dashboard:/app
       - /app/node_modules
@@ -80,9 +81,24 @@ services:
     networks:
       - extension-network
 
+  # Reverse proxy: https://api.flashfender.com -> api:5573
+  caddy:
+    image: caddy:latest
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+    depends_on:
+      - api
+    networks:
+      - extension-network
+
 networks:
   extension-network:
     driver: bridge
 
 volumes:
   mongo-data:
+  caddy_data:
