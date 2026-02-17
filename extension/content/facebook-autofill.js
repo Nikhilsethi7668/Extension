@@ -458,33 +458,30 @@
           console.log('Next button clicked. Waiting for Publish button...');
           await sleep(3000); // Wait for next page/step
 
-          // Auto-Click PUBLISH
+          // Auto-Click PUBLISH — only update status when button is actually found and clicked
           console.log('Auto-clicking "Publish" button...');
-          await clickPublishButton();
-          if (postData.postingId) {
+          const publishClicked = await clickPublishButton();
+          if (publishClicked && postData.postingId) {
             safeChromeRuntimeSendMessage({
               action: 'updateInBrowserStatus',
               postingId: postData.postingId,
               inBrowserStatus: 'clicked publish'
             });
-          }
-
-          // Report success for queue
-          if (postData.postingId) {
             console.log('Reporting queue success...');
-            // Give it a moment to register the click
             setTimeout(() => {
               chrome.runtime.sendMessage({
                 action: 'posting_result',
                 data: {
                   postingId: postData.postingId,
                   jobId: postData.jobId,
-                  vehicleId: postData._id || postData.vehicleId, // Pass vehicleId
+                  vehicleId: postData._id || postData.vehicleId,
                   status: 'completed',
                   listingUrl: window.location.href
                 }
               });
             }, 1000);
+          } else if (!publishClicked) {
+            console.log('Publish button not found yet; monitor will report on manual click.');
           }
         } else {
           console.error('Could not find or click "Next" button');
