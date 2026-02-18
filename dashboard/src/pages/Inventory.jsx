@@ -1797,7 +1797,7 @@ const Inventory = () => {
                 <DialogTitle>Regenerate AI Image</DialogTitle>
                 <DialogContent>
                     <Typography variant="body2" color="text.secondary" gutterBottom>
-                        Choose a prompt to regenerate this AI image from its original. The original source image will be used with the new prompt.
+                        You selected an AI-generated image. We use its URL to look up the original source image, then regenerate from that original with your new prompt below.
                     </Typography>
                     <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
                         <FormControl fullWidth size="small">
