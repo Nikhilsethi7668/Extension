@@ -1143,30 +1143,56 @@ router.post('/:id/regenerate-ai-image', protect, async (req, res) => {
     }
 
     try {
+        // Normalize URL for lookup (trim; avoid encoding/whitespace mismatches)
+        const normalizeUrl = (u) => (typeof u === 'string' ? u.trim() : u) || '';
+        const needle = normalizeUrl(imageUrl);
+
+        // Resolve original source from AI-generated image URL: search all userAIContent mappings
+        // (user passes the AI image URL; we need the original to call regenerate)
+        let mapping = null;
+        let ownerUserContent = null;
+        if (vehicle.userAIContent && Array.isArray(vehicle.userAIContent)) {
+            for (const uc of vehicle.userAIContent) {
+                const m = uc.imageMappings?.find(m => normalizeUrl(m.processedUrl) === needle);
+                if (m) {
+                    mapping = m;
+                    ownerUserContent = uc;
+                    break;
+                }
+            }
+        }
+        const originalUrl = mapping ? mapping.originalUrl : null;
+        if (!originalUrl) {
+            res.status(400).json({
+                message: 'Original image not found for this AI image. The regenerate API requires the AI-generated image URL so we can look up its original source; no mapping was found.',
+                imageUrl
+            });
+            return;
+        }
         const userContent = vehicle.userAIContent?.find(c => c.userId && c.userId.toString() === req.user._id.toString());
-        const mapping = userContent?.imageMappings?.find(m => m.processedUrl === imageUrl);
-        const originalUrl = mapping ? mapping.originalUrl : imageUrl;
         const promptToUse = prompt || 'Enhance image';
 
         const aiResult = await regenerateImageWithAI(originalUrl, promptToUse, promptId);
         const newProcessedUrl = aiResult.processedUrl;
 
-        if (userContent) {
-            const aiIdx = userContent.aiImages?.indexOf(imageUrl);
+        // Update the owner's userContent (whoever had the original→processed mapping)
+        const contentToUpdate = ownerUserContent || userContent;
+        if (contentToUpdate) {
+            const aiIdx = contentToUpdate.aiImages?.findIndex(url => normalizeUrl(url) === needle);
             if (aiIdx !== undefined && aiIdx >= 0) {
-                userContent.aiImages[aiIdx] = newProcessedUrl;
+                contentToUpdate.aiImages[aiIdx] = newProcessedUrl;
             }
-            const mapIdx = userContent.imageMappings?.findIndex(m => m.processedUrl === imageUrl);
+            const mapIdx = contentToUpdate.imageMappings?.findIndex(m => normalizeUrl(m.processedUrl) === needle);
             if (mapIdx !== undefined && mapIdx >= 0) {
-                userContent.imageMappings[mapIdx].processedUrl = newProcessedUrl;
+                contentToUpdate.imageMappings[mapIdx].processedUrl = newProcessedUrl;
             } else {
-                userContent.imageMappings = userContent.imageMappings || [];
-                userContent.imageMappings.push({ originalUrl, processedUrl: newProcessedUrl });
+                contentToUpdate.imageMappings = contentToUpdate.imageMappings || [];
+                contentToUpdate.imageMappings.push({ originalUrl, processedUrl: newProcessedUrl });
             }
-            userContent.updatedAt = new Date();
+            contentToUpdate.updatedAt = new Date();
         }
         if (vehicle.aiImages && Array.isArray(vehicle.aiImages)) {
-            const topIdx = vehicle.aiImages.indexOf(imageUrl);
+            const topIdx = vehicle.aiImages.findIndex(url => normalizeUrl(url) === needle);
             if (topIdx >= 0) vehicle.aiImages[topIdx] = newProcessedUrl;
         }
         await vehicle.save();
@@ -2359,13 +2385,13 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
 
         for (const res of results) {
             if (res.success) {
-                    // OLD: vehicle.images.push(res.processed);
-                    
-                    // NEW: Store in User Content
+                    // Store in User Content (so regenerate can resolve original from AI image URL)
                     userContent.aiImages.push(res.processed);
-                    
-                    // REMOVED mapping push to prevent replacement. We want to Append.
-                    // userContent.imageMappings.push(...)
+                    userContent.imageMappings = userContent.imageMappings || [];
+                    userContent.imageMappings.push({
+                        originalUrl: res.original,
+                        processedUrl: res.processed
+                    });
 
                 processedCount++;
             }
