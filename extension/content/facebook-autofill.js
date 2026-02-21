@@ -129,6 +129,15 @@
     return false;
   });
 
+  // Resume filling when user brings tab back (e.g. after un-minimizing browser)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && pendingPost && filledFields.size < 15 && !isFilling) {
+      console.log('Tab visible again, resuming form fill');
+      if (!observer) startObserver();
+      setTimeout(() => attemptAutoFill(), 300);
+    }
+  });
+
   // Initialize the autofill agent
   init();
 

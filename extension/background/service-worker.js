@@ -207,9 +207,9 @@ console.log('Service Worker Logic Starting...');
 // Logic from service-worker.js, assuming CONFIG and io are already loaded globally
 
 const BACKEND_URL = (typeof CONFIG !== 'undefined' && CONFIG.backendUrl) ? CONFIG.backendUrl : 'https://api.flashfender.com/api';
-// Custom Polling System (Socket.IO replacement for Service Workers)
-// Service workers cannot use XMLHttpRequest, so we use fetch-based polling
-let pollingInterval = null;
+// Custom Polling System - uses chrome.alarms so it keeps running when SW is terminated (e.g. browser minimized)
+const POLL_ALARM_NAME = 'extensionEventPoll';
+const POLL_PERIOD_MINUTES = 0.084; // ~5 seconds
 let isPolling = false;
 let sessionData = { token: null, apiKey: null, orgId: null, profileId: null };
 
@@ -264,62 +264,48 @@ function refreshProfileIdFromStorage() {
 }
 
 function startPolling() {
-  if (isPolling) {
-    console.log('[Extension] Polling already active');
-    return;
-  }
-
+  if (isPolling) return;
   isPolling = true;
-  console.log('[Extension] Starting event polling...');
-
-  // Poll every 5 seconds; re-read profileId each time so each Chrome profile uses its own stored ID
-  pollingInterval = setInterval(async () => {
-    try {
-      const profileId = await new Promise((resolve) => {
-        chrome.storage.local.get(['chromeProfileId'], (result) => {
-          const id = result.chromeProfileId ? String(result.chromeProfileId).trim() : null;
-          sessionData.profileId = id;
-          resolve(id);
-        });
-      });
-      const pollUrl = new URL(`${BACKEND_URL}/events/poll`);
-      if (profileId) {
-        pollUrl.searchParams.set('profileId', profileId);
-      }
-
-      const response = await fetch(pollUrl.toString(), {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': sessionData.apiKey || '',
-          'x-org-id': sessionData.orgId || ''
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Process any pending events
-        if (data.events && data.events.length > 0) {
-          console.log(`[Extension] Received ${data.events.length} events`);
-          
-          for (const event of data.events) {
-            handlePolledEvent(event);
-          }
-        }
-      }
-    } catch (error) {
-      console.error('[Extension] Polling error:', error);
-    }
-  }, 5000);
+  console.log('[Extension] Starting event polling (alarm-based, keeps running when minimized)');
+  chrome.alarms.create(POLL_ALARM_NAME, { periodInMinutes: POLL_PERIOD_MINUTES });
 }
 
 function stopPolling() {
-  if (pollingInterval) {
-    clearInterval(pollingInterval);
-    pollingInterval = null;
+  chrome.alarms.clear(POLL_ALARM_NAME).then(() => {
     isPolling = false;
     console.log('[Extension] Stopped event polling');
+  });
+}
+
+async function runOnePoll() {
+  if (!sessionData.apiKey || !sessionData.orgId) return;
+  try {
+    const profileId = await new Promise((resolve) => {
+      chrome.storage.local.get(['chromeProfileId'], (result) => {
+        const id = result.chromeProfileId ? String(result.chromeProfileId).trim() : null;
+        sessionData.profileId = id;
+        resolve(id);
+      });
+    });
+    const pollUrl = new URL(`${BACKEND_URL}/events/poll`);
+    if (profileId) pollUrl.searchParams.set('profileId', profileId);
+    const response = await fetch(pollUrl.toString(), {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': sessionData.apiKey || '',
+        'x-org-id': sessionData.orgId || ''
+      }
+    });
+    if (response.ok) {
+      const data = await response.json();
+      if (data.events && data.events.length > 0) {
+        console.log(`[Extension] Received ${data.events.length} events`);
+        for (const event of data.events) handlePolledEvent(event);
+      }
+    }
+  } catch (error) {
+    console.error('[Extension] Polling error:', error);
   }
 }
 
@@ -400,36 +386,40 @@ async function handlePolledEvent(event) {
       }
     }
     
-    // Proceed with posting logic
+    // Proceed with posting logic: reuse existing tab or create new tab in current window
+    const createUrl = "https://www.facebook.com/marketplace/create/vehicle";
     chrome.tabs.query({ url: "https://www.facebook.com/marketplace/create/vehicle*" }, (tabs) => {
       const dataToUse = data.vehicleData || data;
       dataToUse.uploadImages = true;
       dataToUse.price = dataToUse.price || 0;
-
       if (data.postingId) dataToUse.postingId = data.postingId;
       if (data.jobId) dataToUse.jobId = data.jobId;
 
       if (tabs && tabs.length > 0) {
         const tabId = tabs[0].id;
-        // Verify it's effectively the same logic as creating new: Redirect to fresh URL
-        chrome.tabs.update(tabId, { 
-            active: true, 
-            url: "https://www.facebook.com/marketplace/create/vehicle" 
-        }, (tab) => {
-            // Wait for reload to complete (simple delay strategy matches existing create logic)
-            setTimeout(() => {
-                handleFillFormWithTestData(dataToUse, tabId);
-            }, 5000);
+        chrome.tabs.update(tabId, { active: true, url: createUrl }, () => {
+          chrome.tabs.get(tabId, (tab) => {
+            if (tab && tab.windowId) chrome.windows.update(tab.windowId, { focused: true });
+            scheduleDelayedFormFill(dataToUse, tabId);
+          });
         });
       } else {
-        chrome.tabs.create({ url: "https://www.facebook.com/marketplace/create/vehicle" }, (tab) => {
-          setTimeout(() => {
-            handleFillFormWithTestData(dataToUse, tab.id);
-          }, 5000);
+        chrome.tabs.create({ url: createUrl }, (tab) => {
+          scheduleDelayedFormFill(dataToUse, tab.id);
         });
       }
     });
   }
+}
+
+// Delayed form fill via alarm so it runs even after SW was killed (e.g. user minimized browser)
+const DELAYED_FILL_ALARM = 'delayedFormFill';
+const FILL_DELAY_MS = 5000;
+
+function scheduleDelayedFormFill(dataToUse, tabId) {
+  chrome.storage.local.set({ pendingFormFill: { data: dataToUse, tabId, createdAt: Date.now() } }, () => {
+    chrome.alarms.create(DELAYED_FILL_ALARM, { when: Date.now() + FILL_DELAY_MS });
+  });
 }
 
 // Helper to update status
@@ -502,6 +492,19 @@ let socket = {
     }
   }
 };
+
+// When SW starts (e.g. after being killed when browser was minimized), re-init session and polling
+function initOnWake() {
+  chrome.storage.local.get(['userSession'], (result) => {
+    if (result.userSession) {
+      sessionData.apiKey = result.userSession.apiKey;
+      sessionData.token = result.userSession.token;
+      if (!isPolling) initializeSocket(result.userSession.token, result.userSession.apiKey);
+      else refreshProfileIdFromStorage();
+    }
+  });
+}
+initOnWake();
 
 chrome.storage.local.get(['userSession'], (result) => {
     if (result.userSession) {
@@ -968,7 +971,21 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name === 'checkConnection') {
         checkConnection();
     }
-    // ... existing alarm handler ...
+    if (alarm.name === POLL_ALARM_NAME) {
+        runOnePoll();
+    }
+    if (alarm.name === DELAYED_FILL_ALARM) {
+        chrome.storage.local.get(['pendingFormFill'], (result) => {
+            const pending = result.pendingFormFill;
+            chrome.storage.local.remove('pendingFormFill');
+            if (pending && pending.data && pending.tabId != null) {
+                const age = Date.now() - (pending.createdAt || 0);
+                if (age < 10 * 60 * 1000) {
+                    handleFillFormWithTestData(pending.data, pending.tabId).catch(e => console.error('[Extension] Delayed fill failed:', e));
+                }
+            }
+        });
+    }
 });
 
 chrome.runtime.onStartup.addListener(() => {
