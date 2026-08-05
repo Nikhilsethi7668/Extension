@@ -1,4 +1,5 @@
 import puppeteer from 'puppeteer';
+import fs from 'fs';
 
 /**
  * Scrapes Brown Boys Auto listing page with infinite scroll
@@ -10,9 +11,10 @@ import puppeteer from 'puppeteer';
 export async function scrapeBrownBoysListingWithScroll(url, targetCount = 50) {
     console.log(`[Puppeteer] 🚀 Starting browser-based scraping for ${targetCount} vehicles`);
 
+    const exePath = fs.existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined;
     const browser = await puppeteer.launch({
         headless: true,
-        executablePath: '/usr/bin/chromium',
+        executablePath: exePath,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -143,9 +145,10 @@ export async function scrapeBrownBoysListingWithScroll(url, targetCount = 50) {
 export async function scrapeVehicleDetailImages(url) {
     console.log(`[Puppeteer] 📸 Starting fallback image scrape for: ${url}`);
 
+    const exePath = fs.existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined;
     const browser = await puppeteer.launch({
         headless: true,
-        executablePath: '/usr/bin/chromium',
+        executablePath: exePath,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',

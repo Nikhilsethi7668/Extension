@@ -5,8 +5,9 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win --x64",
+    "build": "electron-builder --mac",
     "build:mac": "electron-builder --mac",
+    "build:win": "electron-builder --win --x64",
     "dist": "electron-builder"
   },
   "author": "Flash Fender",
@@ -25,6 +26,54 @@
   "build": {
     "appId": "com.flashfender.autoposter",
     "productName": "Flash Fender Auto-Poster",
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.business",
+      "icon": "icon.png",
+      "bundleVersion": "1.0.0",
+      "minimumSystemVersion": "10.13.0",
+      "darkModeSupport": true,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false,
+      "type": "distribution"
+    },
+    "dmg": {
+      "title": "Flash Fender Auto-Poster ${version}",
+      "icon": "icon.png",
+      "background": null,
+      "window": {
+        "width": 540,
+        "height": 380
+      },
+      "contents": [
+        {
+          "x": 140,
+          "y": 180,
+          "type": "file"
+        },
+        {
+          "x": 400,
+          "y": 180,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
     "win": {
       "icon": "icon.png",
       "target": [
@@ -33,12 +82,6 @@
       "verifyUpdateCodeSignature": false,
       "sign": null,
       "forceCodeSigning": false
-    },
-    "mac": {
-      "target": [
-        "zip"
-      ],
-      "category": "public.app-category.business"
     },
     "nsis": {
       "oneClick": false,
@@ -49,7 +92,13 @@
     "files": [
       "**/*",
       "!**/*.md",
-      "!.gitignore"
-    ]
+      "!.gitignore",
+      "!dist",
+      "!.git"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    }
   }
 }

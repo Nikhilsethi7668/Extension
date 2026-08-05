@@ -27,71 +27,71 @@ export const QueueProvider = ({ children }) => {
     useEffect(() => {
         const storedUser = localStorage.getItem('user');
         if (!storedUser) return;
-        
+
         const user = JSON.parse(storedUser);
         if (!user || !user._id || !user.organization) return;
 
-        const API_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com');
-        
+        const API_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5573');
+
         const newSocket = io(API_URL, {
-             auth: {
-                 clientType: 'dashboard',
-                 token: user.token
-             },
-             query: {
-                 clientType: 'dashboard',
-                 userId: user._id, 
-                 orgId: user.organization._id || user.organization
-             }
+            auth: {
+                clientType: 'dashboard',
+                token: user.token
+            },
+            query: {
+                clientType: 'dashboard',
+                userId: user._id,
+                orgId: user.organization._id || user.organization
+            }
         });
 
         newSocket.on('connect', () => {
-             console.log('[Dashboard Socket] Connected:', newSocket.id);
-             // Join rooms explicitly if needed, but backend handles it on 'register-client' usually?
-             // Backend index.js handles 'register-client' event. Let's emit it.
-             newSocket.emit('register-client', {
-                 orgId: user.organization._id || user.organization,
-                 userId: user._id,
-                 clientType: 'dashboard'
-             });
+            console.log('[Dashboard Socket] Connected:', newSocket.id);
+            // Join rooms explicitly if needed, but backend handles it on 'register-client' usually?
+            // Backend index.js handles 'register-client' event. Let's emit it.
+            newSocket.emit('register-client', {
+                orgId: user.organization._id || user.organization,
+                userId: user._id,
+                clientType: 'dashboard'
+            });
         });
 
         newSocket.on('queue-progress', (data) => {
-             console.log('[Dashboard Socket] Progress:', data);
-             if (data.type === 'progress') {
-                     setQueueProgress(prev => ({
-                     ...prev,
-                     active: true,
-                     message: data.message,
-                     // If adding new jobs, percent might change, so we trust backend calculation usually.
-                     // But if it jumps to 0 inappropriately, we can guard it?
-                     // Backend now re-emits correct global percent immediately. 
-                     // Let's just trust data.percent but ensure we don't accidentally hide it.
-                     percent: data.percent,
-                     completed: false,
-                     error: false
-                 }));
-             } else if (data.type === 'complete') {
-                 setQueueProgress({
-                     active: true,
-                     message: data.message,
-                     percent: 100,
-                     completed: true,
-                     error: false
-                 });
-                 // Minimize after delay
-                 setTimeout(() => {
+            console.log('[Dashboard Socket] Progress:', data);
+            if (data.type === 'progress') {
+                setQueueProgress(prev => ({
+                    ...prev,
+                    active: true,
+                    message: data.message,
+                    // If adding new jobs, percent might change, so we trust backend calculation usually.
+                    // But if it jumps to 0 inappropriately, we can guard it?
+                    // Backend now re-emits correct global percent immediately. 
+                    // Let's just trust data.percent but ensure we don't accidentally hide it.
+                    percent: data.percent,
+                    completed: false,
+                    error: false
+                }));
+            } else if (data.type === 'complete') {
+                setQueueProgress({
+                    active: true,
+                    message: data.message,
+                    percent: 100,
+                    completed: true,
+                    error: false
+                });
+                // Minimize after delay
+                setTimeout(() => {
                     setQueueProgress(prev => ({ ...prev, active: false }));
-                 }, 5000);
-             } else if (data.type === 'error') {
-                 setQueueProgress({
-                     active: true, 
-                     message: data.message, 
-                     percent: 0, 
-                     error: true,
-                     completed: false,
-                 });
-             }
+                }, 5000);
+            } else if (data.type === 'error') {
+                setQueueProgress({
+                    active: true,
+                    message: data.message,
+                    percent: 0,
+                    error: true,
+                    completed: false,
+                });
+            }
         });
 
         setSocket(newSocket);
@@ -120,14 +120,14 @@ export const QueueProvider = ({ children }) => {
             });
         }
 
-        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com') + '/api';
+        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5573') + '/api';
 
         try {
             // We use simple FETCH now, because socket will handle updates!
             // No need to read stream anymore if backend uses queue.
             // But IF backend sends stream for "initial" progress, we can keep it.
             // QueueManager "addJob" returns immediately.
-            
+
             const response = await fetch(`${API_BASE_URL}/vehicles/queue-posting`, {
                 method: 'POST',
                 headers: {
@@ -141,10 +141,10 @@ export const QueueProvider = ({ children }) => {
                 const err = await response.json();
                 throw new Error(err.message || 'Queue failed');
             }
-            
+
             const data = await response.json();
             // Response is 202 Accepted { success: true, message: ... }
-            
+
             // We rely on socket for further updates.
             setQueueProgress(prev => ({
                 ...prev,
@@ -155,10 +155,10 @@ export const QueueProvider = ({ children }) => {
 
         } catch (error) {
             console.error('Queue Error:', error);
-            setQueueProgress({ 
-                active: true, 
-                message: 'Error: ' + error.message, 
-                percent: 0, 
+            setQueueProgress({
+                active: true,
+                message: 'Error: ' + error.message,
+                percent: 0,
                 error: true,
                 completed: false
             });
@@ -177,7 +177,7 @@ export const QueueProvider = ({ children }) => {
             error: false
         });
 
-        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com') + '/api';
+        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5573') + '/api';
 
         try {
             const response = await fetch(`${API_BASE_URL}/vehicles/post-now`, {
@@ -193,23 +193,23 @@ export const QueueProvider = ({ children }) => {
                 const err = await response.json();
                 throw new Error(err.message || 'Post Now failed');
             }
-            
+
             const data = await response.json();
-            
+
             setQueueProgress(prev => ({
                 ...prev,
                 message: data.message || 'Posting started.',
                 percent: 0
             }));
-            
+
             if (onSuccess) onSuccess(data);
 
         } catch (error) {
             console.error('Post Now Error:', error);
-            setQueueProgress({ 
-                active: true, 
-                message: 'Error: ' + error.message, 
-                percent: 0, 
+            setQueueProgress({
+                active: true,
+                message: 'Error: ' + error.message,
+                percent: 0,
                 error: true,
                 completed: false
             });
@@ -239,7 +239,7 @@ export const QueueProvider = ({ children }) => {
             completed: false
         });
 
-        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com') + '/api';
+        const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5573') + '/api';
 
         try {
             const response = await fetch(`${API_BASE_URL}/vehicles/${vehicleId}/batch-edit-images`, {
@@ -271,7 +271,7 @@ export const QueueProvider = ({ children }) => {
                     if (!line.trim()) continue;
                     try {
                         const data = JSON.parse(line);
-                        
+
                         if (data.type === 'progress') {
                             setAiProgress(prev => ({
                                 ...prev,
@@ -286,14 +286,14 @@ export const QueueProvider = ({ children }) => {
                                 percent: 100,
                                 completed: true
                             });
-                            
+
                             // Call success callback (e.g., refresh vehicle)
                             if (onSuccess) onSuccess(data.data);
 
                             // Auto-dismiss after 5 seconds
                             setTimeout(() => {
                                 setAiProgress(prev => ({ ...prev, active: false }));
-                            }, 3000); 
+                            }, 3000);
                         } else if (data.type === 'error') {
                             throw new Error(data.message);
                         }
@@ -305,11 +305,11 @@ export const QueueProvider = ({ children }) => {
 
         } catch (error) {
             console.error('AI Edit Error:', error);
-            setAiProgress({ 
-                active: true, 
-                message: 'Error: ' + error.message, 
-                percent: 0, 
-                error: true 
+            setAiProgress({
+                active: true,
+                message: 'Error: ' + error.message,
+                percent: 0,
+                error: true
             });
             // Auto hide error after delay
             setTimeout(() => {
@@ -323,7 +323,7 @@ export const QueueProvider = ({ children }) => {
     }, []);
 
     return (
-        <QueueContext.Provider value={{ 
+        <QueueContext.Provider value={{
             queueProgress, queuePosting, postNow, dismissProgress,
             aiProgress, aiEditing, dismissAiProgress
         }}>

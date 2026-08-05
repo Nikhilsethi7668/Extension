@@ -18,7 +18,7 @@ const AutomationEngine = require('./automation-engine');
 
 // Default configuration
 const DEFAULT_CONFIG = {
-  apiUrl: 'https://api.flashfender.com/api',
+  apiUrl: 'http://localhost:5573/api',
   apiToken: '',
   pollingInterval: 5, // minutes
   autoStart: false,
@@ -169,14 +169,6 @@ function loadConfig() {
     if (fs.existsSync(CONFIG_PATH)) {
       const data = fs.readFileSync(CONFIG_PATH, 'utf8');
       const savedConfig = JSON.parse(data);
-
-      // Check if saved API URL matches default - if not, force reset
-      if (savedConfig.apiUrl !== DEFAULT_CONFIG.apiUrl) {
-        console.log('API URL changed, resetting config and session...');
-        clearSession();
-        fs.unlinkSync(CONFIG_PATH);
-        return DEFAULT_CONFIG;
-      }
 
       const finalConfig = { ...DEFAULT_CONFIG, ...savedConfig };
 

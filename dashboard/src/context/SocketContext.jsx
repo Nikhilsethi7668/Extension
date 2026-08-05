@@ -25,7 +25,7 @@ export const SocketProvider = ({ children }) => {
         if (!organizationId) return;
 
         // Initialize Socket
-        const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'https://api.flashfender.com', {
+        const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5573', {
             withCredentials: true,
             transports: ['websocket', 'polling'],
             auth: {
@@ -35,10 +35,10 @@ export const SocketProvider = ({ children }) => {
 
         newSocket.on('connect', () => {
             console.log('[SocketContext] Connected:', newSocket.id);
-            newSocket.emit('register-client', { 
-                orgId: organizationId, 
-                userId: user._id, 
-                clientType: 'dashboard' 
+            newSocket.emit('register-client', {
+                orgId: organizationId,
+                userId: user._id,
+                clientType: 'dashboard'
             });
         });
 

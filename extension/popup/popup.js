@@ -1134,7 +1134,7 @@ async function testConnection() {
     }
   } catch (error) {
     statusDiv.className = 'error';
-    statusDiv.innerHTML = '❌ Cannot connect to backend. Make sure server is running on https://api.flashfender.com';
+    statusDiv.innerHTML = '❌ Cannot connect to backend. Make sure server is running on ' + API_CONFIG.baseUrl;
     showNotification('Backend connection failed', 'error');
   } finally {
     testBtn.disabled = false;

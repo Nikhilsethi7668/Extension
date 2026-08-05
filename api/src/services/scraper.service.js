@@ -2,13 +2,161 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { scrapeBrownBoysViaAPI } from '../utils/brownBoysApiScraper.js';
 
+function extractVehiclesFromNextData(json, sourceUrl) {
+    const pageProps = json?.props?.pageProps || {};
+    let rawItems = [];
+
+    // Path 1: pageProps.preFetchedData.vehiclesData
+    if (Array.isArray(pageProps.preFetchedData?.vehiclesData)) {
+        rawItems = pageProps.preFetchedData.vehiclesData;
+    }
+    // Path 2: pageProps.preFetchedData.vehiclesData.results
+    else if (Array.isArray(pageProps.preFetchedData?.vehiclesData?.results)) {
+        rawItems = pageProps.preFetchedData.vehiclesData.results;
+    }
+    // Path 3: pageProps.vehiclesData (array)
+    else if (Array.isArray(pageProps.vehiclesData)) {
+        rawItems = pageProps.vehiclesData;
+    }
+    // Path 4: pageProps.vehiclesData.results (array)
+    else if (Array.isArray(pageProps.vehiclesData?.results)) {
+        rawItems = pageProps.vehiclesData.results;
+    }
+    // Path 5: pageProps.__eggsState.inventory (can be object or array)
+    else if (pageProps.__eggsState?.inventory) {
+        const inv = pageProps.__eggsState.inventory;
+        rawItems = Array.isArray(inv) ? inv : Object.values(inv);
+    }
+    // Path 6: pageProps.data (single vehicle detail page)
+    else if (pageProps.data?.Vehicle) {
+        rawItems = [pageProps.data];
+    }
+    // Path 7: pageProps.preFetchedData (if it's a detail page under new structure)
+    else if (pageProps.preFetchedData?.data?.Vehicle) {
+        const d = pageProps.preFetchedData.data;
+        const media = pageProps.preFetchedData.media || [];
+        d.MidVDSMedia = media;
+        rawItems = [d];
+    }
+    else if (pageProps.preFetchedData?.vehiclesData) {
+        const vData = pageProps.preFetchedData.vehiclesData;
+        rawItems = Array.isArray(vData) ? vData : [vData];
+    }
+
+    const vehicles = [];
+
+    rawItems.forEach(item => {
+        if (!item) return;
+
+        const info = item.Vehicle || item.vehicle_site_detail || item;
+        const make = info.make || 'Unknown';
+        const model = info.model || 'Unknown';
+        const year = Number(info.model_year) || Number(info.year) || 0;
+        const vin = info.vin_number || info.vin || `BROWNBOYS-${item.id}`;
+
+        if (!vin) return;
+
+        let vehicleUrl = sourceUrl;
+        if (item.id) {
+            if (item.slug) {
+                const slug = item.slug.startsWith('/') ? item.slug : `/${item.slug}`;
+                vehicleUrl = `https://www.brownboysauto.com${slug}`;
+            } else {
+                const makeSlug = make.replace(/\s+/g, '-');
+                const modelSlug = model.replace(/\s+/g, '-');
+                vehicleUrl = `https://www.brownboysauto.com/cars/used/${year}-${makeSlug}-${modelSlug}-${item.id}`;
+            }
+        }
+
+        const images = [];
+        if (Array.isArray(item.MidVDSMedia)) {
+            item.MidVDSMedia.forEach(media => {
+                const src = media.media_src || media.thumbnail_src;
+                if (src) {
+                    const fullImgUrl = src.startsWith('http') ? src : `https://www.brownboysauto.com${src}`;
+                    if (!images.includes(fullImgUrl)) {
+                        images.push(fullImgUrl);
+                    }
+                }
+            });
+        }
+        if (images.length === 0 && item.cover_image) {
+            const src = item.cover_image;
+            const fullImgUrl = src.startsWith('http') ? src : `https://www.brownboysauto.com${src}`;
+            images.push(fullImgUrl);
+        }
+
+        const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
+        const cleanImages = images.filter(img => img !== PLACEHOLDER_URL);
+
+        const transmission = info.Transmission?.name || info.transmission || '';
+        const drive_type = info.drive_type || info.drive_train || '';
+        const extColor = info.exterior_color?.name || info.Exterior_color || '';
+        const intColor = info.interior_color?.name || info.interior_color || '';
+        const fuelType = info.fuel_type || '';
+        const engine = info.engine_cylinders || info.engine_size || '';
+
+        const features = [];
+        if (info.standard) {
+            Object.values(info.standard).forEach(list => {
+                if (Array.isArray(list)) features.push(...list);
+            });
+        }
+
+        vehicles.push({
+            vin,
+            year,
+            make,
+            model,
+            trim: info.trim || '',
+            bodyStyle: info.body_style || '',
+            price: Number(item.sell_price) || Number(item.special_price) || 0,
+            mileage: Number(item.odometer) || 0,
+            stockNumber: item.stock_NO || item.stock_no_cast || '',
+            transmission,
+            drivetrain: drive_type,
+            exteriorColor: extColor,
+            interiorColor: intColor,
+            fuelType,
+            engine,
+            features,
+            images: cleanImages,
+            sourceUrl: vehicleUrl
+        });
+    });
+
+    return vehicles;
+}
+
 export const scrapeVehicle = async (url, options = {}) => {
     console.log('[Scraper] Start scraping:', url);
     // --- EARLY HANDLING FOR BROWN BOYS LISTING PAGES ---
-    // Go directly to our custom scraper function which handles Puppeteer/Proxies
     if (url.includes('brownboysauto.com') && (url.includes('/cars?') || url.match(/\/cars\/?$/))) {
-        console.log('[Scraper] Brown Boys listing URL detected - using direct API scraping (skip HTML fetch)');
+        console.log('[Scraper] Brown Boys listing URL detected - attempting direct HTML fetch first');
+        try {
+            const { data } = await axios.get(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                }
+            });
+            const $ = cheerio.load(data);
+            const nextDataScript = $('#__NEXT_DATA__').html();
+            if (nextDataScript) {
+                const json = JSON.parse(nextDataScript);
+                const vehicles = extractVehiclesFromNextData(json, url);
+                if (vehicles.length > 0) {
+                    console.log(`[Scraper] Successfully extracted ${vehicles.length} vehicles directly from listing HTML`);
+                    return {
+                        type: 'bulk_vehicles',
+                        vehicles: vehicles
+                    };
+                }
+            }
+        } catch (fetchError) {
+            console.warn('[Scraper] Direct listing HTML fetch failed, falling back to API scraper:', fetchError.message);
+        }
 
+        console.log('[Scraper] Using direct API scraping fallback');
         // Parse filters from URL
         const urlObj = new URL(url);
         
@@ -59,6 +207,7 @@ export const scrapeVehicle = async (url, options = {}) => {
             throw new Error(`Brown Boys API scraping failed: ${apiError.message}`);
         }
     }
+
 
     try {
         const { data } = await axios.get(url, {
@@ -155,9 +304,15 @@ export const scrapeVehicle = async (url, options = {}) => {
                     const pageProps = json.props?.pageProps || {};
 
                     // CASE 2: Detail Page (JSON approach)
-                    if (pageProps.data && pageProps.data.Vehicle) {
+                    let vJSON = pageProps.data;
+                    let media = [];
+                    if (!vJSON && pageProps.preFetchedData?.data) {
+                        vJSON = pageProps.preFetchedData.data;
+                        media = pageProps.preFetchedData.media || [];
+                    }
+
+                    if (vJSON && vJSON.Vehicle) {
                         console.log('[Scraper] Detail page data found via JSON');
-                        const vJSON = pageProps.data;
                         const vCore = vJSON.Vehicle;
 
                         const vehicleData = {
@@ -185,6 +340,19 @@ export const scrapeVehicle = async (url, options = {}) => {
                         if (!vehicleData.price) {
                             const priceText = $('.main-bg.text-white.position-absolute.rounded-pill').first().text().replace(/[^0-9]/g, '');
                             if (priceText) vehicleData.price = parseInt(priceText);
+                        }
+
+                        // Images from new media structure
+                        if (media && media.length > 0) {
+                            media.forEach(m => {
+                                const src = m.media_src || m.thumbnail_src;
+                                if (src) {
+                                    const fullImgUrl = src.startsWith('http') ? src : `https://www.brownboysauto.com${src}`;
+                                    if (!vehicleData.images.includes(fullImgUrl)) {
+                                        vehicleData.images.push(fullImgUrl);
+                                    }
+                                }
+                            });
                         }
 
                         // Images from thumbnails

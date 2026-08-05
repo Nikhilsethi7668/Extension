@@ -6,9 +6,11 @@ puppeteer.use(StealthPlugin());
 
 (async () => {
     console.log('Launching browser...');
+    const fs = await import('fs');
+    const exePath = fs.existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined;
     const browser = await puppeteer.launch({
         headless: 'new',
-        executablePath: '/usr/bin/chromium',
+        executablePath: exePath,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',

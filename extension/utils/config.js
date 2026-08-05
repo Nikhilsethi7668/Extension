@@ -10,7 +10,7 @@ var CONFIG = {
   version: '1.0.1',
   
   // Backend URL
-  backendUrl: 'https://api.flashfender.com/api',
+  backendUrl: 'http://localhost:5573/api',
 
   // Supported Sites
   supportedSites: [

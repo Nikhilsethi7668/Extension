@@ -2,6 +2,7 @@ import puppeteer from 'puppeteer-extra';
 import StealthPlugin from 'puppeteer-extra-plugin-stealth';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import fs from 'fs';
 
 // Add stealth plugin to bypass Cloudflare
 puppeteer.use(StealthPlugin());
@@ -415,9 +416,10 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
         console.log('[Puppeteer] 🌐 Launching stealth browser...');
 
         // Launch browser
+        const exePath = fs.existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined;
         browser = await puppeteer.launch({
             headless: 'new',
-            executablePath: '/usr/bin/chromium',
+            executablePath: exePath,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
@@ -691,9 +693,10 @@ async function scrapeWithPuppeteer(listingUrl, targetCount, existingVins, filter
                         let detailBrowser = null; // Renamed to avoid conflict with outer browser
                         let detailPage = null; // Renamed to avoid conflict with outer page
                         try {
+                            const detailExePath = fs.existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined;
                             detailBrowser = await puppeteer.launch({
                                 headless: 'new',
-                                executablePath: '/usr/bin/chromium',
+                                executablePath: detailExePath,
                                 args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--window-size=1920,1080']
                             });
                             detailPage = await detailBrowser.newPage();

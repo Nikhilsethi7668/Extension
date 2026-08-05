@@ -11,7 +11,7 @@ const connectDB = async () => {
         console.log(`[DB] Connection string: ${mongoUri.replace(/:[^:]*@/, ':****@')}`); // Hide password
         
         const conn = await mongoose.connect(mongoUri);
-        console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
+        console.log("MongoDB Connected");
     } catch (error) {
         console.error(`❌ MongoDB Connection Error: ${error.message}`);
         process.exit(1);
