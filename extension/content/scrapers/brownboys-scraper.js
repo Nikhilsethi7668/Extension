@@ -86,10 +86,27 @@
         data.images = scrapeImages();
 
         // Description
-        const descContainer = document.querySelector('.DetaileProductCustomrWeb-description-text');
+        const descContainer = document.querySelector('.DetaileProductCustomrWeb-description-text') || 
+                              document.querySelector('.vehicle-description') ||
+                              document.querySelector('#description');
         if (descContainer) {
-            data.description = descContainer.innerText.trim();
+            data.description = descContainer.textContent.trim();
         }
+
+        // Location
+        let location = '';
+        const locEl = document.querySelector('[data-cmp="listingTitleContainer"]') || 
+                      document.querySelector('.dealer-location') ||
+                      document.querySelector('.address');
+        if (locEl) {
+            const match = locEl.innerText.match(/([A-Z][a-z]+(?:\\s[A-Z][a-z]+)*),\\s([A-Z]{2})/);
+            if (match) location = `${match[1]}, ${match[2]}`;
+        }
+        if (!location) {
+            const match = document.body.innerText.match(/([A-Z][a-z]+(?:\\s[A-Z][a-z]+)*),\\s(BC|AB|ON|MB|SK|QC|NS|NB|PE|NL)\\s([A-Z]\\d[A-Z]\\s?\\d[A-Z]\\d)?/i);
+            if (match) location = `${match[1]}, ${match[2].toUpperCase()}`;
+        }
+        data.location = location || 'Vancouver, BC';
 
         cleanData(data);
         return data;
@@ -113,12 +130,15 @@
         const seenUrls = new Set();
         imgElements.forEach(img => {
             let src = img.src;
-            if (src && !seenUrls.has(src)) {
-                // Try to ensure high res if thumbnail
-                // Based on snippet: https://image123.azureedge.net/1452782bcltd/2023-Hyundai-Elantra-7720610853819123.jpg
-                // Thumbnails might act differently, but these look like full size in the slide
-                images.push(src);
-                seenUrls.add(src);
+            if (src) {
+                // Ensure high res if thumbnail is used in the main slide
+                src = src.replace('/thumb-', '/');
+                
+                // Filter out placeholder image
+                if (!src.includes('16487202666893896-12.png') && !seenUrls.has(src)) {
+                    images.push(src);
+                    seenUrls.add(src);
+                }
             }
         });
 

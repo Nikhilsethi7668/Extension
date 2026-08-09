@@ -571,18 +571,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 async function handleFetchImageBlob(url) {
     try {
         let fetchUrl = url;
+
+        // Backwards compatibility fix for older scraped vehicles
+        if (fetchUrl.includes('brownboysauto.com')) {
+            fetchUrl = fetchUrl.replace(/https?:\/\/(www\.)?brownboysauto\.com/g, 'https://hillzcdn.ca');
+            console.log(`[Extension] Rewrote legacy image URL to: ${fetchUrl}`);
+        }
         // Handle relative URLs
         if (url.startsWith('/')) {
-             // Ensure we use the correct backend URL
              const baseUrl = CONFIG.backendUrl || 'http://localhost:5573/api';
-             // Remove /api if it exists in base and we are appending a path that might assume root?
-             // Actually, uploads are usually under root, not /api.
-             // e.g. https://api.flashfender.com/uploads/...
-             // CONFIG.backendUrl is https://api.flashfender.com/api
-             
-             // If url starts with /uploads, we should strip /api from base if present
              const rootUrl = baseUrl.replace('/api', '');
              fetchUrl = `${rootUrl}${url}`;
+        } else if (url.startsWith('https://api.flashfender.com/uploads') || url.startsWith('http://api.flashfender.com/uploads')) {
+             // Fix for API hardcoding production domains when running locally
+             const baseUrl = CONFIG.backendUrl || 'http://localhost:5573/api';
+             if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
+                 const rootUrl = baseUrl.replace('/api', '');
+                 fetchUrl = url.replace(/^https?:\/\/api\.flashfender\.com/, rootUrl);
+                 console.log(`[Extension] Rewrote hardcoded production URL for local dev: ${fetchUrl}`);
+             }
         }
         
         const response = await fetch(fetchUrl);

@@ -111,7 +111,7 @@
     if (request.action === 'uploadSpecificImage') {
       console.log('Received individual image upload request:', request.imageUrl);
 
-      const fileInput = document.querySelector('input[type="file"][accept*="image"]');
+      const fileInput = document.querySelector('input[type="file"][accept*="image"]') || document.querySelector('input[type="file"]');
       if (!fileInput) {
         sendResponse({ success: false, message: 'File input not found on page' });
         return true;
@@ -426,7 +426,7 @@
       }
 
       // Handle images (only once)
-      if (!filledFields.has('images') && postData?.images && postData.images.length > 0 && postData.uploadImages) {
+      if (!filledFields.has('images') && postData?.images && postData.images.length > 0 && postData.uploadImages !== false) {
         await handleImages();
         filledFields.add('images');
 
@@ -437,28 +437,53 @@
 
         if (nextClicked) {
           console.log('Next button clicked. Waiting for Publish button...');
-          await sleep(3000); // Wait for next page/step
+          sendProgressUpdate('Next clicked. Waiting for Publish button to appear...');
+          
+          let publishClicked = false;
+          // Poll for publish button up to 10 times (10 seconds)
+          for (let i = 0; i < 10; i++) {
+             await sleep(1000);
+             publishClicked = await clickPublishButton();
+             if (publishClicked) {
+                 sendProgressUpdate('Publish clicked! Waiting for Facebook to process...');
+                 break;
+             }
+          }
 
-          // Auto-Click PUBLISH
-          console.log('Auto-clicking "Publish" button...');
-          await clickPublishButton();
+          if (publishClicked) {
+             // Wait for URL to change to confirm successful post
+             let postSuccessful = false;
+             for(let i = 0; i < 30; i++) {
+                 await sleep(1000);
+                 if (!window.location.href.includes('/create/vehicle')) {
+                     postSuccessful = true;
+                     break;
+                 }
+             }
 
-          // Report success for queue
-          if (postData.postingId) {
-            console.log('Reporting queue success...');
-            // Give it a moment to register the click
-            setTimeout(() => {
-              chrome.runtime.sendMessage({
-                action: 'posting_result',
-                data: {
-                  postingId: postData.postingId,
-                  jobId: postData.jobId,
-                  vehicleId: postData._id || postData.vehicleId, // Pass vehicleId
-                  status: 'completed',
-                  listingUrl: window.location.href
-                }
-              });
-            }, 1000);
+             if (postSuccessful) {
+                 sendProgressUpdate('Post published successfully!');
+                 // Report success for queue
+                 if (postData.postingId) {
+                     console.log('Reporting queue success...');
+                     chrome.runtime.sendMessage({
+                       action: 'posting_result',
+                       data: {
+                         postingId: postData.postingId,
+                         jobId: postData.jobId,
+                         vehicleId: postData._id || postData.vehicleId, // Pass vehicleId
+                         status: 'completed',
+                         listingUrl: window.location.href
+                       }
+                     });
+                 }
+             } else {
+                 sendProgressUpdate('Error: Facebook timed out or failed to publish the post.');
+                 console.error('Timeout waiting for Facebook redirect after Publish.');
+                 // Don't report completed if it failed
+             }
+          } else {
+             sendProgressUpdate('Error: Publish button not found after clicking Next.');
           }
         } else {
           console.error('Could not find or click "Next" button');
@@ -562,25 +587,52 @@
           isMonitorAttached = false;
 
           if (vehicleData.postingId) {
-              console.log('Publish detected for Posting Job, sending posting_result...');
-              safeChromeRuntimeSendMessage({
-                action: 'posting_result',
-                data: {
-                  postingId: vehicleData.postingId,
-                  jobId: vehicleData.jobId,
-                  vehicleId: vehicleData._id || vehicleData.vehicleId,
-                  status: 'completed',
-                  listingUrl: window.location.href
-                }
-              });
+              console.log('Publish detected for Posting Job, waiting for Facebook to redirect...');
+              sendProgressUpdate('Publish clicked manually! Waiting for Facebook to process...');
+              
+              const checkUrlInterval = setInterval(() => {
+                 if (!window.location.href.includes('/create/vehicle')) {
+                     clearInterval(checkUrlInterval);
+                     console.log('Redirect confirmed, sending posting_result...');
+                     sendProgressUpdate('Post published successfully!');
+                     safeChromeRuntimeSendMessage({
+                       action: 'posting_result',
+                       data: {
+                         postingId: vehicleData.postingId,
+                         jobId: vehicleData.jobId,
+                         vehicleId: vehicleData._id || vehicleData.vehicleId,
+                         status: 'completed',
+                         listingUrl: window.location.href
+                       }
+                     });
+                 }
+              }, 1000);
+              
+              // Clear interval after 30 seconds to prevent memory leaks if it fails
+              setTimeout(() => {
+                 clearInterval(checkUrlInterval);
+              }, 30000);
+              
           } else {
-              // Send confirmation to background (Legacy)
-              safeChromeRuntimeSendMessage({
-                action: 'postActionConfirmed',
-                vehicleId: vehicleData._id,
-                platform: 'facebook_marketplace',
-                listingUrl: window.location.href // Initial URL, might change later
-              });
+              console.log('Publish detected for Legacy Job, waiting for redirect...');
+              sendProgressUpdate('Publish clicked! Waiting for Facebook to process...');
+              
+              const checkUrlInterval = setInterval(() => {
+                 if (!window.location.href.includes('/create/vehicle')) {
+                     clearInterval(checkUrlInterval);
+                     // Send confirmation to background (Legacy)
+                     safeChromeRuntimeSendMessage({
+                       action: 'postActionConfirmed',
+                       vehicleId: vehicleData._id,
+                       platform: 'facebook_marketplace',
+                       listingUrl: window.location.href // Initial URL, might change later
+                     });
+                 }
+              }, 1000);
+              
+              setTimeout(() => {
+                 clearInterval(checkUrlInterval);
+              }, 30000);
           }
         }
       }
@@ -4062,13 +4114,27 @@
         ? pendingPost.selectedImages
         : pendingPost.images;
 
-    if (!imagesToUse || imagesToUse.length === 0) return;
+    if (!imagesToUse || imagesToUse.length === 0) {
+      sendProgressUpdate('No images found in post data to upload.');
+      return;
+    }
 
+    sendProgressUpdate(`Uploading ${imagesToUse.length} images...`);
     console.log(`Preparing to upload ${imagesToUse.length} images (Source: ${pendingPost.preparedImages ? 'Stealth/Prepared' : 'Original'})`);
 
-    // Find file input
-    const fileInput = document.querySelector('input[type="file"][accept*="image"]');
+    // Find file input with retries
+    let fileInput = null;
+    for (let j = 0; j < 10; j++) {
+      fileInput = document.querySelector('input[type="file"][accept*="image"]') || document.querySelector('input[type="file"]');
+      if (fileInput) break;
+      await sleep(1000); // Wait 1s and retry
+    }
 
+    if (!fileInput) {
+      sendProgressUpdate('Error: Could not find image upload button on page.');
+      console.error('File input not found after 10 seconds');
+      return;
+    }
     if (fileInput) {
       // Download and upload images
       for (let i = 0; i < Math.min(imagesToUse.length, 24); i++) {
@@ -4080,8 +4146,10 @@
           await sleep(uploadDelay);
         } catch (error) {
           console.error(`Error uploading image ${i}:`, error);
+          sendProgressUpdate(`Error on image ${i+1}: ` + error.message);
         }
       }
+      sendProgressUpdate(`Successfully queued ${imagesToUse.length} images!`);
     }
   }
 
@@ -4115,6 +4183,12 @@
 
       // Set the files to the input
       fileInput.files = dataTransfer.files;
+
+      // React 15.6+ native setter bypass to ensure synthetic event triggers
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'files')?.set;
+      if (nativeInputValueSetter) {
+         nativeInputValueSetter.call(fileInput, dataTransfer.files);
+      }
 
       // Trigger change event
       const event = new Event('change', { bubbles: true });

@@ -230,9 +230,7 @@ const toFullUrl = (relativeUrl, baseUrl) => {
 const autoPrepareStealth = async (vehicle, customGps = null) => {
     if (!vehicle.images || vehicle.images.length === 0) return vehicle;
 
-    // Filter out specific placeholder image
-    const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
-    const imagesToProcess = vehicle.images.filter(img => img !== PLACEHOLDER_URL);
+    const imagesToProcess = vehicle.images.filter(img => !img.includes('16487202666893896-12.png'));
 
     if (imagesToProcess.length === 0) return vehicle;
 
@@ -794,9 +792,8 @@ router.post('/scrape', protect, async (req, res) => {
         const scrapedData = await scrapeVehicle(url);
 
         // Filter out specific placeholder image
-        const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
         if (scrapedData.images) {
-            scrapedData.images = scrapedData.images.filter(img => img !== PLACEHOLDER_URL);
+            scrapedData.images = scrapedData.images.filter(img => !img.includes('16487202666893896-12.png'));
         }
 
         const vehicle = await Vehicle.create({
@@ -1301,6 +1298,10 @@ router.post('/scrape-bulk', protect, async (req, res) => {
 
                     // Add vehicles directly to queue for saving
                     for (const vehicleData of result.vehicles) {
+                        if (limit && totalScrapedCount >= limit) {
+                            console.log(`[Route] Reached limit of ${limit} vehicles during bulk processing. Stopping.`);
+                            break;
+                        }
                         // Check for duplicates
                         const existing = await Vehicle.findOne({
                             organization: req.user.organization._id,
@@ -1335,8 +1336,7 @@ router.post('/scrape-bulk', protect, async (req, res) => {
                                 // ALWAYS update images if new ones are better
                                 if (vehicleData.images && vehicleData.images.length > 0) {
                                     // Filter out specific placeholder image
-                                    const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
-                                    const filteredImages = vehicleData.images.filter(img => img !== PLACEHOLDER_URL);
+                                    const filteredImages = vehicleData.images.filter(img => !img.includes('16487202666893896-12.png'));
 
                                     // Only update if new images are likely real (not just logos)
                                     const hasRealImages = filteredImages.some(img =>
@@ -1352,8 +1352,8 @@ router.post('/scrape-bulk', protect, async (req, res) => {
 
                                 await existing.save();
 
-                                results.success++;
-                                totalScrapedCount++;
+                                // Do NOT increment totalScrapedCount or results.success here
+                                // so that existing vehicles do not count towards the import limit.
                                 results.items.push({
                                     url: vehicleData.sourceUrl,
                                     status: 'updated',
@@ -1373,9 +1373,8 @@ router.post('/scrape-bulk', protect, async (req, res) => {
 
                         try {
                             // Filter out specific placeholder image
-                            const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
                             if (vehicleData.images) {
-                                vehicleData.images = vehicleData.images.filter(img => img !== PLACEHOLDER_URL);
+                                vehicleData.images = vehicleData.images.filter(img => !img.includes('16487202666893896-12.png'));
                             }
 
                             const vehicle = await Vehicle.create({
@@ -1473,15 +1472,38 @@ router.post('/scrape-bulk', protect, async (req, res) => {
             });
 
             if (existing && scrapedData.vin) {
-                results.failed++;
-                results.items.push({ url: trimmedUrl, status: 'failed', error: `Vehicle with VIN ${scrapedData.vin} already exists.` });
+                try {
+                    // Update ALL fields including description and location
+                    existing.year = scrapedData.year || existing.year;
+                    existing.make = scrapedData.make || existing.make;
+                    existing.model = scrapedData.model || existing.model;
+                    existing.trim = scrapedData.trim || existing.trim;
+                    existing.price = scrapedData.price || existing.price;
+                    existing.mileage = scrapedData.mileage || existing.mileage;
+                    existing.description = scrapedData.description || existing.description;
+                    existing.location = scrapedData.location || existing.location;
+                    
+                    if (scrapedData.images && scrapedData.images.length > 0) {
+                        const filteredImages = scrapedData.images.filter(img => !img.includes('16487202666893896-12.png'));
+                        if (filteredImages.length > 0) {
+                            existing.images = filteredImages;
+                        }
+                    }
+
+                    await existing.save();
+                    
+                    results.success++;
+                    results.items.push({ url: trimmedUrl, status: 'updated', vehicleId: existing._id, title: `${existing.year} ${existing.make} ${existing.model}` });
+                } catch (err) {
+                    results.failed++;
+                    results.items.push({ url: trimmedUrl, status: 'failed', error: `Update failed: ${err.message}` });
+                }
                 continue;
             }
 
             // Filter out specific placeholder image
-            const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
             if (scrapedData.images) {
-                scrapedData.images = scrapedData.images.filter(img => img !== PLACEHOLDER_URL);
+                scrapedData.images = scrapedData.images.filter(img => !img.includes('16487202666893896-12.png'));
             }
 
             const vehicle = await Vehicle.create({

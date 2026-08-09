@@ -73,7 +73,7 @@ function extractVehiclesFromNextData(json, sourceUrl) {
             item.MidVDSMedia.forEach(media => {
                 const src = media.media_src || media.thumbnail_src;
                 if (src) {
-                    const fullImgUrl = src.startsWith('http') ? src : `https://www.brownboysauto.com${src}`;
+                    const fullImgUrl = src.startsWith('http') ? src : `https://hillzcdn.ca${src}`;
                     if (!images.includes(fullImgUrl)) {
                         images.push(fullImgUrl);
                     }
@@ -82,12 +82,11 @@ function extractVehiclesFromNextData(json, sourceUrl) {
         }
         if (images.length === 0 && item.cover_image) {
             const src = item.cover_image;
-            const fullImgUrl = src.startsWith('http') ? src : `https://www.brownboysauto.com${src}`;
+            const fullImgUrl = src.startsWith('http') ? src : `https://hillzcdn.ca${src}`;
             images.push(fullImgUrl);
         }
 
-        const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
-        const cleanImages = images.filter(img => img !== PLACEHOLDER_URL);
+        const cleanImages = images.filter(img => !img.includes('16487202666893896-12.png'));
 
         const transmission = info.Transmission?.name || info.transmission || '';
         const drive_type = info.drive_type || info.drive_train || '';
@@ -276,10 +275,10 @@ export const scrapeVehicle = async (url, options = {}) => {
 
                     // Return vehicles directly (not URLs, actual vehicle data!)
                     // Filter out specific placeholder image
-                    const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
                     const filteredVehicles = result.vehicles.map(v => {
-                        if (v.images) v.images = v.images.filter(img => img !== PLACEHOLDER_URL);
-                        return v;
+                        if (v.images) {
+                            v.images = v.images.filter(img => !img.includes('16487202666893896-12.png'));
+                        }    return v;
                     });
 
                     return {
@@ -347,7 +346,7 @@ export const scrapeVehicle = async (url, options = {}) => {
                             media.forEach(m => {
                                 const src = m.media_src || m.thumbnail_src;
                                 if (src) {
-                                    const fullImgUrl = src.startsWith('http') ? src : `https://www.brownboysauto.com${src}`;
+                                    const fullImgUrl = src.startsWith('http') ? src : `https://hillzcdn.ca${src}`;
                                     if (!vehicleData.images.includes(fullImgUrl)) {
                                         vehicleData.images.push(fullImgUrl);
                                     }
@@ -361,14 +360,19 @@ export const scrapeVehicle = async (url, options = {}) => {
                             if (src) {
                                 // Replace 'thumb-' with full image if needed
                                 src = src.replace('/thumb-', '/');
-                                if (!src.startsWith('http')) src = `https://www.brownboysauto.com${src}`;
+                                if (!src.startsWith('http')) src = `https://hillzcdn.ca${src}`;
                                 if (!vehicleData.images.includes(src)) vehicleData.images.push(src);
                             }
                         });
 
                         // Description
-                        const desc = $('.DetaileProductCustomrWeb-description-text').text().trim();
+                        const htmlDesc = $('.DetaileProductCustomrWeb-description-text').text().trim();
+                        const jsonDesc = vJSON.comment ? vJSON.comment.replace(/<[^>]*>/g, '').trim() : '';
+                        const desc = htmlDesc || jsonDesc;
                         if (desc) vehicleData.description = desc;
+                        
+                        // Location 
+                        vehicleData.location = 'Vancouver, BC';
 
                         // Features from JSON
                         if (vCore.standard) {
@@ -412,6 +416,7 @@ export const scrapeVehicle = async (url, options = {}) => {
                 const vehicleData = {
                     images: [],
                     features: [],
+                    location: 'Vancouver, BC',
                     sourceUrl: url
                 };
 
@@ -831,9 +836,8 @@ export const scrapeVehicle = async (url, options = {}) => {
         }
 
         // Filter out specific placeholder image
-        const PLACEHOLDER_URL = 'https://image123.azureedge.net/1452782bcltd/16487202666893896-12.png';
         if (vehicle.images) {
-            vehicle.images = vehicle.images.filter(img => img !== PLACEHOLDER_URL);
+            vehicle.images = vehicle.images.filter(img => !img.includes('16487202666893896-12.png'));
         }
 
         return vehicle;

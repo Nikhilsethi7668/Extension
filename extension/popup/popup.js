@@ -3532,6 +3532,7 @@ function showBulkUploadOptions() {
                     <p>Which images would you like to upload?</p>
                 </div>
                 <div class="modal-actions" style="flex-direction: column; gap: 8px;">
+                    <button class="btn btn-primary" id="bulkUploadSelectedBtn" style="width: 100%; display: none;">Selected Images Only (<span id="bulkUploadSelectedCount">0</span>)</button>
                     <button class="btn btn-primary" id="bulkUploadAllBtn" style="width: 100%">All Images (Original + AI)</button>
                     <button class="btn btn-secondary" id="bulkUploadAiBtn" style="width: 100%">AI Generated Only</button>
                     <button class="btn btn-secondary" id="bulkUploadOriginalBtn" style="width: 100%">Original Only</button>
@@ -3542,12 +3543,22 @@ function showBulkUploadOptions() {
     document.body.appendChild(modal);
 
     // Attach Listeners via JS (CSP Compliant)
+    document.getElementById('bulkUploadSelectedBtn').addEventListener('click', () => startBulkUpload('selected'));
     document.getElementById('bulkUploadAllBtn').addEventListener('click', () => startBulkUpload('all'));
     document.getElementById('bulkUploadAiBtn').addEventListener('click', () => startBulkUpload('ai'));
     document.getElementById('bulkUploadOriginalBtn').addEventListener('click', () => startBulkUpload('original'));
     document.getElementById('bulkUploadCancelBtn').addEventListener('click', () => {
       document.getElementById('bulkUploadModal').style.display = 'none';
     });
+  }
+
+  // Update dynamic content
+  const selectedBtn = document.getElementById('bulkUploadSelectedBtn');
+  if (selectedImages && selectedImages.size > 0) {
+      document.getElementById('bulkUploadSelectedCount').textContent = selectedImages.size;
+      selectedBtn.style.display = 'block';
+  } else {
+      selectedBtn.style.display = 'none';
   }
 
   modal.style.display = 'flex';
@@ -3559,6 +3570,8 @@ async function startBulkUpload(type) {
   let imagesToUpload = [];
   if (type === 'all') {
     imagesToUpload = allVehicleImages;
+  } else if (type === 'selected') {
+    imagesToUpload = allVehicleImages.filter(img => selectedImages.has(img.url));
   } else {
     imagesToUpload = allVehicleImages.filter(img => img.type === type);
   }

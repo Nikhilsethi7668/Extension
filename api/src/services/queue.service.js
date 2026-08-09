@@ -231,7 +231,8 @@ class QueueManager {
                     finalImages = stealthResult.results.map(r => {
                         const url = r.preparedUrl;
                         if (url.startsWith('http')) return url;
-                        return 'https://api.flashfender.com' + url;
+                        const baseUrl = process.env.BASE_URL || 'http://localhost:5573';
+                        return baseUrl.replace(/\/$/, '') + url;
                     });
                 } else {
                     finalImages = sourceImages;
@@ -246,7 +247,8 @@ class QueueManager {
         finalImages = finalImages.map(url => {
              if (!url) return url;
              if (url.startsWith('http')) return url;
-             return 'https://api.flashfender.com' + url;
+             const baseUrl = process.env.BASE_URL || 'http://localhost:5573';
+             return baseUrl.replace(/\/$/, '') + url;
         });
 
         // 3. AI GENERATION (80%)

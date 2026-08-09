@@ -195,59 +195,21 @@ async function processSinglePosting(io, posting) {
         return;
     }
 
-    // CHECK 2: Prevent reposting - Check if vehicle already posted
-    const lastPosting = vehicle.postingHistory && vehicle.postingHistory.length
-        ? vehicle.postingHistory[vehicle.postingHistory.length - 1]
-        : null;
-    const wasPostedBySameUser = lastPosting && posting.userId &&
-        String(lastPosting.userId) === String(posting.userId);
-
-    if (vehicle.status === 'posted' && lastPosting) {
-        const wasPostedBeforeThisPosting = new Date(lastPosting.timestamp) < new Date(posting.createdAt);
-
-        if (wasPostedBeforeThisPosting) {
-            const hoursAgo = (Date.now() - new Date(lastPosting.timestamp).getTime()) / (1000 * 60 * 60);
-
-            // Only auto-complete if the vehicle was posted by the SAME user who owns this posting
-            if (!wasPostedBySameUser) {
-                console.warn(`[Cron] Vehicle ${vehicleId} was posted by another user. Marking posting as 'already-posted' (not completed).`);
-                posting.status = 'already-posted';
-                posting.failureReason = 'Vehicle already posted by another user';
-                posting.logs.push({ message: 'Marked as already-posted - vehicle was posted by a different user', timestamp: new Date() });
-                await posting.save();
-                return;
-            }
-
-            if (hoursAgo >= 2) {
-                console.warn(`[Cron] Vehicle ${vehicleId} already marked as posted ${Math.floor(hoursAgo)} hours ago (same user). Marking as 'already-posted'.`);
-                posting.status = 'already-posted';
-                posting.failureReason = `Vehicle already posted ${Math.floor(hoursAgo)} hours ago`;
-                posting.logs.push({ message: `Marked as 'already-posted' - vehicle posted before this posting was created (${Math.floor(hoursAgo)}h ago)`, timestamp: new Date() });
-                await posting.save();
-                return;
-            }
-            // Same user, posted recently (within 2 hours) - treat as duplicate, mark already-posted not completed
-            console.warn(`[Cron] Vehicle ${vehicleId} already posted by same user (${Math.floor(hoursAgo * 60)} min ago). Marking as 'already-posted'.`);
-            posting.status = 'already-posted';
-            posting.failureReason = `Vehicle already posted ${Math.floor(hoursAgo * 60)} min ago`;
-            posting.logs.push({ message: `Marked as 'already-posted' - skip duplicate; only extension can mark completed via posting-result`, timestamp: new Date() });
-            await posting.save();
-            return;
-        }
-    }
-
-    // CHECK 3: Check vehicle posting history - prevent reposting within 24 hours on same profile
+    // CHECK 2: Prevent reposting - Check if vehicle already posted to the SAME profile within the last hour
     if (posting.profileId && vehicle.postingHistory && vehicle.postingHistory.length > 0) {
+        // Find if this specific profile has posted this vehicle within the last 1 hour
         const recentHistory = vehicle.postingHistory.find(h => {
-            const hoursSince = (Date.now() - h.timestamp) / (1000 * 60 * 60);
-            return h.profileId === posting.profileId && hoursSince < 24;
+            if (!h.timestamp) return false;
+            const hoursSince = (Date.now() - new Date(h.timestamp).getTime()) / (1000 * 60 * 60);
+            return h.profileId === posting.profileId && hoursSince <= 1;
         });
 
         if (recentHistory) {
-            console.warn(`[Cron] Vehicle ${vehicleId} already posted to profile ${posting.profileId} in last 24h. Skipping.`);
-            posting.failureReason = 'Vehicle recently posted to this profile';
-            posting.logs.push({ message: 'Skipped - vehicle recently posted to this profile', timestamp: new Date() });
-            posting.status = 'failed';
+            const hoursAgo = (Date.now() - new Date(recentHistory.timestamp).getTime()) / (1000 * 60 * 60);
+            console.warn(`[Cron] Vehicle ${vehicleId} already posted to profile ${posting.profileId} ${Math.floor(hoursAgo * 60)} min ago. Marking as 'already-posted'.`);
+            posting.status = 'already-posted';
+            posting.failureReason = `Vehicle already posted to this profile ${Math.floor(hoursAgo * 60)} min ago`;
+            posting.logs.push({ message: `Marked as 'already-posted' - vehicle posted to the same Chrome profile within the last 1 hour`, timestamp: new Date() });
             await posting.save();
             return;
         }
