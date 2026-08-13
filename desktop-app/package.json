@@ -34,13 +34,6 @@
             "x64",
             "arm64"
           ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
         }
       ],
       "category": "public.app-category.business",
@@ -89,6 +82,13 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     },
+    "extraResources": [
+      {
+        "from": "../extension",
+        "to": "extension",
+        "filter": ["**/*"]
+      }
+    ],
     "files": [
       "**/*",
       "!**/*.md",

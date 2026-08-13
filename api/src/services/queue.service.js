@@ -231,7 +231,7 @@ class QueueManager {
                     finalImages = stealthResult.results.map(r => {
                         const url = r.preparedUrl;
                         if (url.startsWith('http')) return url;
-                        const baseUrl = process.env.BASE_URL || 'http://localhost:5573';
+                        const baseUrl = process.env.BACKEND_URL || process.env.BASE_URL || 'http://localhost:5573';
                         return baseUrl.replace(/\/$/, '') + url;
                     });
                 } else {
@@ -247,7 +247,7 @@ class QueueManager {
         finalImages = finalImages.map(url => {
              if (!url) return url;
              if (url.startsWith('http')) return url;
-             const baseUrl = process.env.BASE_URL || 'http://localhost:5573';
+             const baseUrl = process.env.BACKEND_URL || process.env.BASE_URL || 'http://localhost:5573';
              return baseUrl.replace(/\/$/, '') + url;
         });
 

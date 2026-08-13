@@ -353,13 +353,8 @@ class AutomationEngine extends EventEmitter {
     // Resolve extension path
     let extensionPath = this.config.extensionPath;
     if (!extensionPath) {
-      const { app } = require('electron');
-      if (app.isPackaged) {
-        extensionPath = path.join(process.resourcesPath, 'extension');
-      } else {
-        // Default to parent directory's extension folder in dev
-        extensionPath = path.join(__dirname, '..', 'extension');
-      }
+      // Default to parent directory's extension folder
+      extensionPath = path.join(__dirname, '..', 'extension');
     }
 
     if (!fs.existsSync(extensionPath)) {

@@ -745,6 +745,44 @@ if (!gotTheLock) {
 
   // App lifecycle
   app.whenReady().then(() => {
+    // Set up application menu for macOS shortcuts
+    if (process.platform === 'darwin') {
+      const template = [
+        {
+          label: app.name,
+          submenu: [
+            { role: 'about' },
+            { type: 'separator' },
+            { role: 'services' },
+            { type: 'separator' },
+            { role: 'hide' },
+            { role: 'hideOthers' },
+            { role: 'unhide' },
+            { type: 'separator' },
+            { role: 'quit' }
+          ]
+        },
+        {
+          label: 'Edit',
+          submenu: [
+            { role: 'undo' },
+            { role: 'redo' },
+            { type: 'separator' },
+            { role: 'cut' },
+            { role: 'copy' },
+            { role: 'paste' },
+            { role: 'pasteAndMatchStyle' },
+            { role: 'delete' },
+            { role: 'selectAll' }
+          ]
+        }
+      ];
+      Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+    } else {
+      // Optional: hide menu on Windows if preferred, or leave default. We'll leave default or null.
+      Menu.setApplicationMenu(null);
+    }
+
     createWindow();
     createTray();
 
