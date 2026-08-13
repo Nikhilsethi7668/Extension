@@ -10,7 +10,7 @@ var CONFIG = {
   version: '1.0.1',
   
   // Backend URL
-  backendUrl: 'http://localhost:5573/api',
+  backendUrl: 'http://45.137.194.145:5573/api',
 
   // Supported Sites
   supportedSites: [

@@ -5,6 +5,8 @@
 # .env.local (Uncomment if needed for build)
 # .env.local
 .env.production
+.env*
+
 
 # Dependencies
 node_modules/

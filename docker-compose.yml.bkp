@@ -12,7 +12,7 @@ services:
       - MONGO_PORT=${MONGO_PORT}
       - MONGO_DATABASE=${MONGO_DATABASE}
       - MONGO_AUTH_SOURCE=${MONGO_AUTH_SOURCE}
-      - MONGO_URI=${MONGO_URI}
+      - MONGO_URI=mongodb://extension:Password1234@mongo:27017/facebookmark?authSource=admin
       - JWT_SECRET=${JWT_SECRET}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -20,11 +20,12 @@ services:
       - RESEND_API_KEY=${RESEND_API_KEY}
       - FROM_EMAIL=${FROM_EMAIL}
       - FRONTEND_URL=${FRONTEND_URL}
-      - BACKEND_URL=${BACKEND_URL}
     volumes:
       - ./api:/app
       - /app/node_modules
       - ./api/public/uploads:/app/public/uploads
+    depends_on:
+      - mongo
     networks:
       - extension-network
     env_file:
@@ -46,7 +47,25 @@ services:
     env_file:
       - .env
 
+  mongo:
+    image: mongo:latest
+    # ports:
+    #   - "0.0.0.0:27018:27017" # Not needed - internal Docker networking only
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
+      - MONGO_INITDB_DATABASE=${MONGO_DATABASE}
+    command: mongod --bind_ip_all
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - extension-network
+    env_file:
+      - .env
+
 networks:
   extension-network:
     driver: bridge
 
+volumes:
+  mongo-data:

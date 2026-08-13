@@ -10,7 +10,7 @@ var CONFIG = {
   version: '1.0.1',
   
   // Backend URL
-  backendUrl: 'http://localhost:5573/api',
+  backendUrl: 'http://45.137.194.145:5573/api',
 
   // Supported Sites
   supportedSites: [
@@ -579,12 +579,12 @@ async function handleFetchImageBlob(url) {
         }
         // Handle relative URLs
         if (url.startsWith('/')) {
-             const baseUrl = CONFIG.backendUrl || 'http://localhost:5573/api';
+             const baseUrl = CONFIG.backendUrl || 'http://45.137.194.145:5573/api';
              const rootUrl = baseUrl.replace('/api', '');
              fetchUrl = `${rootUrl}${url}`;
         } else if (url.startsWith('https://api.flashfender.com/uploads') || url.startsWith('http://api.flashfender.com/uploads')) {
              // Fix for API hardcoding production domains when running locally
-             const baseUrl = CONFIG.backendUrl || 'http://localhost:5573/api';
+             const baseUrl = CONFIG.backendUrl || 'http://45.137.194.145:5573/api';
              if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
                  const rootUrl = baseUrl.replace('/api', '');
                  fetchUrl = url.replace(/^https?:\/\/api\.flashfender\.com/, rootUrl);

@@ -39,7 +39,8 @@ app.use(cors({
             "https://app.flashfender.com", 
             "https://api.flashfender.com",
             "http://localhost:3682", 
-            "http://66.94.120.78:3682"
+            "http://66.94.120.78:3682",
+            `${process.env.BACKEND_URL}`
         ];
         if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('localhost') || origin.includes('adaptusgroup.ca')) {
             return callback(null, true);

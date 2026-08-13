@@ -18,7 +18,7 @@ const AutomationEngine = require('./automation-engine');
 
 // Default configuration
 const DEFAULT_CONFIG = {
-  apiUrl: 'http://localhost:5573/api',
+  apiUrl: 'http://45.137.194.145:5573/api',
   apiToken: '',
   pollingInterval: 5, // minutes
   autoStart: false,
