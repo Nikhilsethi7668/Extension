@@ -9,7 +9,7 @@ export default defineConfig({
     port: 3682,
     proxy: {
       '/api': {
-        target: 'https://api.flashfender.com',
+        target: process.env.API_BASE_URL,
         changeOrigin: true,
       }
     }
