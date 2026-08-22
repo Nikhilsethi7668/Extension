@@ -191,8 +191,9 @@ export async function scheduleQuickPostForLater({ userId, profileId }) {
  * @param {Object} io - Socket.io server instance (optional)
  * @param {Object} post - The posting mongoose document
  * @param {number} currentAttempt - Current attempt number (optional)
+ * @param {string} failureReason - The reason for the current failure (optional)
  */
-export async function rescheduleStuckPost(io, post, currentAttempt) {
+export async function rescheduleStuckPost(io, post, currentAttempt, failureReason) {
     try {
         let newTime;
         const requestedTime = new Date(Date.now() + 5 * 60000); // 5 mins from now as base
@@ -210,8 +211,10 @@ export async function rescheduleStuckPost(io, post, currentAttempt) {
         post.scheduledTime = newTime;
         post.retryCount = (post.retryCount || 0) + 1;
         post.failureReason = null; // Clear previous failure reason
+        
+        const failureStr = failureReason ? ` due to: ${failureReason}` : '';
         post.logs.push({ 
-            message: `Created as rescheduled attempt (Attempt ${post.retryCount}, next run at ${newTime.toISOString()})`, 
+            message: `Created as rescheduled attempt (Attempt ${post.retryCount}, next run at ${newTime.toISOString()})${failureStr}`, 
             timestamp: new Date() 
         });
         

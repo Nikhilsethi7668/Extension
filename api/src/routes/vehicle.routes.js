@@ -2344,7 +2344,7 @@ router.post('/check-active-postings', protect, async (req, res) => {
             vehicleId: { $in: vehicleIds },
             $or: [
                 { status: { $in: activeStatuses } },
-                { status: { $in: failedStatuses }, retryCount: { $lt: 3 } }
+                { status: { $in: failedStatuses }, retryCount: { $lt: 2 } }
             ]
         };
 
@@ -2698,24 +2698,23 @@ router.post('/posting-result', async (req, res) => {
                 
                 await vehicle.save();
             }
+            await posting.save();
         } else {
-            posting.status = 'failed';
-            posting.error = error || 'Unknown error';
-            posting.completedAt = new Date();
-            
             // Trigger immediate reschedule check
             const io = req.app.get('io');
             const currentAttempt = posting.retryCount || 0;
-            if (currentAttempt < 3) {
-                await rescheduleStuckPost(io, posting, currentAttempt);
+            if (currentAttempt < 2) {
+                await rescheduleStuckPost(io, posting, currentAttempt, error || 'Unknown error');
             } else {
                 console.log(`[Posting Result] Max retries reached for postingId=${posting._id}`);
-                posting.failureReason = posting.failureReason || 'Failed after max retries';
+                posting.status = 'failed';
+                posting.error = error || 'Unknown error';
+                posting.completedAt = new Date();
+                posting.failureReason = `[Attempt ${currentAttempt + 1}] Chrome Error: ${error || 'Unknown error'} - Failed after max retries`;
                 await posting.save();
             }
         }
 
-        await posting.save();
         res.json({ success: true });
     } catch (err) {
         console.error('Posting result error:', err);

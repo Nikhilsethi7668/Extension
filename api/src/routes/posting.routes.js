@@ -31,7 +31,11 @@ router.get('/', protect, async (req, res) => {
 
         // Status filter (default to scheduled if not specified, or allow all)
         if (status) {
-            query.status = status;
+            if (status === 'scheduled') {
+                query.status = { $in: ['scheduled', 'rescheduled'] };
+            } else {
+                query.status = status;
+            }
         } else {
              // Default behavior: show scheduled and processing? Or just all? 
              // The requirements said "list all post sheduling", implies scheduled. 
@@ -208,70 +212,72 @@ router.post('/:id/complete', protect, async (req, res) => {
         }
 
         // 4. Update posting status with validation
-        const previousStatus = posting.status;
-        posting.status = status; // Use status directly since we've validated it above
-        posting.completedAt = new Date();
-        
-        if (error) {
-            posting.error = error;
-            posting.failureReason = `[Attempt ${(posting.retryCount || 0) + 1}] Chrome Error: ${error}`;
-        }
-        
-        if (listingUrl) {
-            posting.listingUrl = listingUrl;
-        }
+        const io = req.app.get('io');
+        const currentAttempt = posting.retryCount || 0;
 
-        // Add completion log
-        posting.logs.push({
-            message: `Status changed from '${previousStatus}' to '${status}'${error ? ` - Error: ${error}` : ''}`,
-            timestamp: new Date()
-        });
+        if (status === 'completed') {
+            posting.status = 'completed';
+            posting.completedAt = new Date();
+            if (listingUrl) {
+                posting.listingUrl = listingUrl;
+            }
+            posting.logs.push({
+                message: `Status changed from '${previousStatus}' to 'completed'`,
+                timestamp: new Date()
+            });
 
-        await posting.save();
-        console.log(`[Posting Complete] Updated posting status: ${previousStatus} → ${posting.status}`);
+            await posting.save();
+            console.log(`[Posting Complete] Updated posting status: ${previousStatus} → ${posting.status}`);
 
-        // 5. If successful, update vehicle status and posting history
-        if (status === 'completed' && posting.vehicleId) {
-            const vehicle = await Vehicle.findById(posting.vehicleId);
-            
-            if (vehicle) {
-                const previousVehicleStatus = vehicle.status;
+            // 5. If successful, update vehicle status and posting history
+            if (posting.vehicleId) {
+                const vehicle = await Vehicle.findById(posting.vehicleId);
                 
-                // Update vehicle status
-                vehicle.status = 'posted';
-                
-                // Add to posting history
-                vehicle.postingHistory.push({
-                    userId: req.user._id,
-                    timestamp: new Date(),
-                    listingUrl: listingUrl || '',
-                    platform: 'facebook_marketplace',
-                    profileId: posting.profileId || '',
-                    action: 'post',
-                    agentName: req.user.name
-                });
+                if (vehicle) {
+                    const previousVehicleStatus = vehicle.status;
+                    
+                    // Update vehicle status
+                    vehicle.status = 'posted';
+                    
+                    // Add to posting history
+                    vehicle.postingHistory.push({
+                        userId: req.user._id,
+                        timestamp: new Date(),
+                        listingUrl: listingUrl || '',
+                        platform: 'facebook_marketplace',
+                        profileId: posting.profileId || '',
+                        action: 'post',
+                        agentName: req.user.name
+                    });
 
-                await vehicle.save();
-                console.log(`[Posting Complete] Updated vehicle ${posting.vehicleId.toString()}: '${previousVehicleStatus}' → 'posted'`);
-                console.log(`[Posting Complete] Added posting history for vehicle: ${listingUrl}`);
-            } else {
-                console.warn(`[Posting Complete] Vehicle ${posting.vehicleId} not found - cannot update status to 'posted'`);
-                // Log this issue in the posting for debugging
-                posting.logs.push({
-                    message: `WARNING: Vehicle ${posting.vehicleId} not found when marking posting complete`,
-                    timestamp: new Date()
-                });
-                await posting.save();
+                    await vehicle.save();
+                    console.log(`[Posting Complete] Updated vehicle ${posting.vehicleId.toString()}: '${previousVehicleStatus}' → 'posted'`);
+                    console.log(`[Posting Complete] Added posting history for vehicle: ${listingUrl}`);
+                } else {
+                    console.warn(`[Posting Complete] Vehicle ${posting.vehicleId} not found - cannot update status to 'posted'`);
+                    posting.logs.push({
+                        message: `WARNING: Vehicle ${posting.vehicleId} not found when marking posting complete`,
+                        timestamp: new Date()
+                    });
+                    await posting.save();
+                }
             }
         } else if (status === 'failed' || status === 'timeout') {
             console.log(`[Posting Complete] Posting status is '${status}' - triggering immediate reschedule check`);
-            const io = req.app.get('io');
-            const currentAttempt = posting.retryCount || 0;
-            if (currentAttempt < 3) {
-                await rescheduleStuckPost(io, posting, currentAttempt);
+            if (currentAttempt < 2) {
+                await rescheduleStuckPost(io, posting, currentAttempt, error || status);
             } else {
                 console.log(`[Posting Complete] Max retries reached for postingId=${posting._id}`);
-                posting.failureReason = posting.failureReason || `Failed after max retries (${status})`;
+                posting.status = status;
+                posting.completedAt = new Date();
+                if (error) {
+                    posting.error = error;
+                }
+                posting.failureReason = `[Attempt ${currentAttempt + 1}] Chrome Error: ${error || status} - Failed after max retries`;
+                posting.logs.push({
+                    message: `Status changed from '${previousStatus}' to '${status}' - Max retries reached. Error: ${error || status}`,
+                    timestamp: new Date()
+                });
                 await posting.save();
             }
         }

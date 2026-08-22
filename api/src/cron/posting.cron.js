@@ -70,7 +70,7 @@ export const initPostingCron = (io) => {
 
         try {
             const postings = await Posting.find({
-                status: 'scheduled',
+                status: { $in: ['scheduled', 'rescheduled'] },
                 scheduledTime: { $gte: tenMinutesAgo, $lte: scheduleWindowEnd },
                 failureReason: null,
                 completedAt: null
@@ -134,17 +134,14 @@ export const initPostingCron = (io) => {
             for (const post of triggeredTimeouts) {
                 console.log(`[STATUS]\npostingId=${post._id}\nfrom=triggered\nto=failed\nreason=TRIGGER_TIMEOUT`);
                 
-                post.status = 'failed';
-                post.failureReason = `[Attempt ${post.retryCount || 1}] Chrome post failed (Timeout)`;
-                post.logs.push({ message: 'Marked as failed - triggered timeout (>5min)', timestamp: new Date() });
-                await post.save();
-
                 const currentAttempt = post.retryCount || 0;
-                if (currentAttempt < 3) {
-                    await rescheduleStuckPost(io, post, currentAttempt);
+                if (currentAttempt < 2) {
+                    await rescheduleStuckPost(io, post, currentAttempt, 'Chrome post failed (Timeout)');
                 } else {
                     console.log(`[CRON-TIMEOUT] Max retries reached for postingId=${post._id}`);
-                    post.failureReason = post.failureReason || 'Failed after max retries';
+                    post.status = 'failed';
+                    post.failureReason = `[Attempt ${currentAttempt + 1}] Chrome post failed (Timeout) - Failed after max retries`;
+                    post.logs.push({ message: 'Marked as failed - triggered timeout (>5min) - Max retries reached', timestamp: new Date() });
                     await post.save();
                 }
             }
@@ -167,17 +164,14 @@ export const initPostingCron = (io) => {
             for (const post of processingTimeouts) {
                 console.log(`[STATUS]\npostingId=${post._id}\nfrom=processing\nto=failed\nreason=PROCESSING_TIMEOUT`);
 
-                post.status = 'failed';
-                post.failureReason = `[Attempt ${post.retryCount || 1}] Posting timeout (>6min in processing state). Posting takes ~4min, timeout allows for delays.`;
-                post.logs.push({ message: 'Marked as failed - processing timeout (>6min). Expected: ~4min', timestamp: new Date() });
-                await post.save();
-
                 const currentAttempt = post.retryCount || 0;
-                if (currentAttempt < 3) {
-                    await rescheduleStuckPost(io, post, currentAttempt);
+                if (currentAttempt < 2) {
+                    await rescheduleStuckPost(io, post, currentAttempt, 'Posting timeout (>6min in processing state)');
                 } else {
                     console.log(`[CRON-TIMEOUT] Max retries reached for postingId=${post._id}`);
-                    post.failureReason = post.failureReason || 'Failed after max retries';
+                    post.status = 'failed';
+                    post.failureReason = `[Attempt ${currentAttempt + 1}] Posting timeout (>6min in processing state) - Failed after max retries`;
+                    post.logs.push({ message: 'Marked as failed - processing timeout (>6min). Expected: ~4min - Max retries reached', timestamp: new Date() });
                     await post.save();
                 }
             }
@@ -194,14 +188,14 @@ export const initPostingCron = (io) => {
             for (const post of stuckPostings) {
                 const currentAttempt = post.retryCount || 0;
 
-                if (currentAttempt >= 3) {
+                if (currentAttempt >= 2) {
                     console.log(`[CRON-RESCUE] Max retries reached for postingId=${post._id}`);
                     post.failureReason = post.failureReason || 'Failed after max retries';
                     post.status = 'failed';
                     await post.save();
                     continue;
                 }
-                await rescheduleStuckPost(io, post, currentAttempt);
+                await rescheduleStuckPost(io, post, currentAttempt, post.failureReason);
             }
          } catch(error) {
              console.error('[CRON-TIMEOUT][ERROR]', error);
@@ -277,17 +271,14 @@ async function processSinglePosting(io, posting) {
 
         if (!desktopConnected) {
             console.log(`[POSTING][SKIP]\nreason=DESKTOP_DISCONNECTED\nroom=${desktopRoom}`);
-            posting.status = 'failed';
-            posting.failureReason = `[Attempt ${posting.retryCount || 1}] Desktop app not connected`;
-            posting.logs.push({ message: 'Desktop app not connected', timestamp: new Date() });
-            await posting.save();
-            
             const currentAttempt = posting.retryCount || 0;
-            if (currentAttempt < 3) {
-                await rescheduleStuckPost(io, posting, currentAttempt);
+            if (currentAttempt < 2) {
+                await rescheduleStuckPost(io, posting, currentAttempt, 'Desktop app not connected');
             } else {
                 console.log(`[POSTING][SKIP] Max retries reached for postingId=${posting._id}`);
-                posting.failureReason = posting.failureReason || 'Failed after max retries';
+                posting.status = 'failed';
+                posting.failureReason = `[Attempt ${currentAttempt + 1}] Desktop app not connected - Failed after max retries`;
+                posting.logs.push({ message: 'Desktop app not connected', timestamp: new Date() });
                 await posting.save();
             }
             return;
@@ -387,17 +378,14 @@ async function processPostingAsync(io, posting, vehicle, profileUniqueId = null)
 
         if (!isReady) {
             console.log(`[STATUS]\npostingId=${posting._id}\nfrom=triggered\nto=failed\nreason=EXTENSION_TIMEOUT`);
-            posting.status = 'failed';
-            posting.failureReason = `[Attempt ${posting.retryCount || 1}] Extension Failed to Connect (Timeout)`;
-            posting.logs.push({ message: 'Extension failed to connect within timeout period', timestamp: new Date() });
-            await posting.save();
-            
             const currentAttempt = posting.retryCount || 0;
-            if (currentAttempt < 3) {
-                await rescheduleStuckPost(io, posting, currentAttempt);
+            if (currentAttempt < 2) {
+                await rescheduleStuckPost(io, posting, currentAttempt, 'Extension Failed to Connect (Timeout)');
             } else {
                 console.log(`[POSTING][EXTENSION-TIMEOUT] Max retries reached for postingId=${posting._id}`);
-                posting.failureReason = posting.failureReason || 'Failed after max retries';
+                posting.status = 'failed';
+                posting.failureReason = `[Attempt ${currentAttempt + 1}] Extension Failed to Connect (Timeout) - Failed after max retries`;
+                posting.logs.push({ message: 'Extension failed to connect within timeout period', timestamp: new Date() });
                 await posting.save();
             }
             return;

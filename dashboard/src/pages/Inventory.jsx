@@ -2387,7 +2387,7 @@ const ActivePostingWarningDialog = ({ open, onClose, activePostings, onConfirm, 
                                 Next Post Time: {new Date(post.scheduledTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
                             </Typography>
                             <Typography variant="body2" color={post.status === 'processing' ? 'info.main' : 'text.secondary'}>
-                                Status: {post.status.toUpperCase()}
+                                Status: {post.status.toUpperCase()}{(post.status === 'scheduled' || post.status === 'rescheduled') ? ` (X${(post.retryCount || 0) + 1} TRY)` : ''}
                             </Typography>
                             {post.retryCount > 0 && (
                                 <Typography variant="body2" color="error.main">

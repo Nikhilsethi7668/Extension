@@ -166,12 +166,16 @@ const ScheduledPosts = () => {
                                         </TableCell>
                                         <TableCell>
                                             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 0.5 }}>
-                                                <Chip
-                                                    label={posting.status}
-                                                    size="small"
-                                                    color={getStatusColor(posting.status)}
-                                                    variant="outlined"
-                                                />
+                                                 <Chip
+                                                     label={
+                                                         (posting.status === 'scheduled' || posting.status === 'rescheduled')
+                                                             ? `${posting.status} (x${(posting.retryCount || 0) + 1} try)`
+                                                             : posting.status
+                                                     }
+                                                     size="small"
+                                                     color={getStatusColor(posting.status)}
+                                                     variant="outlined"
+                                                 />
                                                 {/* Show Failure Reason or Error ONLY if not processing */}
                                                 {posting.status !== 'processing' && (posting.failureReason || posting.error) && (
                                                     <Typography variant="caption" color="error" sx={{ maxWidth: 200, lineHeight: 1.2 }}>
