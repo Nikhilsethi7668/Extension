@@ -56,3 +56,9 @@ apiClient.interceptors.response.use(
 );
 
 export default apiClient;
+
+export const getImageUrl = (url) => {
+    if (!url) return '';
+    if (url.startsWith('http')) return url;
+    return `${apiClient.defaults.baseURL.replace('/api', '')}${url.startsWith('/') ? '' : '/'}${url}`;
+};

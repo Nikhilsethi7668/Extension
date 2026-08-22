@@ -8,7 +8,7 @@ import {
 } from '@mui/material';
 import { Calendar, Trash2, AlertCircle } from 'lucide-react';
 import Layout from '../components/Layout';
-import apiClient from '../config/axios';
+import apiClient, { getImageUrl } from '../config/axios';
 import { useAuth } from '../context/AuthContext';
 
 const ScheduledPosts = () => {
@@ -51,9 +51,10 @@ const ScheduledPosts = () => {
     const handleDeleteConfirm = async () => {
         if (!selectedPosting) return;
 
+        setDeleting(true);
         try {
-            setDeleting(true);
             await apiClient.delete(`/postings/${selectedPosting._id}`);
+
             setDeleteDialogOpen(false);
             setSelectedPosting(null);
             // Refresh the list
@@ -73,8 +74,10 @@ const ScheduledPosts = () => {
 
     const getStatusColor = (status) => {
         switch (status) {
-            case 'scheduled': return 'info';
-            case 'processing': return 'warning';
+            case 'scheduled': return 'default';
+            case 'rescheduled': return 'default';
+            case 'triggered': return 'primary';
+            case 'processing': return 'info';
             case 'completed': return 'success';
             case 'failed': return 'error';
             default: return 'default';
@@ -139,7 +142,7 @@ const ScheduledPosts = () => {
                                                 {posting.vehicleId?.images?.[0] && (
                                                     <Box
                                                         component="img"
-                                                        src={posting.vehicleId.images[0]}
+                                                        src={getImageUrl(posting.vehicleId.images[0])}
                                                         sx={{ width: 60, height: 40, objectFit: 'cover', borderRadius: 1 }}
                                                     />
                                                 )}
@@ -169,8 +172,8 @@ const ScheduledPosts = () => {
                                                     color={getStatusColor(posting.status)}
                                                     variant="outlined"
                                                 />
-                                                {/* Show Failure Reason or Error */}
-                                                {(posting.failureReason || posting.error) && (
+                                                {/* Show Failure Reason or Error ONLY if not processing */}
+                                                {posting.status !== 'processing' && (posting.failureReason || posting.error) && (
                                                     <Typography variant="caption" color="error" sx={{ maxWidth: 200, lineHeight: 1.2 }}>
                                                         {posting.failureReason || posting.error}
                                                     </Typography>

@@ -14,6 +14,7 @@ import mongoose from 'mongoose';
 
 
 import queueManager from '../services/queue.service.js';
+import { scheduleQuickPostForLater, rescheduleStuckPost } from '../services/postingScheduling.service.js';
 
 const router = express.Router();
 import fs from 'fs';
@@ -345,6 +346,39 @@ router.get('/user-posts', protect, async (req, res) => {
     }
 });
 
+// @desc    Create a new vehicle manually
+// @route   POST /api/vehicles
+// @access  Protected
+router.post('/', protect, async (req, res) => {
+    try {
+        const orgId = req.user.organization._id || req.user.organization;
+        
+        // Ensure VIN is unique within the organization if provided
+        if (req.body.vin) {
+            const existingVehicle = await Vehicle.findOne({ 
+                organization: orgId, 
+                vin: req.body.vin 
+            });
+            if (existingVehicle) {
+                return res.status(400).json({ message: 'A vehicle with this VIN already exists in your organization' });
+            }
+        }
+
+        const newVehicle = new Vehicle({
+            ...req.body,
+            organization: orgId,
+            status: 'available',
+        });
+
+        const savedVehicle = await newVehicle.save();
+
+        res.status(201).json(savedVehicle);
+    } catch (error) {
+        console.error('Create Vehicle Error:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
 // @desc    Get all vehicles for an organization
 // @route   GET /api/vehicles
 // @access  Protected
@@ -530,6 +564,12 @@ router.get('/', protect, async (req, res) => {
 
             if (v.preparedImages && v.preparedImages.length > 0) {
                 v.preparedImages = v.preparedImages.map(url => toFullUrl(url, baseUrl));
+            }
+            if (v.images && v.images.length > 0) {
+                v.images = v.images.map(url => toFullUrl(url, baseUrl));
+            }
+            if (v.aiImages && v.aiImages.length > 0) {
+                v.aiImages = v.aiImages.map(url => toFullUrl(url, baseUrl));
             }
             return v;
         });
@@ -2284,6 +2324,136 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
     }
 });
 
+// @desc    Check for active scheduled postings for a vehicle and profile(s)
+// @route   POST /api/vehicles/check-active-postings
+// @access  Protected
+router.post('/check-active-postings', protect, async (req, res) => {
+    try {
+        const { vehicleIds, profileIds } = req.body;
+        
+        if (!vehicleIds || !Array.isArray(vehicleIds) || vehicleIds.length === 0) {
+            return res.status(400).json({ message: 'No vehicle IDs provided' });
+        }
+
+        const activeStatuses = ['scheduled', 'rescheduled', 'processing', 'triggered'];
+        const failedStatuses = ['failed', 'timeout'];
+
+        // Query active postings (excluding permanently failed ones)
+        const query = {
+            userId: req.user._id,
+            vehicleId: { $in: vehicleIds },
+            $or: [
+                { status: { $in: activeStatuses } },
+                { status: { $in: failedStatuses }, retryCount: { $lt: 3 } }
+            ]
+        };
+
+        if (profileIds && profileIds.length > 0) {
+            query.profileId = { $in: profileIds };
+        }
+
+        const activePostings = await Posting.find(query).lean();
+        
+        // Check for 1-hour duplicate posting warning
+        let hasRecentSuccess = false;
+        if (profileIds && profileIds.length > 0) {
+            // Find vehicles with recent posting history for these profiles
+            const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+            
+            // Note: We need to import Vehicle model if it's not already. 
+            // The file has: import Vehicle from '../models/Vehicle.js';
+            const vehicles = await Vehicle.find({ _id: { $in: vehicleIds } });
+            for (const vehicle of vehicles) {
+                if (vehicle.postingHistory && vehicle.postingHistory.length > 0) {
+                    const recentPost = vehicle.postingHistory.find(h => {
+                        if (!h.timestamp) return false;
+                        return profileIds.includes(h.profileId) && new Date(h.timestamp) > oneHourAgo;
+                    });
+                    if (recentPost) {
+                        hasRecentSuccess = true;
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Check for profile queue conflict: any post scheduled in the next 10 minutes for this profile
+        // (look back 5 min to catch posts already triggered, look forward 10 min for upcoming ones)
+        let hasProfileConflict = false;
+        let profileConflicts = {};
+        
+        if (profileIds && profileIds.length > 0) {
+            const MIN_GAP_MS = 5 * 60 * 1000;
+            const tenMinutesFromNow = new Date(Date.now() + MIN_GAP_MS * 2); // 10-minute forward scan
+            const gapAgo = new Date(Date.now() - MIN_GAP_MS);               // 5-minute lookback
+            
+            for (const pid of profileIds) {
+                const conflictingPosts = await Posting.find({
+                    userId: req.user._id,
+                    profileId: pid,
+                    status: { $in: ['scheduled', 'rescheduled', 'triggered', 'processing'] },
+                    scheduledTime: {
+                        $gte: gapAgo,
+                        $lte: tenMinutesFromNow
+                    }
+                });
+
+                console.log(`[CHECK-ACTIVE] profileId=${pid} window=${gapAgo.toISOString()} → ${tenMinutesFromNow.toISOString()} conflictsFound=${conflictingPosts.length}`, conflictingPosts.map(p => ({ id: p._id, scheduledTime: p.scheduledTime, status: p.status })));
+                
+                if (conflictingPosts.length > 0) {
+                    hasProfileConflict = true;
+                    // Find absolute latest post for this profile to calculate next available slot
+                    const lastScheduledPost = await Posting.findOne({
+                        userId: req.user._id,
+                        profileId: pid,
+                        status: { $in: ['scheduled', 'rescheduled', 'triggered', 'processing'] }
+                    }).sort({ scheduledTime: -1 });
+                    
+                    if (lastScheduledPost) {
+                        profileConflicts[pid] = new Date(lastScheduledPost.scheduledTime.getTime() + MIN_GAP_MS);
+                    } else {
+                        profileConflicts[pid] = new Date(Date.now() + MIN_GAP_MS);
+                    }
+                }
+            }
+        }
+        
+        res.json({
+            hasActivePostings: activePostings.length > 0,
+            hasRecentSuccess,
+            profileConflict: hasProfileConflict,
+            profileConflicts,
+            activePostings
+        });
+    } catch (error) {
+        console.error('Check active postings error:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
+// @desc    Cancel (delete) active scheduled postings
+// @route   POST /api/vehicles/cancel-active-postings
+// @access  Protected
+router.post('/cancel-active-postings', protect, async (req, res) => {
+    try {
+        const { postingIds } = req.body;
+        
+        if (!postingIds || !Array.isArray(postingIds) || postingIds.length === 0) {
+            return res.status(400).json({ message: 'No posting IDs provided' });
+        }
+
+        await Posting.deleteMany({
+            _id: { $in: postingIds },
+            userId: req.user._id // Ensure user owns these
+        });
+        
+        res.json({ success: true, message: 'Active postings cancelled and deleted' });
+    } catch (error) {
+        console.error('Cancel active postings error:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
 // @desc    Queue multiple vehicles for posting
 // @route   POST /api/vehicles/queue-posting
 // @access  Protected
@@ -2362,6 +2532,116 @@ router.post('/post-now', protect, async (req, res) => {
 });
 
 
+// @desc    Schedule a Quick Post for later (profile is busy — 5-min window conflict detected)
+// @route   POST /api/vehicles/post-now-schedule-later
+// @access  Protected
+router.post('/post-now-schedule-later', protect, async (req, res) => {
+    try {
+        const { vehicleId, profileId, selectedImages, prompt, contactNumber } = req.body;
+
+        if (!vehicleId) {
+            return res.status(400).json({ message: 'Vehicle ID is required' });
+        }
+        if (!profileId) {
+            return res.status(400).json({ message: 'Profile ID is required' });
+        }
+
+        const userId = req.user._id.toString();
+        const orgId = req.user.organization?._id || req.user.organization;
+
+        // 1. Acquire lock + find safe scheduled time (latest active post + 5 min)
+        const { scheduledTime, basedOnPostId } = await scheduleQuickPostForLater({ userId, profileId });
+
+        console.log(`[POST-NOW-SCHEDULE-LATER] vehicleId=${vehicleId} profileId=${profileId} scheduledTime=${scheduledTime.toISOString()} basedOn=${basedOnPostId}`);
+
+        // 2. Fetch vehicle
+        const vehicleData = await Vehicle.findById(vehicleId);
+        if (!vehicleData) {
+            return res.status(404).json({ message: 'Vehicle not found' });
+        }
+
+        // 3. Image prep (stealth)
+        let sourceImages = [];
+        if (selectedImages && selectedImages.length > 0) {
+            sourceImages = selectedImages;
+        } else if (vehicleData.images && vehicleData.images.length > 0) {
+            sourceImages = vehicleData.images.slice(0, 8);
+        }
+
+        let finalImages = [];
+        if (sourceImages.length > 0) {
+            try {
+                const gps = (req.user.organization && req.user.organization.settings && req.user.organization.settings.gpsLocation)
+                    ? req.user.organization.settings.gpsLocation
+                    : DEFAULT_GPS;
+
+                const stealthResult = await prepareImageBatch(sourceImages, { gps, camera: null, folder: 'stealth' });
+
+                if (stealthResult.success || stealthResult.successCount > 0) {
+                    const baseUrl = `${req.protocol}://${req.get('host')}`;
+                    finalImages = stealthResult.results.map(r => {
+                        const url = r.preparedUrl;
+                        if (url.startsWith('http')) return url;
+                        return baseUrl.replace(/\/$/, '') + url;
+                    });
+                } else {
+                    finalImages = sourceImages;
+                }
+            } catch (err) {
+                console.error('[post-now-schedule-later] Stealth error:', err);
+                finalImages = sourceImages;
+            }
+        }
+
+        // Normalize URLs
+        const baseUrl = `${req.protocol}://${req.get('host')}`;
+        finalImages = finalImages.map(url => {
+            if (!url) return url;
+            if (url.startsWith('http')) return url;
+            return baseUrl.replace(/\/$/, '') + url;
+        });
+
+        // 4. Optional AI description
+        let customDescription = null;
+        if (prompt) {
+            try {
+                const aiContent = await generateVehicleContent(vehicleData, prompt, 'professional', contactNumber);
+                if (aiContent && aiContent.description) {
+                    customDescription = aiContent.description;
+                }
+            } catch (e) {
+                console.error('[post-now-schedule-later] AI error:', e);
+            }
+        }
+
+        // 5. Create the Posting record
+        const savedPosting = await Posting.create({
+            vehicleId,
+            userId,
+            orgId,
+            profileId,
+            status: 'scheduled',
+            scheduledTime,
+            selectedImages: finalImages,
+            prompt: prompt || null,
+            customDescription,
+            schedulerOptions: { delay: 0, stealth: false },
+            logs: [{ message: 'Scheduled via Quick Post → Schedule for Later', timestamp: new Date() }]
+        });
+
+        return res.status(201).json({
+            success: true,
+            message: `Post scheduled for ${scheduledTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })}`,
+            scheduledTime,
+            postingId: savedPosting._id
+        });
+
+    } catch (error) {
+        console.error('[post-now-schedule-later] Error:', error);
+        res.status(500).json({ message: error.message });
+    }
+});
+
 // @desc    Update posting result (called by Extension via API)
 // @route   POST /api/vehicles/posting-result
 // @access  Protected (or API Key)
@@ -2422,6 +2702,17 @@ router.post('/posting-result', async (req, res) => {
             posting.status = 'failed';
             posting.error = error || 'Unknown error';
             posting.completedAt = new Date();
+            
+            // Trigger immediate reschedule check
+            const io = req.app.get('io');
+            const currentAttempt = posting.retryCount || 0;
+            if (currentAttempt < 3) {
+                await rescheduleStuckPost(io, posting, currentAttempt);
+            } else {
+                console.log(`[Posting Result] Max retries reached for postingId=${posting._id}`);
+                posting.failureReason = posting.failureReason || 'Failed after max retries';
+                await posting.save();
+            }
         }
 
         await posting.save();

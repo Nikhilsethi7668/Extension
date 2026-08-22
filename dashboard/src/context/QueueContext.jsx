@@ -11,8 +11,10 @@ export const useQueue = () => {
 };
 
 import { io } from 'socket.io-client';
+import { useToast } from './ToastContext';
 
 export const QueueProvider = ({ children }) => {
+    const { showToast } = useToast();
     const [queueProgress, setQueueProgress] = useState({
         active: false,
         message: '',
@@ -71,6 +73,14 @@ export const QueueProvider = ({ children }) => {
                     completed: false,
                     error: false
                 }));
+                
+                // Show notification if backend passed schedule-success
+                if (data.data?.action === 'schedule-success') {
+                    const timeStr = new Date(data.data.scheduledTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+                    showToast(`${data.data.vehicleName} has been scheduled successfully with time ${timeStr}`, 'success');
+                } else if (data.data?.action === 'schedule-skip') {
+                    showToast(`${data.data.vehicleName} is already scheduled for this profile. Skipped.`, 'warning');
+                }
             } else if (data.type === 'complete') {
                 setQueueProgress({
                     active: true,
@@ -94,6 +104,10 @@ export const QueueProvider = ({ children }) => {
             }
         });
 
+        newSocket.on('connect_error', (err) => {
+            console.error('[Dashboard Socket] Connection Error:', err.message);
+        });
+
         setSocket(newSocket);
 
         return () => {
@@ -103,22 +117,19 @@ export const QueueProvider = ({ children }) => {
 
     const queuePosting = useCallback(async (payload, token, onSuccess) => {
         // Initialize progress UI immediately
-        if (queueProgress.active) {
-            // If already active, don't reset percent to 0, just update message
-            setQueueProgress(prev => ({
-                ...prev,
-                message: 'Adding to queue...'
-            }));
-        } else {
-            // Fresh start
-            setQueueProgress({
-                active: true,
-                message: 'Initializing queue...',
-                percent: 0,
-                completed: false,
-                error: false
-            });
-        }
+        setQueueProgress(prev => {
+            if (prev.active) {
+                return { ...prev, message: 'Adding to queue...' };
+            } else {
+                return {
+                    active: true,
+                    message: 'Initializing queue...',
+                    percent: 0,
+                    completed: false,
+                    error: false
+                };
+            }
+        });
 
         const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5573') + '/api';
 
@@ -146,12 +157,14 @@ export const QueueProvider = ({ children }) => {
             // Response is 202 Accepted { success: true, message: ... }
 
             // We rely on socket for further updates.
-            setQueueProgress(prev => ({
-                ...prev,
-                message: data.message || 'Request queued. Waiting for processor...',
-                // Don't reset percent here either if we were already active
-                // if it was 0, it stays 0. If it was 50, it stays 50 until backend emits new total.
-            }));
+            setQueueProgress(prev => {
+                // If the socket already marked it as complete before fetch resolved, don't overwrite the message
+                if (prev.completed) return prev;
+                return {
+                    ...prev,
+                    message: data.message || 'Request queued. Waiting for processor...'
+                };
+            });
 
         } catch (error) {
             console.error('Queue Error:', error);

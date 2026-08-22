@@ -191,39 +191,41 @@ const ThemedApp = () => {
       <AuthProvider>
         <SocketProvider>
           <ToastProvider>
-            <Router>
-              <Routes>
-                <Route path="/login" element={<Login />} />
-                <Route path="/forgot-password" element={<ForgotPassword />} />
-                <Route path="/reset-password" element={<ResetPassword />} />
-                <Route path="/update-password" element={<UpdatePassword />} />
-                <Route path="/setup" element={<Setup />} />
-                <Route
-                  path="/*"
-                  element={
-                    <PrivateRoute>
-                      <Routes>
-                        <Route path="/" element={<Dashboard />} />
-                        <Route path="/inventory" element={<Inventory />} />
-                        <Route path="/scheduled-posts" element={<ScheduledPosts />} />
-                        <Route path="/user-posts" element={<UserPosts />} />
-                        <Route path="/organizations" element={<Organizations />} />
-                        <Route
-                          path="/users"
-                          element={
-                            <AdminRoute>
-                              <Users />
-                            </AdminRoute>
-                          }
-                        />
-                        <Route path="/logs" element={<Logs />} />
-                        <Route path="/settings" element={<Settings />} />
-                      </Routes>
-                    </PrivateRoute>
-                  }
-                />
-              </Routes>
-            </Router>
+            <QueueProvider>
+              <Router>
+                <Routes>
+                  <Route path="/login" element={<Login />} />
+                  <Route path="/forgot-password" element={<ForgotPassword />} />
+                  <Route path="/reset-password" element={<ResetPassword />} />
+                  <Route path="/update-password" element={<UpdatePassword />} />
+                  <Route path="/setup" element={<Setup />} />
+                  <Route
+                    path="/*"
+                    element={
+                      <PrivateRoute>
+                        <Routes>
+                          <Route path="/" element={<Dashboard />} />
+                          <Route path="/inventory" element={<Inventory />} />
+                          <Route path="/scheduled-posts" element={<ScheduledPosts />} />
+                          <Route path="/user-posts" element={<UserPosts />} />
+                          <Route path="/organizations" element={<Organizations />} />
+                          <Route
+                            path="/users"
+                            element={
+                              <AdminRoute>
+                                <Users />
+                              </AdminRoute>
+                            }
+                          />
+                          <Route path="/logs" element={<Logs />} />
+                          <Route path="/settings" element={<Settings />} />
+                        </Routes>
+                      </PrivateRoute>
+                    }
+                  />
+                </Routes>
+              </Router>
+            </QueueProvider>
           </ToastProvider>
         </SocketProvider>
       </AuthProvider>
@@ -236,9 +238,7 @@ import { QueueProvider } from './context/QueueContext';
 function App() {
   return (
     <ThemeModeProvider>
-      <QueueProvider>
-        <ThemedApp />
-      </QueueProvider>
+      <ThemedApp />
     </ThemeModeProvider>
   );
 }

@@ -2,6 +2,7 @@ import express from 'express';
 import { protect } from '../middleware/auth.js';
 import Posting from '../models/posting.model.js';
 import Vehicle from '../models/Vehicle.js'; // Ensure model is registered
+import { rescheduleStuckPost } from '../services/postingScheduling.service.js';
 
 const router = express.Router();
 
@@ -213,6 +214,7 @@ router.post('/:id/complete', protect, async (req, res) => {
         
         if (error) {
             posting.error = error;
+            posting.failureReason = `[Attempt ${(posting.retryCount || 0) + 1}] Chrome Error: ${error}`;
         }
         
         if (listingUrl) {
@@ -261,8 +263,17 @@ router.post('/:id/complete', protect, async (req, res) => {
                 });
                 await posting.save();
             }
-        } else if (status !== 'completed') {
-            console.log(`[Posting Complete] Posting status is '${status}' (not 'completed') - vehicle status not updated`);
+        } else if (status === 'failed' || status === 'timeout') {
+            console.log(`[Posting Complete] Posting status is '${status}' - triggering immediate reschedule check`);
+            const io = req.app.get('io');
+            const currentAttempt = posting.retryCount || 0;
+            if (currentAttempt < 3) {
+                await rescheduleStuckPost(io, posting, currentAttempt);
+            } else {
+                console.log(`[Posting Complete] Max retries reached for postingId=${posting._id}`);
+                posting.failureReason = posting.failureReason || `Failed after max retries (${status})`;
+                await posting.save();
+            }
         }
 
         res.json({

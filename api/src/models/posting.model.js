@@ -66,9 +66,17 @@ const postingSchema = new mongoose.Schema({
         delay: { type: Number, default: 0 }, // Delay in minutes
         stealth: { type: Boolean, default: false }
     },
+    retryCount: {
+        type: Number,
+        default: 0
+    },
     variationData: {
         preparedImages: [String], // Specific stealth images used for this job
         metadata: Object // Store camera/GPS used
+    },
+    forcePost: {
+        type: Boolean,
+        default: false
     },
     logs: [{
         message: String,

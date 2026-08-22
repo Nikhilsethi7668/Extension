@@ -224,7 +224,7 @@ class AutomationEngine extends EventEmitter {
       // Fetch formatted vehicle data from API
       const vehicleData = await this.fetchVehicleData(vehicle._id);
 
-      // ⭐ Override with freshly generated images if available
+      //  Override with freshly generated images if available
       if (freshPreparedImages && freshPreparedImages.length > 0) {
         vehicleData.data.preparedImages = freshPreparedImages;
         console.log(`[Posting] Using ${freshPreparedImages.length} freshly stealthed images`);

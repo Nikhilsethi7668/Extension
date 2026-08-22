@@ -156,101 +156,6 @@ async function login() {
         organization: data.organization,
         id: data._id // Ensure 'id' alias exists for easier access if needed
       };
-      // Helper to format relative time
-      function timeAgo(date) {
-        const seconds = Math.floor((new Date() - new Date(date)) / 1000);
-        let interval = seconds / 31536000;
-        if (interval > 1) return Math.floor(interval) + "y ago";
-        interval = seconds / 2592000;
-        if (interval > 1) return Math.floor(interval) + "m ago";
-        interval = seconds / 86400;
-        if (interval > 1) return Math.floor(interval) + "d ago";
-        interval = seconds / 3600;
-        if (interval > 1) return Math.floor(interval) + "h ago";
-        interval = seconds / 60;
-        if (interval > 1) return Math.floor(interval) + " min ago";
-        return "just now";
-      }
-
-      async function fetchActivityLogs() {
-        const activityLogContainer = document.getElementById('activityLog');
-        if (!activityLogContainer) return;
-
-        activityLogContainer.innerHTML = '<div class="loading-state">Loading activity...</div>';
-
-        try {
-          const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.logActivity}?limit=5`, {
-            headers: {
-              'Authorization': `Bearer ${currentUser.token}`
-            }
-          });
-
-          if (response.ok) {
-            const data = await response.json();
-            const logs = data.logs || [];
-
-            if (logs.length === 0) {
-              activityLogContainer.innerHTML = '<div class="empty-state">No recent activity</div>';
-              return;
-            }
-
-            activityLogContainer.innerHTML = logs.map(log => `
-        <div class="log-item">
-          <div class="log-icon">${getLogIcon(log.action)}</div>
-          <div class="log-content">
-            <div class="log-header">
-              <span class="log-action">${log.action}</span>
-              <span class="log-time">${timeAgo(log.createdAt)}</span>
-            </div>
-            <div class="log-details">${getLogDetails(log)}</div>
-          </div>
-        </div>
-      `).join('');
-          } else {
-            activityLogContainer.innerHTML = '<div class="error-message">Failed to load activity</div>';
-          }
-        } catch (error) {
-          console.error('Error fetching logs:', error);
-          activityLogContainer.innerHTML = '<div class="error-message">Network error</div>';
-        }
-      }
-
-      function getLogIcon(action) {
-        const lower = action.toLowerCase();
-        if (lower.includes('login')) return '🔐';
-        if (lower.includes('create')) return '🚗';
-        if (lower.includes('delete')) return '🗑️';
-        if (lower.includes('edit')) return '✨';
-        if (lower.includes('posted')) return '✅';
-        return '📝';
-      }
-
-      function getLogDetails(log) {
-        if (log.entityType === 'Vehicle' && log.entityId) {
-          // If populated
-          if (log.entityId.make) {
-            return `${log.entityId.year} ${log.entityId.make} ${log.entityId.model}`;
-          }
-          // If details has info
-          if (log.details && log.details.title) {
-            return log.details.title;
-          }
-        }
-        return log.details && log.details.method ? `Method: ${log.details.method}` : '';
-      }
-
-      function showMainControls() {
-        document.getElementById('loginSection').style.display = 'none';
-        document.getElementById('mainControls').style.display = 'block';
-        document.getElementById('vehicleListingView').style.display = 'none';
-
-        if (currentUser) {
-          document.getElementById('statusText').textContent = `Logged in as ${currentUser.name}`;
-          document.getElementById('statusText').textContent = `Logged in as ${currentUser.name}`;
-          fetchActivityLogs();
-          loadProfiles();
-        }
-      }
       await safeChromeCall(() => chrome.storage.local.set({ userSession: currentUser }), 'Failed to save session');
       showMainControls();
       showNotification('Logged in successfully!', 'success');
@@ -445,11 +350,98 @@ function showLoginSection() {
   document.getElementById('vehicleListingView').style.display = 'none';
 }
 
+// Helper to format relative time
+function timeAgo(date) {
+  const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+  let interval = seconds / 31536000;
+  if (interval > 1) return Math.floor(interval) + "y ago";
+  interval = seconds / 2592000;
+  if (interval > 1) return Math.floor(interval) + "m ago";
+  interval = seconds / 86400;
+  if (interval > 1) return Math.floor(interval) + "d ago";
+  interval = seconds / 3600;
+  if (interval > 1) return Math.floor(interval) + "h ago";
+  interval = seconds / 60;
+  if (interval > 1) return Math.floor(interval) + " min ago";
+  return "just now";
+}
+
+async function fetchActivityLogs() {
+  const activityLogContainer = document.getElementById('activityLog');
+  if (!activityLogContainer) return;
+
+  activityLogContainer.innerHTML = '<div class="loading-state">Loading activity...</div>';
+
+  try {
+    const response = await fetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.logActivity}?limit=5`, {
+      headers: {
+        'Authorization': `Bearer ${currentUser.token}`
+      }
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      const logs = data.logs || [];
+
+      if (logs.length === 0) {
+        activityLogContainer.innerHTML = '<div class="empty-state">No recent activity</div>';
+        return;
+      }
+
+      activityLogContainer.innerHTML = logs.map(log => `
+        <div class="log-item">
+          <div class="log-icon">${getLogIcon(log.action)}</div>
+          <div class="log-content">
+            <div class="log-header">
+              <span class="log-action">${log.action}</span>
+              <span class="log-time">${timeAgo(log.createdAt)}</span>
+            </div>
+            <div class="log-details">${getLogDetails(log)}</div>
+          </div>
+        </div>
+      `).join('');
+    } else {
+      activityLogContainer.innerHTML = '<div class="error-message">Failed to load activity</div>';
+    }
+  } catch (error) {
+    console.error('Error fetching logs:', error);
+    activityLogContainer.innerHTML = '<div class="error-message">Network error</div>';
+  }
+}
+
+function getLogIcon(action) {
+  const lower = action.toLowerCase();
+  if (lower.includes('login')) return '🔐';
+  if (lower.includes('create')) return '🚗';
+  if (lower.includes('delete')) return '🗑️';
+  if (lower.includes('edit')) return '✨';
+  if (lower.includes('posted')) return '✅';
+  return '📝';
+}
+
+function getLogDetails(log) {
+  if (log.entityType === 'Vehicle' && log.entityId) {
+    // If populated
+    if (log.entityId.make) {
+      return `${log.entityId.year} ${log.entityId.make} ${log.entityId.model}`;
+    }
+    // If details has info
+    if (log.details && log.details.title) {
+      return log.details.title;
+    }
+  }
+  return log.details && log.details.method ? `Method: ${log.details.method}` : '';
+}
+
 function showMainControls() {
   document.getElementById('loginSection').style.display = 'none';
   document.getElementById('vehicleListingView').style.display = 'none';
   document.getElementById('mainControls').style.display = 'block';
   updateStatusText();
+  if (currentUser) {
+    fetchActivityLogs();
+    loadProfiles();
+  }
 }
 
 function showVehicleListing() {
@@ -514,6 +506,31 @@ function attachEventListeners() {
 
   if (loginBtn) {
     loginBtn.addEventListener('click', login);
+  }
+
+  // Refresh Profiles Button
+  const refreshProfilesBtn = document.getElementById('refreshProfilesBtn');
+  if (refreshProfilesBtn) {
+    refreshProfilesBtn.addEventListener('click', async () => {
+      console.log('[refreshProfilesBtn] Clicked, clearing cache and re-fetching profiles...');
+      const profileSelect = document.getElementById('profileSelect');
+      if (profileSelect) {
+        profileSelect.innerHTML = '<option value="">Loading profiles...</option>';
+      }
+      
+      refreshProfilesBtn.disabled = true;
+      refreshProfilesBtn.classList.add('loading');
+      
+      try {
+        await safeChromeCall(() => chrome.storage.local.remove(['chromeProfilesList']), 'Failed to clear profiles cache');
+        await loadProfiles();
+      } catch (err) {
+        console.error('Error during refresh:', err);
+      } finally {
+        refreshProfilesBtn.disabled = false;
+        refreshProfilesBtn.classList.remove('loading');
+      }
+    });
   }
 
   if (logoutBtn) {

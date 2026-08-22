@@ -1,7 +1,8 @@
 const { ipcRenderer } = require('electron');
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
 // Hardcoded API URL
-const API_URL = 'http://45.137.194.145:5573/api';
+const API_URL = process.env.API_BASE_URL || 'http://localhost:5573/api';
 
 // DOM Elements
 const loginForm = document.getElementById('loginForm');

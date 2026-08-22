@@ -77,7 +77,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-app.use('/uploads', express.static(path.join(__dirname, '../public/uploads')));
+const storagePath = path.resolve(process.env.UPLOAD_STORAGE_PATH || './uploads');
+app.use('/uploads', express.static(storagePath));
 
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', message: 'Backend is running' });
@@ -290,4 +291,3 @@ const server = httpServer.listen(PORT, () => {
 server.timeout = 600000; 
 server.keepAliveTimeout = 610000;
 server.headersTimeout = 620000;
-

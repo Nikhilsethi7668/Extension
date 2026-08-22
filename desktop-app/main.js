@@ -1,3 +1,4 @@
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, Notification } = require('electron');
 const { spawn, exec } = require('child_process');
 const io = require('socket.io-client');
@@ -18,7 +19,7 @@ const AutomationEngine = require('./automation-engine');
 
 // Default configuration
 const DEFAULT_CONFIG = {
-  apiUrl: 'http://45.137.194.145:5573/api',
+  apiUrl: process.env.API_BASE_URL || 'http://localhost:5573/api',
   apiToken: '',
   pollingInterval: 5, // minutes
   autoStart: false,
@@ -594,7 +595,8 @@ const launchedProfiles = new Map();
 
 function launchChromeProfile(profileDir) {
   try {
-    console.log(`Launching Chrome profile: ${profileDir} on ${process.platform}`);
+    console.log(`[CHROME][LAUNCH][START]\nprofileId=${profileDir}\nprofileName=${profileDir}`);
+    console.log(`[CHROME][PROFILE]\nrequestedProfileId=${profileDir}\nrequestedProfileName=${profileDir}\nresolvedChromeProfile=${profileDir}`);
 
     let executable;
 
@@ -639,12 +641,14 @@ function launchChromeProfile(profileDir) {
       throw new Error(`Unsupported platform: ${process.platform}`);
     }
 
-    console.log(`Using Chrome executable: ${executable}`);
+    console.log(`[CHROME][LAUNCH][COMMAND]\nexecutable=${executable}\nargs=--profile-directory="${profileDir}"`);
 
     const child = spawn(executable, [`--profile-directory=${profileDir}`], {
       detached: true,
       stdio: 'ignore'
     });
+    
+    console.log(`[CHROME][LAUNCH][SUCCESS]\nprofileId=${profileDir}\npid=${child.pid}`);
 
     // Track the process
     launchedProfiles.set(profileDir, child);
@@ -658,7 +662,7 @@ function launchChromeProfile(profileDir) {
 
     return { success: true };
   } catch (error) {
-    console.error('Error launching Chrome:', error);
+    console.log(`[CHROME][LAUNCH][ERROR]\nprofileId=${profileDir}\nerror=${error.message}`);
     throw error;
   }
 }
@@ -926,8 +930,8 @@ function connectSocket() {
     });
 
     socket.on('launch-browser-profile', async (data) => {
-      console.log('[Socket] Received launch-browser-profile event:', data);
-      const { profileId } = data;
+      const { profileId, profileName, mongoId } = data;
+      console.log(`[DESKTOP][LAUNCH][RECEIVED]\nprofileId=${profileId || ''}\nprofileName=${profileName || ''}\nmongoId=${mongoId || ''}`);
 
       if (!profileId) {
         console.error('[Socket] Invalid profile data received');

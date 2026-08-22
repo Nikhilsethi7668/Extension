@@ -2,6 +2,8 @@ import Posting from '../models/posting.model.js';
 import Vehicle from '../models/Vehicle.js';
 import { generateVehicleContent } from './ai.service.js';
 import { prepareImageBatch, DEFAULT_GPS } from './image-processor.service.js';
+import { resolvePostingSchedule } from './postingScheduling.service.js';
+import { forceTriggerPosting } from '../cron/posting.cron.js';
 
 class QueueManager {
     constructor() {
@@ -83,7 +85,7 @@ class QueueManager {
                         profileId: pid,
                         // Configs
                         schedule: schedule || {},
-                        intervalMinutes: intervalMinutes || (schedule?.intervalMinutes || 1),
+                        intervalMinutes: intervalMinutes || (schedule?.intervalMinutes || 5),
                         randomize: randomize !== false && (schedule?.randomize !== false),
                         useStealth: schedule?.stealth === true || data.useStealth === true,
                         // Content Override
@@ -169,7 +171,8 @@ class QueueManager {
             message,
             percent: globalPercent, // The UI expects a 0-100 value
             itemPercent: itemPercent, // Optional: if UI wants to show "Job 3/10: 50%"
-            stats: { completed, total }
+            stats: { completed, total },
+            data: arguments[5] || null // Allow passing extra data
         };
 
         io.to(desktopRoom).emit('queue-progress', payload);
@@ -177,7 +180,7 @@ class QueueManager {
     }
 
     async handleSingleJob(userId, job, io, stats) {
-        const { vehicleId, profileId, user, selectedImages, prompt, contactNumber, schedule, isPostNow, orgId, intervalMinutes, randomize, useStealth } = job.data;
+        const { vehicleId, profileId, user, selectedImages, prompt, contactNumber, schedule, isPostNow, orgId, intervalMinutes, randomize, useStealth, forcePost } = job.data;
         
         // 1. INIT (3%)
         this.emitProgress(io, userId, `Starting job ${stats.completed + 1}/${stats.total}...`, 3);
@@ -196,11 +199,14 @@ class QueueManager {
             userId: userId,
             vehicleId: vehicleId,
             profileId: profileId,
-            status: 'scheduled'
+            status: { $in: ['scheduled', 'triggered', 'processing'] }
         });
 
         if (activePosting) {
-             this.emitProgress(io, userId, `Vehicle already scheduled for this profile. Skipping.`, 100);
+             this.emitProgress(io, userId, `Vehicle ${vehicleData.make} ${vehicleData.model} is already scheduled/active for this profile. Skipping.`, 100, 'progress', {
+                 action: 'schedule-skip',
+                 vehicleName: `${vehicleData.make} ${vehicleData.model}`
+             });
              return;
         }
 
@@ -277,95 +283,94 @@ class QueueManager {
         // 4. SCHEDULING / SAVING (100%)
         this.emitProgress(io, userId, `Finalizing schedule...`, 90);
 
-        let scheduledTime = new Date();
-        const MIN_GAP_MS = 4 * 60 * 1000; // 4 minutes
+        let requestedTime = new Date();
 
-        if (isPostNow) {
-            // POST NOW: Smart scheduling to prevent rate limits
-            // Check if there are scheduled posts for this profile in next 5 minutes
-            const fiveMinutesFromNow = new Date(Date.now() + 5 * 60 * 1000);
-            
-                const fourMinutesAgo = new Date(Date.now() - MIN_GAP_MS);
-            
-            const conflictingPosts = await Posting.find({
-                userId: userId,
-                profileId: profileId,
-                status: 'scheduled',
-                scheduledTime: {
-                    $gte: fourMinutesAgo, // Check explicitly for conflicts in the "danger zone" (recent past)
-                    $lte: fiveMinutesFromNow 
-                }
-            }).sort({ scheduledTime: 1 }); // Ascending order
+        if (!isPostNow) {
+            // REGULAR SCHEDULE: Calculate desired interval-based time
+            const MIN_GAP_MS = 5 * 60 * 1000;
 
-            if (conflictingPosts.length > 0) {
-                // There are upcoming posts in the next 5 minutes
-                // Find the LAST scheduled post for this profile (not just in next 5 min, but overall)
-                const lastScheduledPost = await Posting.findOne({
-                    userId: userId,
-                    profileId: profileId,
-                    status: 'scheduled'
-                }).sort({ scheduledTime: -1 }); // Latest one
-
-                if (lastScheduledPost) {
-                    // Schedule after the last post with 4-minute gap
-                    scheduledTime = new Date(lastScheduledPost.scheduledTime.getTime() + MIN_GAP_MS);
-                    console.log(`[Queue] Post Now: Found upcoming posts. Scheduling after last post with 4-min gap: ${scheduledTime}`);
-                } else {
-                    // Fallback (shouldn't happen since upcomingPosts.length > 0)
-                    scheduledTime = new Date();
-                }
-            } else {
-                // No posts in next 5 minutes, schedule immediately
-                scheduledTime = new Date();
+            // Determine the user-requested start time. If in the past, use now.
+            let userStartTime = (schedule && schedule.startTime) ? new Date(schedule.startTime) : new Date();
+            if (userStartTime.getTime() < Date.now()) {
+                userStartTime = new Date();
             }
-        } else {
-            // REGULAR SCHEDULE: Chain to last scheduled post with intervals
+
+            // Find the latest active (non-terminal) post for this user+profile
             const lastScheduledPost = await Posting.findOne({
                 userId: userId,
                 profileId: profileId,
-                status: 'scheduled'
+                status: { $in: ['scheduled', 'rescheduled', 'triggered', 'processing'] }
             }).sort({ scheduledTime: -1 });
 
-            let baseTime = lastScheduledPost ? new Date(lastScheduledPost.scheduledTime) : new Date();
-            
-            // User-defined Interval
-            let userIntervalMs = intervalMinutes * 60000;
-            
-            // Random scatter (2-5 minutes)
-            const randomMinutes = 2 + Math.random() * 3;
-            const randomDelay = Math.floor(randomMinutes * 60000);
-            
-            // Calculate total delay
-            let totalDelay = userIntervalMs + randomDelay;
-            
-            // Add optional randomization variance
+            // User-defined interval (minimum 5 minutes enforced)
+            let userIntervalMs = Math.max((intervalMinutes || 5) * 60000, MIN_GAP_MS);
+
+            // Optional randomization variance (0-1 minute)
+            let variance = 0;
             if (randomize) {
-                const variance = Math.floor(Math.random() * 1 * 60000);
-                totalDelay += variance;
+                variance = Math.floor(Math.random() * 60000);
             }
 
-            // Enforce minimum gap for chained posts
+            let baseTime;
+
             if (lastScheduledPost) {
-                // Ensure at least 4 minutes between posts
-                if (totalDelay < MIN_GAP_MS) {
-                    totalDelay = MIN_GAP_MS;
+                const lastPostTime = new Date(lastScheduledPost.scheduledTime);
+
+                if (userStartTime.getTime() > lastPostTime.getTime() + userIntervalMs) {
+                    // userStartTime is already far enough ahead — honour it
+                    baseTime = userStartTime;
+                } else {
+                    // Chain: place this post after the last active post + interval
+                    baseTime = new Date(lastPostTime.getTime() + userIntervalMs + variance);
                 }
-                scheduledTime = new Date(baseTime.getTime() + totalDelay);
             } else {
-                // First post: just add random delay from now
-                scheduledTime = new Date(baseTime.getTime() + randomDelay);
+                // No existing active post — use userStartTime as the base.
+                // If a specific startTime was NOT provided, add one interval so the
+                // very first post isn't executed immediately.
+                if (!schedule?.startTime) {
+                    baseTime = new Date(userStartTime.getTime() + userIntervalMs + variance);
+                } else {
+                    baseTime = new Date(userStartTime.getTime() + variance);
+                }
             }
+
+            // Ensure we never schedule in the past
+            if (baseTime.getTime() < Date.now()) {
+                baseTime = new Date(Date.now() + MIN_GAP_MS);
+            }
+
+            requestedTime = baseTime;
         }
 
+        // Use central scheduling service for conflict resolution and atomic lock
+        const scheduleResult = await resolvePostingSchedule({
+            userId,
+            profileId,
+            requestedTime,
+            isQuickPost: isPostNow
+        });
 
+        let scheduledTime = scheduleResult.scheduledTime;
+        let triggerInstantly = scheduleResult.action === 'immediate';
 
-        await Posting.create({
+        console.log(`[POSTING-SCHEDULE-TRACE] Creating Posting
+  vehicleId: ${vehicleId}
+  profileId: ${profileId}
+  isQuickPost: ${isPostNow}
+  requestedTime: ${requestedTime.toISOString()}
+  resolvedTime: ${scheduledTime.toISOString()}
+  action: ${scheduleResult.action}
+  wasAdjusted: ${scheduleResult.wasAdjusted}
+`);
+
+        const savedPosting = await Posting.create({
             vehicleId: vehicleId,
             userId: userId,
             orgId: orgId,
             profileId: profileId,
             status: 'scheduled', 
             scheduledTime: scheduledTime,
+            forcePost: forcePost === true,
             selectedImages: finalImages,
             prompt: prompt || null,
             customDescription: customDescription,
@@ -373,9 +378,47 @@ class QueueManager {
             completedAt: null,
             logs: [{ message: `Scheduled via Queue (Job ${stats.completed + 1}/${stats.total})`, timestamp: new Date() }]
         });
+
+        if (triggerInstantly) {
+            const delayMs = Math.max(500, new Date(scheduledTime).getTime() - Date.now());
+            console.log(`[QUEUE] Quick Post will trigger in ${Math.round(delayMs/1000)}s at ${scheduledTime.toISOString()}`);
+            
+            setTimeout(async () => {
+                // Final safety re-check: verify no other post was written for this profile
+                // in the window between scheduling and now (closes the TOCTOU race window)
+                const nowTime = new Date();
+                const windowEnd = new Date(nowTime.getTime() + 5 * 60 * 1000);
+                const conflictingNow = await Posting.findOne({
+                    userId,
+                    profileId,
+                    status: { $nin: ['failed', 'completed', 'already-posted', 'timeout'] },
+                    scheduledTime: { $gt: nowTime, $lte: windowEnd },
+                    _id: { $ne: savedPosting._id } // Exclude this posting itself
+                });
+                
+                if (conflictingNow) {
+                    // A conflict appeared during the 30s wait — reschedule this post
+                    const newTime = new Date(new Date(conflictingNow.scheduledTime).getTime() + 5 * 60 * 1000);
+                    console.warn(`[QUEUE] Quick Post final-check conflict found (${conflictingNow._id} at ${conflictingNow.scheduledTime}). Rescheduling to ${newTime.toISOString()}`);
+                    await Posting.findByIdAndUpdate(savedPosting._id, {
+                        scheduledTime: newTime,
+                        status: 'rescheduled',
+                        $push: { logs: { message: `Rescheduled to ${newTime.toISOString()} — conflict detected at trigger time`, timestamp: new Date() } }
+                    });
+                    return; // Don't trigger — cron will pick it up at newTime
+                }
+                
+                console.log(`[QUEUE] Quick Post final-check passed — triggering now.`);
+                forceTriggerPosting(io, savedPosting._id);
+            }, delayMs);
+        }
         
         // Done with this item
-        this.emitProgress(io, userId, `Scheduled ${vehicleData.make} ${vehicleData.model} for ${profileId ? 'Profile' : 'Default'}`, 100);
+        this.emitProgress(io, userId, `Scheduled ${vehicleData.make} ${vehicleData.model} for ${profileId ? 'Profile' : 'Default'}`, 100, 'progress', {
+            action: 'schedule-success',
+            vehicleName: `${vehicleData.make} ${vehicleData.model}`,
+            scheduledTime: scheduledTime
+        });
     }
 }
 

@@ -16,15 +16,29 @@ const vehicleSchema = mongoose.Schema(
             type: String,
             // unique: true, // REMOVED: Replaced by compound index below
             sparse: true,
+            validate: {
+                validator: function(v) {
+                    return !v || /^[A-Z0-9]{17}$/.test(v);
+                },
+                message: props => `${props.value} is not a valid 17-character alphanumeric VIN!`
+            }
         },
-        year: Number,
-        make: String,
-        model: String,
+        year: { type: Number, min: 0 },
+        make: { type: String, maxlength: 15 },
+        model: { type: String, maxlength: 10 },
         trim: String,
-        price: Number,
-        mileage: Number,
+        price: { type: Number, min: 0 },
+        mileage: { type: Number, min: 0 },
         location: String,
-        description: String,
+        description: {
+            type: String,
+            validate: {
+                validator: function(v) {
+                    return !v || v.trim().split(/\s+/).length <= 100;
+                },
+                message: 'Description exceeds the maximum limit of 100 words.'
+            }
+        },
         images: [String], // URLs to images
         aiImages: [String], // URLs to AI processed images
         sourceUrl: String,
@@ -32,8 +46,8 @@ const vehicleSchema = mongoose.Schema(
         fuelType: String,
         condition: String, // New/Used
         transmission: String,
-        exteriorColor: String,
-        interiorColor: String,
+        exteriorColor: { type: String, maxlength: 20 },
+        interiorColor: { type: String, maxlength: 20 },
         bodyStyle: String,
         drivetrain: String,
         engine: String,

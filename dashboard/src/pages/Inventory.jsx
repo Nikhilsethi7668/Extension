@@ -9,6 +9,7 @@ import {
 import { Plus, Search, RefreshCw, X, Eye, ExternalLink, Image as ImageIcon, Trash2, UserPlus, Users, AlertTriangle, DollarSign, RotateCcw, Zap, CheckCircle, Loader, Edit, Send } from 'lucide-react';
 import apiClient from '../config/axios';
 import Layout from '../components/Layout';
+import AddVehicleDialog from '../components/AddVehicleDialog';
 import { useQueue } from '../context/QueueContext';
 import { useSocket } from '../context/SocketContext';
 import { Upload } from 'lucide-react';
@@ -16,6 +17,7 @@ import { Upload } from 'lucide-react';
 const Inventory = () => {
     const [vehicles, setVehicles] = useState([]);
     const [open, setOpen] = useState(false);
+    const [addVehicleOpen, setAddVehicleOpen] = useState(false);
     const [scrapeUrl, setScrapeUrl] = useState('');
     const [maxVehicles, setMaxVehicles] = useState('');
     const [loading, setLoading] = useState(false);
@@ -80,6 +82,12 @@ const Inventory = () => {
     const [selectedPostNowImages, setSelectedPostNowImages] = useState([]);
     const [postNowPrompt, setPostNowPrompt] = useState('');
     const [postNowContactNumber, setPostNowContactNumber] = useState('');
+
+    // Active Posting Check State
+    const [activePostingDialog, setActivePostingDialog] = useState({ open: false, data: [], payload: null, isPostNow: false });
+    const [duplicatePostingDialog, setDuplicatePostingDialog] = useState({ open: false, payload: null, isPostNow: false });
+    const [profileConflictDialog, setProfileConflictDialog] = useState({ open: false, payload: null, profileConflicts: {} });
+    const [scheduleForLaterLoading, setScheduleForLaterLoading] = useState(false);
 
     useEffect(() => {
         const userStr = localStorage.getItem('user');
@@ -407,9 +415,6 @@ const Inventory = () => {
     const handleQueueSubmit = async () => {
         if (selectedProfileIds.length === 0) return alert('Select at least one profile');
         
-        // Close dialog immediately
-        setQueueDialogOpen(false);
-        
         // Get auth token
         const userStr = localStorage.getItem('user');
         const user = userStr ? JSON.parse(userStr) : null;
@@ -424,12 +429,42 @@ const Inventory = () => {
             selectedImages: selectedDetailImages
         };
 
-        // Trigger global queue
+        try {
+            const { data } = await apiClient.post('/vehicles/check-active-postings', {
+                vehicleIds: payload.vehicleIds,
+                profileIds: payload.profileIds
+            });
+            if (data.hasActivePostings) {
+                setQueueDialogOpen(false); // Close queue dialog so it doesn't overlap
+                setActivePostingDialog({
+                    open: true,
+                    data: data.activePostings,
+                    payload: payload,
+                    isPostNow: false
+                });
+                return;
+            }
+            if (data.hasRecentSuccess) {
+                setQueueDialogOpen(false);
+                setDuplicatePostingDialog({
+                    open: true,
+                    payload: payload,
+                    isPostNow: false
+                });
+                return;
+            }
+        } catch(e) {
+            console.error("Check active error", e);
+        }
+
+        executeQueuePosting(payload, token);
+    };
+
+    const executeQueuePosting = (payload, token) => {
+        setQueueDialogOpen(false);
         queuePosting(payload, token, () => {
              fetchVehicles(); // Refresh on success
         });
-
-        // Clean up immediately
         setSelectedDetailImages([]);
         setSelectedProfileIds([]);
     };
@@ -455,12 +490,8 @@ const Inventory = () => {
 
     const handlePostNowSubmit = async () => {
         if (selectedProfileIds.length === 0) return alert('Select at least one profile');
-        setLoading(true); // Keep loading for the dialog transition
-        
-        // Close dialog immediately to show progress in sidebar
-        setPostNowDialogOpen(false);
+        setLoading(true);
 
-        // Get token
         const userStr = localStorage.getItem('user');
         const user = userStr ? JSON.parse(userStr) : null;
         const token = user?.token;
@@ -478,11 +509,55 @@ const Inventory = () => {
             contactNumber: postNowContactNumber
         };
 
+        try {
+            const { data } = await apiClient.post('/vehicles/check-active-postings', {
+                vehicleIds: [payload.vehicleId],
+                profileIds: payload.profileIds
+            });
+            if (data.hasActivePostings) {
+                setLoading(false);
+                setPostNowDialogOpen(false); // Close current dialog
+                setActivePostingDialog({
+                    open: true,
+                    data: data.activePostings,
+                    payload: payload,
+                    isPostNow: true
+                });
+                return;
+            }
+            if (data.hasRecentSuccess) {
+                setLoading(false);
+                setPostNowDialogOpen(false);
+                setDuplicatePostingDialog({
+                    open: true,
+                    payload: payload,
+                    isPostNow: true
+                });
+                return;
+            }
+            if (data.profileConflict) {
+                setLoading(false);
+                setPostNowDialogOpen(false);
+                setProfileConflictDialog({
+                    open: true,
+                    payload: payload,
+                    profileConflicts: data.profileConflicts || {}
+                });
+                return;
+            }
+        } catch(e) {
+            console.error("Check active error", e);
+            setLoading(false);
+            alert('Could not verify scheduling conflicts. Please try again.');
+            return; // NEVER proceed if the conflict check itself failed
+        }
+
+        executePostNow(payload, token);
+    };
+
+    const executePostNow = (payload, token) => {
+        setPostNowDialogOpen(false);
         postNow(payload, token, (data) => {
-            // onSuccess
-            // We don't need to alert big messages anymore as status is in sidebar.
-            // But a small toast or alert is fine.
-            // alert(data.message); 
             setSelectedProfileIds([]);
             fetchVehicles();
             setLoading(false);
@@ -775,7 +850,10 @@ const Inventory = () => {
                     )}
                     <Button variant="outlined" color="secondary" onClick={fetchVehicles} startIcon={<RefreshCw size={18} />}>Refresh</Button>
                     {currentUser && currentUser.role !== 'agent' && (
-                        <Button variant="contained" onClick={() => setOpen(true)} startIcon={<Plus size={18} />}>Import Vehicle</Button>
+                        <>
+                            <Button variant="contained" color="secondary" sx={{ mr: 1 }} onClick={() => setAddVehicleOpen(true)} startIcon={<Plus size={18} />}>Add Vehicle</Button>
+                            <Button variant="contained" onClick={() => setOpen(true)} startIcon={<Plus size={18} />}>Import Vehicle</Button>
+                        </>
                     )}
                 </Box>
             </Paper>
@@ -1995,6 +2073,213 @@ const Inventory = () => {
                 </DialogContent>
             </Dialog>
 
+            <AddVehicleDialog 
+                open={addVehicleOpen} 
+                onClose={() => setAddVehicleOpen(false)} 
+                onSuccess={() => {
+                    setAddVehicleOpen(false);
+                    fetchVehicles();
+                }} 
+            />
+
+            <ActivePostingWarningDialog
+                open={activePostingDialog.open}
+                onClose={() => setActivePostingDialog({ open: false, data: [], payload: null, isPostNow: false })}
+                activePostings={activePostingDialog.data}
+                isPostNow={activePostingDialog.isPostNow}
+                onScheduleLater={async () => {
+                    const user = JSON.parse(localStorage.getItem('user') || '{}');
+                    const token = user?.token;
+                    
+                    // Convert payload to Queue payload format and trigger global queue
+                    const queuePayload = {
+                        vehicleIds: [activePostingDialog.payload.vehicleId],
+                        profileIds: activePostingDialog.payload.profileIds,
+                        schedule: { intervalMinutes: 15, randomize: true, stealth: true, contactNumber: activePostingDialog.payload.contactNumber },
+                        selectedImages: activePostingDialog.payload.selectedImages
+                    };
+                    executeQueuePosting(queuePayload, token);
+                    setActivePostingDialog({ open: false, data: [], payload: null, isPostNow: false });
+                }}
+                onConfirm={async () => {
+                    try {
+                        const postingIds = activePostingDialog.data.map(p => p._id);
+                        await apiClient.post('/vehicles/cancel-active-postings', { postingIds });
+                        
+                        const user = JSON.parse(localStorage.getItem('user') || '{}');
+                        const token = user?.token;
+                        
+                        if (activePostingDialog.isPostNow) {
+                            executePostNow(activePostingDialog.payload, token);
+                        } else {
+                            executeQueuePosting(activePostingDialog.payload, token);
+                        }
+                    } catch(err) {
+                        console.error('Failed to cancel old postings', err);
+                    }
+                    setActivePostingDialog({ open: false, data: [], payload: null, isPostNow: false });
+                }}
+            />
+
+            <Dialog
+                open={duplicatePostingDialog.open}
+                onClose={() => setDuplicatePostingDialog({ open: false, payload: null, isPostNow: false })}
+                maxWidth="sm"
+                fullWidth
+                PaperProps={{
+                    sx: {
+                        borderRadius: 3,
+                        bgcolor: 'background.paper',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
+                    }
+                }}
+            >
+                <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'warning.main', fontWeight: 600 }}>
+                    <AlertTriangle size={24} />
+                    Recent Posting Detected
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body1" sx={{ mt: 1, mb: 2 }}>
+                        This vehicle has already been successfully posted to the selected profile(s) within the last hour.
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                        Are you sure you want to schedule it again? This might lead to duplicate listings on Facebook Marketplace.
+                    </Typography>
+                </DialogContent>
+                <DialogActions sx={{ p: 2.5, pt: 1 }}>
+                    <Button
+                        onClick={() => setDuplicatePostingDialog({ open: false, payload: null, isPostNow: false })}
+                        color="inherit"
+                        variant="text"
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={() => {
+                            const { payload, isPostNow } = duplicatePostingDialog;
+                            setDuplicatePostingDialog({ open: false, payload: null, isPostNow: false });
+                            
+                            const userStr = localStorage.getItem('user');
+                            const user = userStr ? JSON.parse(userStr) : null;
+                            if (!user?.token) return alert('No auth token found');
+                            
+                            // Add forcePost flag to bypass cron check
+                            payload.forcePost = true;
+                            
+                            if (isPostNow) {
+                                executePostNow(payload, user.token);
+                            } else {
+                                executeQueuePosting(payload, user.token);
+                            }
+                        }}
+                        variant="contained"
+                        color="warning"
+                        sx={{ fontWeight: 600 }}
+                    >
+                        Yes, Post Anyway
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog
+                open={profileConflictDialog.open}
+                onClose={() => {
+                    if (scheduleForLaterLoading) return; // Prevent accidental close during request
+                    setProfileConflictDialog({ open: false, payload: null, profileConflicts: {} });
+                }}
+                maxWidth="sm"
+                fullWidth
+                PaperProps={{
+                    sx: {
+                        borderRadius: 3,
+                        bgcolor: 'background.paper',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.2)'
+                    }
+                }}
+            >
+                <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'warning.main', fontWeight: 600 }}>
+                    <AlertTriangle size={24} />
+                    Profile Busy — Cannot Quick Post
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body1" sx={{ mt: 1, mb: 2 }}>
+                        Quick Post cannot be made at this moment because another post is scheduled within the 5-minute window for this Chrome profile. Would you like to schedule this post for later?
+                    </Typography>
+
+                    {Object.keys(profileConflictDialog.profileConflicts).length > 0 && (
+                        <Box sx={{ mt: 1, p: 2, bgcolor: 'background.default', borderRadius: 2 }}>
+                            <Typography variant="subtitle2" color="text.primary" sx={{ mb: 1 }}>
+                                Conflicting Posts:
+                            </Typography>
+                            {Object.entries(profileConflictDialog.profileConflicts).map(([pid, time]) => (
+                                <Typography key={pid} variant="body2" color="text.secondary">
+                                    • Profile {pid}: next available slot at <strong>{new Date(time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong>
+                                </Typography>
+                            ))}
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions sx={{ p: 2.5, pt: 1 }}>
+                    <Button
+                        onClick={() => setProfileConflictDialog({ open: false, payload: null, profileConflicts: {} })}
+                        color="inherit"
+                        variant="text"
+                        disabled={scheduleForLaterLoading}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={async () => {
+                            const { payload } = profileConflictDialog;
+                            if (!payload) return;
+
+                            // For each conflicting profile, call the Schedule for Later endpoint
+                            const profileIds = payload.profileIds || (payload.profileId ? [payload.profileId] : []);
+                            const userStr = localStorage.getItem('user');
+                            const user = userStr ? JSON.parse(userStr) : null;
+                            if (!user?.token) return alert('No auth token found');
+
+                            setScheduleForLaterLoading(true);
+
+                            try {
+                                const results = [];
+                                for (const pid of profileIds) {
+                                    const resp = await apiClient.post('/vehicles/post-now-schedule-later', {
+                                        vehicleId: payload.vehicleId,
+                                        profileId: pid,
+                                        selectedImages: payload.selectedImages,
+                                        prompt: payload.prompt,
+                                        contactNumber: payload.contactNumber
+                                    });
+                                    results.push({ profileId: pid, ...resp.data });
+                                }
+
+                                setProfileConflictDialog({ open: false, payload: null, profileConflicts: {} });
+
+                                // Show success via queue progress
+                                const firstResult = results[0];
+                                const scheduledTimeStr = firstResult?.scheduledTime
+                                    ? new Date(firstResult.scheduledTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })
+                                    : 'later';
+
+                                alert(`Post scheduled successfully for ${scheduledTimeStr}.`);
+                                fetchVehicles();
+                            } catch (err) {
+                                console.error('[Schedule for Later] Error:', err);
+                                alert('Failed to schedule post: ' + (err.response?.data?.message || err.message));
+                            } finally {
+                                setScheduleForLaterLoading(false);
+                            }
+                        }}
+                        variant="contained"
+                        color="primary"
+                        sx={{ fontWeight: 600 }}
+                        disabled={scheduleForLaterLoading}
+                    >
+                        {scheduleForLaterLoading ? 'Scheduling...' : 'Schedule for Later'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Layout >
     );
 };
@@ -2073,6 +2358,66 @@ const EditVehicleForm = ({ vehicle, onSubmit, onCancel, loading }) => {
                 </Button>
             </Box>
         </Box>
+    );
+};
+
+const ActivePostingWarningDialog = ({ open, onClose, activePostings, onConfirm, isPostNow, onScheduleLater }) => {
+    // Check if any active posting is in processing/triggered state
+    const hasProcessing = activePostings.some(p => p.status === 'processing' || p.status === 'triggered');
+    
+    // When doing a Post Now (quick post) and there's a processing post, use a specific warning UI.
+    const isProcessingConflict = isPostNow && hasProcessing;
+
+    return (
+        <Dialog open={open} onClose={onClose} maxWidth="sm" fullWidth>
+            <DialogTitle sx={{ color: 'warning.main', display: 'flex', alignItems: 'center', gap: 1 }}>
+                ⚠️ Active Postings Detected
+            </DialogTitle>
+            <DialogContent>
+                <Typography variant="body1" paragraph>
+                    {isProcessingConflict 
+                        ? "A posting is in processing. Action may impact this vehicle's posting." 
+                        : "This vehicle is already actively scheduled for the selected profile(s)."}
+                </Typography>
+                <Box sx={{ bgcolor: 'background.default', p: 2, borderRadius: 1, mb: 2 }}>
+                    {activePostings.map((post, idx) => (
+                        <Box key={idx} sx={{ mb: idx < activePostings.length - 1 ? 2 : 0, pb: idx < activePostings.length - 1 ? 2 : 0, borderBottom: idx < activePostings.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none' }}>
+                            <Typography variant="subtitle2">Profile ID: {post.profileId || 'Default'}</Typography>
+                            <Typography variant="body2" color="text.secondary">
+                                Next Post Time: {new Date(post.scheduledTime).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                            </Typography>
+                            <Typography variant="body2" color={post.status === 'processing' ? 'info.main' : 'text.secondary'}>
+                                Status: {post.status.toUpperCase()}
+                            </Typography>
+                            {post.retryCount > 0 && (
+                                <Typography variant="body2" color="error.main">
+                                    Retries Attempted: {post.retryCount}
+                                </Typography>
+                            )}
+                        </Box>
+                    ))}
+                </Box>
+                <Typography variant="body2">
+                    {isProcessingConflict
+                        ? "Please Wait, or Schedule it for later."
+                        : "Do you want to Wait (cancel scheduling), or Cancel the existing posting and Reschedule Now?"}
+                </Typography>
+            </DialogContent>
+            <DialogActions sx={{ px: 3, pb: 3 }}>
+                <Button onClick={onClose} color="inherit">
+                    Wait {isProcessingConflict ? '' : '(Cancel)'}
+                </Button>
+                {isProcessingConflict ? (
+                    <Button onClick={onScheduleLater} variant="contained" color="primary">
+                        Schedule for Later
+                    </Button>
+                ) : (
+                    <Button onClick={onConfirm} variant="contained" color="warning">
+                        Cancel & Reschedule Now
+                    </Button>
+                )}
+            </DialogActions>
+        </Dialog>
     );
 };
 

@@ -1,3 +1,4 @@
+import '../env.js';
 // config.js
 // Global configuration for the extension
 
@@ -10,7 +11,7 @@ var CONFIG = {
   version: '1.0.1',
   
   // Backend URL
-  backendUrl: 'http://45.137.194.145:5573/api',
+  backendUrl: (typeof globalThis !== 'undefined' && globalThis.ENV && globalThis.ENV.API_BASE_URL) ? globalThis.ENV.API_BASE_URL : 'http://localhost:5573/api',
 
   // Supported Sites
   supportedSites: [
@@ -202,7 +203,8 @@ if (typeof module !== 'undefined' && module.exports) {
 //# sourceMappingURL=socket.io.min.js.map
 
 
-console.log('Service Worker Logic Starting...');
+console.log(`[EXTENSION][START]\ntimestamp=${Date.now()}\nprofileId=UNKNOWN\nextensionVersion=1.0.1`);
+console.log('[EXTENSION] SERVICE_WORKER_STARTED');
 
 // Logic from service-worker.js, assuming CONFIG and io are already loaded globally
 
@@ -213,66 +215,117 @@ let pollingInterval = null;
 let isPolling = false;
 let sessionData = { token: null, apiKey: null, orgId: null, profileId: null };
 
+// Wrapped fetch to log every API call
+async function wrappedFetch(url, options = {}, endpointPath = '') {
+    const startTime = Date.now();
+    const endpoint = endpointPath || new URL(url).pathname;
+    const method = options.method || 'GET';
+    const profileId = sessionData.profileId || '';
+
+    try {
+        const response = await fetch(url, options);
+        const durationMs = Date.now() - startTime;
+        
+        console.log(`[API]`, {
+            method,
+            endpoint,
+            profileId,
+            status: response.status,
+            durationMs
+        });
+        
+        return response;
+    } catch (error) {
+        const durationMs = Date.now() - startTime;
+        console.error(`[API][ERROR]`, {
+            method,
+            endpoint,
+            status: 500,
+            durationMs,
+            error: error.message
+        });
+        throw error;
+    }
+}
+
 function initializeSocket(token = null, apiKey = null) {
-  console.log('[Extension] Initializing custom polling system (Socket.IO not compatible with service workers)');
+  console.log('[EXTENSION] SESSION_LOOKUP');
   
   if (!token && !apiKey) {
-    console.warn('[Extension] No auth credentials provided');
+    console.log('[EXTENSION] SESSION_MISSING');
     return;
   }
+  console.log('[EXTENSION] SESSION_FOUND');
 
   sessionData.token = token;
   sessionData.apiKey = apiKey;
 
-  // First, get the organization ID
+  console.log('[EXTENSION] AUTH_VALIDATION_STARTED');
   const validateUrl = `${BACKEND_URL}/auth/validate-key`;
-  console.log(`[Extension] Validating API Key at: ${validateUrl}`);
   
-  fetch(validateUrl, {
+  wrappedFetch(validateUrl, {
       method: 'GET',
       headers: {
           'Content-Type': 'application/json',
+          'Authorization': token ? `Bearer ${token}` : undefined,
           'x-api-key': apiKey || ''
       }
+  }, '/auth/validate-key')
+  .then(res => {
+      if (res.ok) return res.json();
+      throw new Error(`Validation failed: ${res.status}`);
   })
-  .then(res => res.json())
   .then(user => {
+      console.log('[EXTENSION] AUTH_VALIDATION_SUCCESS');
       sessionData.orgId = user.organization?._id || user.organization;
-      console.log(`[Extension] Got organization ID: ${sessionData.orgId}`);
+      console.log(`[EXTENSION] ORG_ID_RESOLVED`);
       
       refreshProfileIdFromStorage();
       startPolling();
   })
   .catch(err => {
-      console.error('[Extension] Failed to get organization ID:', err);
+      console.error('[EXTENSION] AUTH_VALIDATION_FAILED', err.message);
   });
 }
 
 // Re-read profile ID from storage so each Chrome profile instance uses its own ID
 function refreshProfileIdFromStorage() {
   try {
+    console.log('[EXTENSION] PROFILE_ID_LOOKUP');
     chrome.storage.local.get(['chromeProfileId'], (result) => {
       const id = result.chromeProfileId ? String(result.chromeProfileId).trim() : null;
+      if (id) {
+          console.log('[EXTENSION] PROFILE_ID_FOUND');
+          console.log(`[EXTENSION][PROFILE]\nprofileId=${id}\nsource=chrome.storage.local`);
+      } else {
+          console.log('[EXTENSION] PROFILE_ID_MISSING');
+          console.error(`[EXTENSION][PROFILE][ERROR] chromeProfileId is missing`);
+      }
+      
       if (id !== sessionData.profileId) {
         sessionData.profileId = id;
-        console.log(`[Extension] Profile ID: ${sessionData.profileId || '(none - open popup and select profile)'}`);
       }
     });
   } catch (e) {
-    console.warn('[Extension] Could not read chromeProfileId:', e);
+    console.error('[EXTENSION][PROFILE][ERROR] Could not read chromeProfileId', e.message);
   }
 }
 
 function startPolling() {
   if (isPolling) {
-    console.log('[Extension] Polling already active');
     return;
+  }
+  
+  if (pollingInterval) {
+      clearInterval(pollingInterval);
   }
 
   isPolling = true;
-  console.log('[Extension] Starting event polling...');
+  console.log('[EXTENSION] POLLING_STARTING');
+  console.log('[EXTENSION] POLLING_STARTED');
+  console.log(`[POLL][START]\nprofileId=${sessionData.profileId || ''}\nuserId=${sessionData.orgId || ''}\nendpoint=/events/poll`);
 
-  // Poll every 5 seconds; re-read profileId each time so each Chrome profile uses its own stored ID
+  // Poll every 5 seconds
   pollingInterval = setInterval(async () => {
     try {
       const profileId = await new Promise((resolve) => {
@@ -287,29 +340,38 @@ function startPolling() {
         pollUrl.searchParams.set('profileId', profileId);
       }
 
-      const response = await fetch(pollUrl.toString(), {
+      console.log(`[POLL] requesting events profileId=${profileId || ''}`);
+      console.log(`[POLL][REQUEST]\nprofileId=${profileId || ''}\nuserId=${sessionData.orgId || ''}`);
+
+      const response = await wrappedFetch(pollUrl.toString(), {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': sessionData.token ? `Bearer ${sessionData.token}` : undefined,
           'x-api-key': sessionData.apiKey || '',
           'x-org-id': sessionData.orgId || ''
         }
-      });
+      }, '/events/poll');
 
       if (response.ok) {
         const data = await response.json();
         
+        const eventCount = data.events ? data.events.length : 0;
+        console.log(`[POLL] response received eventCount=${eventCount}`);
+        
+        // This relies on the wrappedFetch which logs duration in its own block, but to get it here exactly we can log:
+        console.log(`[POLL][RESPONSE]\nprofileId=${profileId || ''}\nstatus=${response.status}\neventCount=${eventCount}`);
+
         // Process any pending events
         if (data.events && data.events.length > 0) {
-          console.log(`[Extension] Received ${data.events.length} events`);
-          
           for (const event of data.events) {
+            console.log(`[EVENT] received type=${event.type} eventId=${event.id} profileId=${profileId || ''}`);
             handlePolledEvent(event);
           }
         }
       }
     } catch (error) {
-      console.error('[Extension] Polling error:', error);
+      // Avoid spamming logs for standard poll errors
     }
   }, 5000);
 }
@@ -324,34 +386,28 @@ function stopPolling() {
 }
 
 async function handlePolledEvent(event) {
-  console.log('[Extension] Handling event:', event.type);
   
   // Profile-based event filtering
   if (event.data && event.data.profileId) {
     // Event is for a specific profile
     if (sessionData.profileId) {
-      // We have a profile configured - check if it matches
       if (event.data.profileId !== sessionData.profileId) {
-        console.log(`[Extension] ⏭️ Ignoring event for profile "${event.data.profileId}" (we are "${sessionData.profileId}")`);
-        return; // Skip this event
+        return; // Filtered by backend mostly, but double check
       }
-      console.log(`[Extension] ✅ Event matches our profile: "${sessionData.profileId}"`);
-    } else {
-      // No profile configured - we'll process it anyway (backward compatible)
-      console.log(`[Extension] ⚠️ Event is for profile "${event.data.profileId}" but we have no profile configured - processing anyway`);
     }
-  } else {
-    // No profile specified in event - broadcast to all extensions
-    console.log('[Extension] 📢 Event has no profile restriction (broadcast to all)');
   }
   
   if (event.type === 'start-posting-vehicle') {
     const data = event.data;
-    console.log('[Extension] Received start-posting-vehicle:', data);
     
     const vehicleId = data.vehicleId || (data.vehicleData && data.vehicleData._id);
     const postingId = data.postingId;
+    const jobId = data.jobId;
     
+    console.log(`[EVENT] event=START_POSTING_RECEIVED postingId=${postingId} jobId=${jobId} vehicleId=${vehicleId} profileId=${data.profileId} extensionProfileId=${sessionData.profileId}`);
+    console.log(`[EXTENSION][POSTING_EVENT]\nSTART\npostingId=${postingId}\nprofileId=${sessionData.profileId}\nvehicleId=${vehicleId}`);
+    console.log(`[POSTING] event=POSTING_PROCESSING postingId=${postingId}`);
+
     if (postingId) {
         // UPDATE STATUS: PROCESSING
         updatePostingStatus(postingId, 'processing', 'Extension received triggering event');
@@ -367,68 +423,70 @@ async function handlePolledEvent(event) {
           let fetchUrl;
           
           if (postingId) {
-            console.log(`[Extension] Fetching posting details for ${postingId}`);
             fetchUrl = `${BACKEND_URL}/vehicles/posting/${postingId}`;
           } else {
-            console.log(`[Extension] Fetching vehicle details for ${vehicleId}`);
             fetchUrl = `${BACKEND_URL}/vehicles/${vehicleId}?purpose=posting`;
           }
 
-          const response = await fetch(fetchUrl, {
+          const response = await wrappedFetch(fetchUrl, {
             method: 'GET',
             headers: {
               'x-api-key': apiKey,
               'Content-Type': 'application/json'
             }
-          });
+          }, postingId ? `/vehicles/posting/{id}` : `/vehicles/{id}`);
           
           if (response.ok) {
             const result = await response.json();
             if (result.success && result.data) {
-              console.log('[Extension] Fetched fresh data via', postingId ? 'Posting API' : 'Vehicle API');
               data.vehicleData = result.data;
               
               if (result.data.postingId) data.postingId = result.data.postingId;
               if (result.data.jobId) data.jobId = result.data.jobId;
             }
-          } else {
-            console.warn('[Extension] Failed to fetch fresh data, status:', response.status);
           }
         }
       } catch (err) {
-        console.error('[Extension] Error fetching details:', err);
+        // Logged by wrapper
       }
     }
     
     // Proceed with posting logic
-    chrome.tabs.query({ url: "https://www.facebook.com/marketplace/create/vehicle*" }, (tabs) => {
-      const dataToUse = data.vehicleData || data;
-      dataToUse.uploadImages = true;
-      dataToUse.price = dataToUse.price || 0;
+    try {
+      console.log(`[EXTENSION][POSTING]\nOpening Facebook...`);
+      chrome.tabs.query({ url: "https://www.facebook.com/marketplace/create/vehicle*" }, (tabs) => {
+        const dataToUse = data.vehicleData || data;
+        dataToUse.uploadImages = true;
+        dataToUse.price = dataToUse.price || 0;
+        
+        if (data.postingId) dataToUse.postingId = data.postingId;
+        if (data.jobId) dataToUse.jobId = data.jobId;
 
-      if (data.postingId) dataToUse.postingId = data.postingId;
-      if (data.jobId) dataToUse.jobId = data.jobId;
-
-      if (tabs && tabs.length > 0) {
-        const tabId = tabs[0].id;
-        // Verify it's effectively the same logic as creating new: Redirect to fresh URL
-        chrome.tabs.update(tabId, { 
-            active: true, 
-            url: "https://www.facebook.com/marketplace/create/vehicle" 
-        }, (tab) => {
-            // Wait for reload to complete (simple delay strategy matches existing create logic)
+        if (tabs && tabs.length > 0) {
+          const tabId = tabs[0].id;
+          console.log(`[EXTENSION][POSTING]\nFacebook tab created/updated`);
+          console.log(`[EXTENSION][POSTING]\nMarketplace navigation started`);
+          chrome.tabs.update(tabId, { 
+              active: true, 
+              url: "https://www.facebook.com/marketplace/create/vehicle" 
+          }, (tab) => {
+              setTimeout(() => {
+                  handleFillFormWithTestData(dataToUse, tabId);
+              }, 5000);
+          });
+        } else {
+          console.log(`[EXTENSION][POSTING]\nFacebook tab created/updated`);
+          console.log(`[EXTENSION][POSTING]\nMarketplace navigation started`);
+          chrome.tabs.create({ url: "https://www.facebook.com/marketplace/create/vehicle" }, (tab) => {
             setTimeout(() => {
-                handleFillFormWithTestData(dataToUse, tabId);
+              handleFillFormWithTestData(dataToUse, tab.id);
             }, 5000);
-        });
-      } else {
-        chrome.tabs.create({ url: "https://www.facebook.com/marketplace/create/vehicle" }, (tab) => {
-          setTimeout(() => {
-            handleFillFormWithTestData(dataToUse, tab.id);
-          }, 5000);
-        });
-      }
-    });
+          });
+        }
+      });
+    } catch (err) {
+      console.log(`[EXTENSION][POSTING][ERROR]\npostingId=${postingId}\nerror=${err.message}`);
+    }
   }
 }
 
@@ -436,21 +494,20 @@ async function handlePolledEvent(event) {
 async function updatePostingStatus(postingId, status, message = null) {
     if (!postingId) return;
     try {
-        const updateUrl = `${BACKEND_URL}/postings/${postingId}/status`; // New Endpoint
+        const updateUrl = `${BACKEND_URL}/postings/${postingId}/status`; 
         const payload = { status };
         if (message) payload.log = message;
 
-        await fetch(updateUrl, {
+        await wrappedFetch(updateUrl, {
             method: 'PATCH',
             headers: {
                 'Content-Type': 'application/json',
                 'x-api-key': sessionData.apiKey || ''
             },
             body: JSON.stringify(payload)
-        });
-        console.log(`[Extension] Updated posting ${postingId} status to ${status}`);
+        }, `/postings/{id}/status`);
     } catch (e) {
-        console.error(`[Extension] Failed to update status for ${postingId}:`, e);
+        // Handled by wrapper
     }
 }
 
@@ -579,12 +636,12 @@ async function handleFetchImageBlob(url) {
         }
         // Handle relative URLs
         if (url.startsWith('/')) {
-             const baseUrl = CONFIG.backendUrl || 'http://45.137.194.145:5573/api';
+             const baseUrl = CONFIG.backendUrl || 'http://localhost:5573/api';
              const rootUrl = baseUrl.replace('/api', '');
              fetchUrl = `${rootUrl}${url}`;
         } else if (url.startsWith('https://api.flashfender.com/uploads') || url.startsWith('http://api.flashfender.com/uploads')) {
              // Fix for API hardcoding production domains when running locally
-             const baseUrl = CONFIG.backendUrl || 'http://45.137.194.145:5573/api';
+             const baseUrl = CONFIG.backendUrl || 'http://localhost:5573/api';
              if (baseUrl.includes('localhost') || baseUrl.includes('127.0.0.1')) {
                  const rootUrl = baseUrl.replace('/api', '');
                  fetchUrl = url.replace(/^https?:\/\/api\.flashfender\.com/, rootUrl);
@@ -929,9 +986,11 @@ async function logToBackend(logData) {
 function checkConnection() {
     chrome.storage.local.get(['userSession'], (result) => {
         if (result.userSession) {
-             if (!socket || !socket.connected) {
-                 console.log('[Extension] Connection check: Socket not connected, initializing...');
+             if (!isPolling) {
+                 console.log(`[EXTENSION] event=CONNECTION_CHECK pollingActive=false action=REINITIALIZE`);
                  initializeSocket(result.userSession.token, result.userSession.apiKey);
+             } else {
+                 console.log(`[EXTENSION] event=CONNECTION_CHECK pollingActive=true action=NONE`);
              }
         }
     });

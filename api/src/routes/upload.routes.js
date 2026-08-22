@@ -11,7 +11,9 @@ const __dirname = path.dirname(__filename);
 // Configure storage
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
-        const uploadsDir = path.join(__dirname, '../../public/uploads'); 
+        // Use UPLOAD_STORAGE_PATH from env, falling back to './uploads' in root
+        const storagePath = process.env.UPLOAD_STORAGE_PATH || './uploads';
+        const uploadsDir = path.resolve(process.cwd(), storagePath);
         // Ensure directory exists
         if (!fs.existsSync(uploadsDir)) {
             fs.mkdirSync(uploadsDir, { recursive: true });

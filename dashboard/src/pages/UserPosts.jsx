@@ -7,7 +7,7 @@ import {
 } from '@mui/material';
 import { Search, Calendar, User } from 'lucide-react';
 import Layout from '../components/Layout';
-import apiClient from '../config/axios';
+import apiClient, { getImageUrl } from '../config/axios';
 import { useAuth } from '../context/AuthContext';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -171,7 +171,7 @@ const UserPosts = () => {
                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                                                     <Box
                                                         component="img"
-                                                        src={v.images?.[0] || '/placeholder.png'}
+                                                        src={getImageUrl(v.images?.[0]) || '/placeholder.png'}
                                                         sx={{ width: 60, height: 40, objectFit: 'cover', borderRadius: 1 }}
                                                     />
                                                     <Box>
