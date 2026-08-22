@@ -267,7 +267,8 @@ export const prepareImage = async (imageUrl, options = {}) => {
         const folderName = options.folder || 'prepared';
 
         // Ensure prepared directory exists
-        const preparedDir = path.join(__dirname, `../../public/uploads/${folderName}`);
+        const storagePath = process.env.UPLOAD_STORAGE_PATH || './uploads';
+        const preparedDir = path.resolve(process.cwd(), storagePath, folderName);
         if (!fs.existsSync(preparedDir)) {
             fs.mkdirSync(preparedDir, { recursive: true });
         }

@@ -7,7 +7,7 @@ import {
     LinearProgress, Alert, CircularProgress
 } from '@mui/material';
 import { Plus, Search, RefreshCw, X, Eye, ExternalLink, Image as ImageIcon, Trash2, UserPlus, Users, AlertTriangle, DollarSign, RotateCcw, Zap, CheckCircle, Loader, Edit, Send } from 'lucide-react';
-import apiClient from '../config/axios';
+import apiClient, { getImageUrl } from '../config/axios';
 import Layout from '../components/Layout';
 import AddVehicleDialog from '../components/AddVehicleDialog';
 import { useQueue } from '../context/QueueContext';
@@ -846,13 +846,13 @@ const Inventory = () => {
 
                 <Box sx={{ display: 'flex', gap: 1.5 }}>
                     {isAdmin && (
-                        <Button variant="outlined" color="error" onClick={handleDeleteAll} startIcon={<Trash2 size={18} />} disabled={loading || vehicles.length === 0}>Delete All</Button>
+                        <Button variant="contained" color="error" onClick={handleDeleteAll} startIcon={<Trash2 size={18} />} disabled={loading || vehicles.length === 0}>Delete All</Button>
                     )}
-                    <Button variant="outlined" color="secondary" onClick={fetchVehicles} startIcon={<RefreshCw size={18} />}>Refresh</Button>
+                    <Button variant="outlined" color="primary" onClick={fetchVehicles} startIcon={<RefreshCw size={18} />}>Refresh</Button>
                     {currentUser && currentUser.role !== 'agent' && (
                         <>
-                            <Button variant="contained" color="secondary" sx={{ mr: 1 }} onClick={() => setAddVehicleOpen(true)} startIcon={<Plus size={18} />}>Add Vehicle</Button>
-                            <Button variant="contained" onClick={() => setOpen(true)} startIcon={<Plus size={18} />}>Import Vehicle</Button>
+                            <Button variant="contained" color="primary" sx={{ mr: 1 }} onClick={() => setAddVehicleOpen(true)} startIcon={<Plus size={18} />}>Add Vehicle</Button>
+                            <Button variant="contained" color="primary" onClick={() => setOpen(true)} startIcon={<Plus size={18} />}>Import Vehicle</Button>
                         </>
                     )}
                 </Box>
@@ -922,7 +922,7 @@ const Inventory = () => {
                                                 if (validPrepared.length > 0 || validOriginal.length > 0) {
                                                     return (
                                                         <img
-                                                            src={validPrepared.length > 0 ? validPrepared[0] : validOriginal[0]}
+                                                            src={getImageUrl(validPrepared.length > 0 ? validPrepared[0] : validOriginal[0])}
                                                             alt="vehicle"
                                                             style={{ width: 64, height: 48, objectFit: 'cover', borderRadius: 6 }}
                                                         />
@@ -1282,7 +1282,7 @@ const Inventory = () => {
                                     getFilteredImages().map((img, idx) => (
                                         <Box key={idx} sx={{ position: 'relative', flexShrink: 0, width: 200, height: 150, borderRadius: 2, overflow: 'hidden', group: 'group', border: selectedDetailImages.includes(img.url) ? '2px solid #2196f3' : '1px solid #ddd' }}>
                                             <img
-                                                src={img.url}
+                                                src={getImageUrl(img.url)}
                                                 alt=""
                                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                                 onClick={() => {
@@ -2405,7 +2405,7 @@ const ActivePostingWarningDialog = ({ open, onClose, activePostings, onConfirm, 
             </DialogContent>
             <DialogActions sx={{ px: 3, pb: 3 }}>
                 <Button onClick={onClose} color="inherit">
-                    Wait {isProcessingConflict ? '' : '(Cancel)'}
+                    Cancel
                 </Button>
                 {isProcessingConflict ? (
                     <Button onClick={onScheduleLater} variant="contained" color="primary">
@@ -2413,7 +2413,7 @@ const ActivePostingWarningDialog = ({ open, onClose, activePostings, onConfirm, 
                     </Button>
                 ) : (
                     <Button onClick={onConfirm} variant="contained" color="warning">
-                        Cancel & Reschedule Now
+                        Reschedule Now
                     </Button>
                 )}
             </DialogActions>

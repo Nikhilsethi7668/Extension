@@ -135,7 +135,7 @@ export const initPostingCron = (io) => {
                 console.log(`[STATUS]\npostingId=${post._id}\nfrom=triggered\nto=failed\nreason=TRIGGER_TIMEOUT`);
                 
                 const currentAttempt = post.retryCount || 0;
-                if (currentAttempt < 2) {
+                if (currentAttempt < 3) {
                     await rescheduleStuckPost(io, post, currentAttempt, 'Chrome post failed (Timeout)');
                 } else {
                     console.log(`[CRON-TIMEOUT] Max retries reached for postingId=${post._id}`);
@@ -165,7 +165,7 @@ export const initPostingCron = (io) => {
                 console.log(`[STATUS]\npostingId=${post._id}\nfrom=processing\nto=failed\nreason=PROCESSING_TIMEOUT`);
 
                 const currentAttempt = post.retryCount || 0;
-                if (currentAttempt < 2) {
+                if (currentAttempt < 3) {
                     await rescheduleStuckPost(io, post, currentAttempt, 'Posting timeout (>6min in processing state)');
                 } else {
                     console.log(`[CRON-TIMEOUT] Max retries reached for postingId=${post._id}`);
@@ -188,7 +188,7 @@ export const initPostingCron = (io) => {
             for (const post of stuckPostings) {
                 const currentAttempt = post.retryCount || 0;
 
-                if (currentAttempt >= 2) {
+                if (currentAttempt >= 3) {
                     console.log(`[CRON-RESCUE] Max retries reached for postingId=${post._id}`);
                     post.failureReason = post.failureReason || 'Failed after max retries';
                     post.status = 'failed';
@@ -196,6 +196,36 @@ export const initPostingCron = (io) => {
                     continue;
                 }
                 await rescheduleStuckPost(io, post, currentAttempt, post.failureReason);
+            }
+
+            // 3. Stale post cleanup: handle posts stuck in scheduled/rescheduled
+            //    with scheduledTime > 15 min in the past
+            const STALE_CUTOFF_MS = 15 * 60 * 1000;
+            const staleCutoff = new Date(Date.now() - STALE_CUTOFF_MS);
+            const staleScheduledPosts = await Posting.find({
+                status: { $in: ['scheduled', 'rescheduled'] },
+                scheduledTime: { $lt: staleCutoff }
+            });
+
+            if (staleScheduledPosts.length > 0) {
+                console.log(`[CRON-STALE-CLEANUP] Found ${staleScheduledPosts.length} stale scheduled posts (>15min past)`);
+            }
+
+            for (const post of staleScheduledPosts) {
+                const currentAttempt = post.retryCount || 0;
+
+                if (currentAttempt >= 3) {
+                    // Retries exhausted — mark as permanently failed
+                    console.log(`[CRON-STALE-CLEANUP] Failing stale post ${post._id} (retryCount=${currentAttempt}, scheduledTime=${post.scheduledTime})`);
+                    post.status = 'failed';
+                    post.failureReason = `Expired - scheduled time passed without execution (after ${currentAttempt} retries)`;
+                    post.logs.push({ message: `Marked as failed - stale post cleanup (scheduledTime was ${post.scheduledTime.toISOString()})`, timestamp: new Date() });
+                    await post.save();
+                } else {
+                    // Retries remaining — re-reschedule to a future time
+                    console.log(`[CRON-STALE-CLEANUP] Re-rescheduling stale post ${post._id} (retryCount=${currentAttempt}, scheduledTime=${post.scheduledTime})`);
+                    await rescheduleStuckPost(io, post, currentAttempt, 'Stale post - scheduled time passed without execution');
+                }
             }
          } catch(error) {
              console.error('[CRON-TIMEOUT][ERROR]', error);
@@ -272,7 +302,7 @@ async function processSinglePosting(io, posting) {
         if (!desktopConnected) {
             console.log(`[POSTING][SKIP]\nreason=DESKTOP_DISCONNECTED\nroom=${desktopRoom}`);
             const currentAttempt = posting.retryCount || 0;
-            if (currentAttempt < 2) {
+            if (currentAttempt < 3) {
                 await rescheduleStuckPost(io, posting, currentAttempt, 'Desktop app not connected');
             } else {
                 console.log(`[POSTING][SKIP] Max retries reached for postingId=${posting._id}`);
@@ -379,7 +409,7 @@ async function processPostingAsync(io, posting, vehicle, profileUniqueId = null)
         if (!isReady) {
             console.log(`[STATUS]\npostingId=${posting._id}\nfrom=triggered\nto=failed\nreason=EXTENSION_TIMEOUT`);
             const currentAttempt = posting.retryCount || 0;
-            if (currentAttempt < 2) {
+            if (currentAttempt < 3) {
                 await rescheduleStuckPost(io, posting, currentAttempt, 'Extension Failed to Connect (Timeout)');
             } else {
                 console.log(`[POSTING][EXTENSION-TIMEOUT] Max retries reached for postingId=${posting._id}`);

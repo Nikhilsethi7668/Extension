@@ -195,11 +195,17 @@ class QueueManager {
         // If it's a schedule run, we check if already scheduled
         // If it's Post Now, we usually bypass or queue duplicate? 
         // Let's stick to original logic: check if 'scheduled' exists.
+        // Exclude stale posts (scheduledTime > 15min in the past) — they're dead
+        const STALE_CUTOFF_MS = 15 * 60 * 1000;
+        const staleCutoff = new Date(Date.now() - STALE_CUTOFF_MS);
         const activePosting = await Posting.findOne({
             userId: userId,
             vehicleId: vehicleId,
             profileId: profileId,
-            status: { $in: ['scheduled', 'triggered', 'processing'] }
+            $or: [
+                { status: { $in: ['triggered', 'processing'] } }, // Always active
+                { status: 'scheduled', scheduledTime: { $gte: staleCutoff } } // Only non-stale scheduled
+            ]
         });
 
         if (activePosting) {
@@ -227,10 +233,15 @@ class QueueManager {
                             ? user.organization.settings.gpsLocation 
                             : DEFAULT_GPS;
                 
+                const orgName = user?.organization?.slug || user?.organization?.name || orgId?.slug || orgId?.name || orgId || 'default_org';
+                const sanitizedOrgName = orgName.toString().replace(/[^a-zA-Z0-9_-]/g, '_');
+                const currentUserId = userId || user?._id || 'default_user';
+                const stealthFolder = `${sanitizedOrgName}/${currentUserId}/stealth`;
+                
                 const stealthResult = await prepareImageBatch(sourceImages, {
                     gps: gps,
                     camera: null, 
-                    folder: 'stealth'
+                    folder: stealthFolder
                 });
 
                 if (stealthResult.success || stealthResult.successCount > 0) {

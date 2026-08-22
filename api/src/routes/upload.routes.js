@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { protect } from '../middleware/auth.js';
 
 const router = express.Router();
 const __filename = fileURLToPath(import.meta.url);
@@ -13,7 +14,14 @@ const storage = multer.diskStorage({
     destination: (req, file, cb) => {
         // Use UPLOAD_STORAGE_PATH from env, falling back to './uploads' in root
         const storagePath = process.env.UPLOAD_STORAGE_PATH || './uploads';
-        const uploadsDir = path.resolve(process.cwd(), storagePath);
+        
+        // Use req.user if available (since route is protected)
+        const orgName = req.user?.organization?.slug || req.user?.organization?.name || 'default_org';
+        const sanitizedOrgName = orgName.toString().replace(/[^a-zA-Z0-9_-]/g, '_');
+        const userId = req.user?._id || 'default_user';
+        
+        const uploadsDir = path.resolve(process.cwd(), storagePath, sanitizedOrgName, userId.toString(), 'uploads');
+        
         // Ensure directory exists
         if (!fs.existsSync(uploadsDir)) {
             fs.mkdirSync(uploadsDir, { recursive: true });
@@ -45,14 +53,18 @@ const upload = multer({
 
 // @desc    Upload single image
 // @route   POST /api/upload
-// @access  Public (or Protected if needed)
-router.post('/', upload.single('image'), (req, res) => {
+// @access  Protected
+router.post('/', protect, upload.single('image'), (req, res) => {
     if (!req.file) {
         return res.status(400).json({ message: 'No file uploaded' });
     }
     
-    // Return the relative URL (path.sep handling for windows/linux compat)
-    const relativePath = '/uploads/' + req.file.filename;
+    const orgName = req.user?.organization?.slug || req.user?.organization?.name || 'default_org';
+    const sanitizedOrgName = orgName.toString().replace(/[^a-zA-Z0-9_-]/g, '_');
+    const userId = req.user?._id || 'default_user';
+    
+    // Return the relative URL 
+    const relativePath = `/uploads/${sanitizedOrgName}/${userId}/uploads/${req.file.filename}`;
     
     res.json({
         success: true,

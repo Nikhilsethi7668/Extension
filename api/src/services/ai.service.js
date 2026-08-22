@@ -1,14 +1,9 @@
-import { OpenRouter } from '@openrouter/sdk';
 import dotenv from 'dotenv';
 dotenv.config();
 import { saveImageLocally } from './storage.service.js';
 import axios from 'axios';
 import path from 'path';
 import { fileURLToPath } from 'url';
-
-const openRouter = new OpenRouter({
-    apiKey: process.env.OPENROUTER_API_KEY,
-});
 
 // Helper to clean up AI JSON response
 const cleanJson = (text) => {
@@ -26,11 +21,13 @@ const cleanJson = (text) => {
 };
 
 
+
+
 export const generateVehicleContent = async (vehicle, instructions, sentiment = 'professional', contactNumber = null) => {
     try {
-        if (!process.env.OPENROUTER_API_KEY) {
-            console.error('[AI Service] OPENROUTER_API_KEY is missing from environment variables!');
-            throw new Error('OPENROUTER_API_KEY is not set');
+        if (!process.env.OPENAI_API_KEY) {
+            console.error('[AI Service] OPENAI_API_KEY is missing from environment variables!');
+            throw new Error('OPENAI_API_KEY is not set');
         }
 
         const prompt = `
@@ -60,18 +57,31 @@ export const generateVehicleContent = async (vehicle, instructions, sentiment = 
       Output in JSON format: { "title": "...", "description": "..." }
     `;
 
-        const completion = await openRouter.chat.send({
-            model: 'deepseek/deepseek-r1',
-            messages: [
-                {
-                    role: 'user',
-                    content: prompt,
-                },
-            ],
-            stream: false,
-        });
+        const baseUrl = process.env.OPENAI_BASE_URL || 'https://api.minimax.io/v1';
 
-        const text = completion.choices[0].message.content;
+        const completion = await axios.post(
+            `${baseUrl}/chat/completions`,
+            {
+                model: 'MiniMax-M3',
+                messages: [
+                    {
+                        role: 'user',
+                        content: prompt,
+                    },
+                ],
+                extra_body: {
+                    reasoning_split: true
+                }
+            },
+            {
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`
+                }
+            }
+        );
+
+        const text = completion.data.choices[0].message.content;
 
         // Clean up response if it's wrapped in triple backticks and potential think blocks
         const jsonString = cleanJson(text);
@@ -89,14 +99,14 @@ export const generateVehicleContent = async (vehicle, instructions, sentiment = 
 import ImagePrompts from '../models/ImagePrompts.js';
 import { prepareImage } from './image-processor.service.js';
 
-const FLASHFENDER_GENERATE_URL = 'https://generate.flashfender.com/api/v1/generate';
+const FAL_GENERATE_URL = 'https://fal.run/fal-ai/flux-lora';
 
-export const processImageWithAI = async (imageUrl, prompt = 'Remove background', promptId) => {
+export const processImageWithAI = async (imageUrl, prompt = 'Remove background', promptId, reqUser = null) => {
     try {
         console.log(`[AI Service] Processing image request. Prompt: "${prompt}"`);
 
-        if (!process.env.FLASH_FENDER_IMG_KEY) {
-            throw new Error('FLASH_FENDER_IMG_KEY is missing in .env file');
+        if (!process.env.FAL_KEY) {
+            throw new Error('FAL_KEY is missing in .env file');
         }
 
         const imagePrompt = await ImagePrompts.findById(promptId);
@@ -116,13 +126,12 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
 3. *Environment Replacement:* Replace the entire background and floor/ground surface according to the style context provided above.
 4. *No Bleed:* Ensure no "environmental blending" occurs on the car's surface. The car should look as if it was professionally cut out and placed into the new setting without any digital alteration to the original pixels of the vehicle.`;
 
-        // 2. Call FlashFender Generate API (uses fal add-background under the hood)
+        // 2. Call Fal AI Generate API
         const generateResponse = await axios.post(
-            FLASHFENDER_GENERATE_URL,
+            FAL_GENERATE_URL,
             {
                 prompt: loraPrompt,
                 image_url: imageUrl,
-                model: 'fal-ai/flux-2-lora-gallery/add-background',
                 width: 800,
                 height: 600,
                 steps: 40,
@@ -132,35 +141,41 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
                 timeout: 120000,
                 headers: {
                     'Content-Type': 'application/json',
-                    'x-api-key': process.env.FLASH_FENDER_IMG_KEY,
+                    'Authorization': `Key ${process.env.FAL_KEY}`,
                 },
             }
         );
 
         const data = generateResponse.data;
-        const resultImageUrl = data?.image_url;
+        const resultImageUrl = data?.images?.[0]?.url;
 
         if (!resultImageUrl) {
-            throw new Error(data?.error?.message || 'No image URL in FlashFender generate response');
+            throw new Error(data?.error?.message || 'No image URL in Fal generate response');
         }
 
-        console.log(`[AI Service] FlashFender Generate Success: ${resultImageUrl}`);
+        console.log(`[AI Service] Fal Generate Success: ${resultImageUrl}`);
 
         // 3. Apply stealth pipeline to result
         console.log('[AI Service] Applying Stealth Protocol to AI result...');
-        const stealthResult = await prepareImage(resultImageUrl, {});
+        
+        const orgName = reqUser?.organization?.slug || reqUser?.organization?.name || 'default_org';
+        const sanitizedOrgName = orgName.toString().replace(/[^a-zA-Z0-9_-]/g, '_');
+        const userId = reqUser?._id || 'default_user';
+        const folder = `${sanitizedOrgName}/${userId}/generated`;
+        
+        const stealthResult = await prepareImage(resultImageUrl, { folder });
 
         if (!stealthResult.success) {
             throw new Error(`Stealth processing failed: ${stealthResult.error}`);
         }
 
-        const processedUrl = `https://api.flashfender.com${stealthResult.relativePath}`;
+        const processedUrl = stealthResult.relativePath;
 
         return {
             success: true,
             originalUrl: imageUrl,
             processedUrl,
-            provider: 'flashfender-generate',
+            provider: 'fal-ai',
             wasGenerated: true,
             metadata: {
                 intent,
@@ -170,7 +185,7 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
             },
         };
     } catch (error) {
-        console.error('[AI Service] FlashFender Generate Error:', error?.response?.data || error);
+        console.error('[AI Service] Fal Generate Error:', error?.response?.data || error);
         const msg = error?.response?.data?.error?.message || error.message;
         throw new Error(`Failed to process image: ${msg}`);
     }

@@ -5,7 +5,7 @@ import {
     InputLabel, FormControl, CircularProgress, Alert
 } from '@mui/material';
 import { X, Upload, Trash2 } from 'lucide-react';
-import apiClient from '../config/axios';
+import apiClient, { getImageUrl } from '../config/axios';
 
 const AddVehicleDialog = ({ open, onClose, onSuccess }) => {
     const [loading, setLoading] = useState(false);
@@ -51,7 +51,6 @@ const AddVehicleDialog = ({ open, onClose, onSuccess }) => {
             // Prevent negative numbers
             if (value !== '' && Number(value) < 0) return;
         }
-
         setFormData({ ...formData, [name]: value });
     };
 
@@ -68,17 +67,7 @@ const AddVehicleDialog = ({ open, onClose, onSuccess }) => {
                 const formDataUpload = new FormData();
                 formDataUpload.append('image', file);
 
-                const response = await fetch(apiClient.defaults.baseURL + '/upload', {
-                    method: 'POST',
-                    body: formDataUpload
-                });
-                
-                if (!response.ok) {
-                    const errData = await response.json().catch(() => ({}));
-                    throw new Error(errData.message || 'Upload failed');
-                }
-                
-                const data = await response.json();
+                const { data } = await apiClient.post('/upload', formDataUpload);
 
                 if (data.success && data.url) {
                     uploadedUrls.push(data.url);
@@ -229,7 +218,7 @@ const AddVehicleDialog = ({ open, onClose, onSuccess }) => {
                             <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 2 }}>
                                 {images.map((url, index) => (
                                     <Box key={index} sx={{ position: 'relative', width: 100, height: 100 }}>
-                                        <img src={url.startsWith('http') ? url : `${apiClient.defaults.baseURL.replace('/api', '')}${url}`} alt="vehicle" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4 }} />
+                                        <img src={getImageUrl(url)} alt="vehicle" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 4 }} />
                                         <IconButton
                                             size="small"
                                             color="error"

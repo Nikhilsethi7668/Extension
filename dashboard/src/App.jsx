@@ -38,6 +38,23 @@ const getTheme = (mode) => createTheme({
       main: '#8b5cf6', // Violet accent
       light: '#a78bfa',
       dark: '#7c3aed',
+      contrastText: '#ffffff',
+    },
+    error: {
+      main: '#ef4444',
+      contrastText: '#ffffff',
+    },
+    warning: {
+      main: '#f59e0b',
+      contrastText: '#ffffff',
+    },
+    info: {
+      main: '#0ea5e9',
+      contrastText: '#ffffff',
+    },
+    success: {
+      main: '#10b981',
+      contrastText: '#ffffff',
     },
     background: mode === 'dark' ? {
       default: '#0b0e14', // Very deep blue-black

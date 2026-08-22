@@ -948,7 +948,7 @@ router.put('/:id', protect, async (req, res) => {
             'year', 'make', 'model', 'trim', 'vin', 'stockNumber',
             'price', 'mileage', 'description', 'exteriorColor',
             'interiorColor', 'transmission', 'engine', 'fuelType',
-            'drivetrain', 'bodyStyle'
+            'drivetrain', 'bodyStyle', 'images'
         ];
 
         // Apply updates
@@ -1012,7 +1012,7 @@ router.post('/:id/remove-bg', protect, async (req, res) => {
         console.log(`Processing background removal for image: ${imageUrl} with prompt: ${prompt || 'Default'}`);
 
         // Use AI Service with Gemini 2.5 Flash
-        const aiResult = await processImageWithAI(imageUrl, prompt, promptId);
+        const aiResult = await processImageWithAI(imageUrl, prompt, promptId, req.user);
         const processedImageUrl = aiResult.processedUrl;
 
         // Emit Socket Event for Success
@@ -2197,7 +2197,7 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
         const editPromises = images.map(async (imageUrl) => {
             try {
                 // processImageWithAI handles promptId lookup if provided
-                const aiResult = await processImageWithAI(imageUrl, prompt, promptId);
+                const aiResult = await processImageWithAI(imageUrl, prompt, promptId, req.user);
                 
                 completedOperations++;
                 const currentPercent = 5 + Math.round((completedOperations / totalOperations) * 90); // Scale 5-95%
@@ -2337,14 +2337,19 @@ router.post('/check-active-postings', protect, async (req, res) => {
 
         const activeStatuses = ['scheduled', 'rescheduled', 'processing', 'triggered'];
         const failedStatuses = ['failed', 'timeout'];
+        const STALE_CUTOFF_MS = 15 * 60 * 1000; // 15 minutes
+        const staleCutoff = new Date(Date.now() - STALE_CUTOFF_MS);
 
-        // Query active postings (excluding permanently failed ones)
+        // Query active postings — exclude stale posts (scheduledTime > 15min in the past)
+        // Posts with scheduledTime in the past but within 15 min are still considered active
+        // (they may be about to be picked up by cron or are mid-processing)
         const query = {
             userId: req.user._id,
             vehicleId: { $in: vehicleIds },
             $or: [
-                { status: { $in: activeStatuses } },
-                { status: { $in: failedStatuses }, retryCount: { $lt: 2 } }
+                { status: { $in: activeStatuses }, scheduledTime: { $gte: staleCutoff } },
+                { status: { $in: ['processing', 'triggered'] } }, // Always active regardless of time
+                { status: { $in: failedStatuses }, retryCount: { $lt: 3 } }
             ]
         };
 
