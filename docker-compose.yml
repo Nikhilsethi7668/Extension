@@ -28,7 +28,7 @@ services:
     volumes:
       - ./api:/app
       - /app/node_modules
-      - ${UPLOAD_STORAGE_PATH:-./api/uploads}:/app/uploads
+      - /root/projects/flashfander/flashfander/api/uploads:/app/uploads
     networks:
       - extension-network
     env_file:
