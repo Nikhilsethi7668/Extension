@@ -17,14 +17,18 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - FAL_KEY=${FAL_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - FLASH_FENDER_IMG_KEY=${FLASH_FENDER_IMG_KEY}
       - RESEND_API_KEY=${RESEND_API_KEY}
       - FROM_EMAIL=${FROM_EMAIL}
       - FRONTEND_URL=${FRONTEND_URL}
       - BACKEND_URL=${BACKEND_URL}
+      - UPLOAD_STORAGE_PATH=${UPLOAD_STORAGE_PATH:-./uploads}
+      - UPLOAD_PUBLIC_URL=${UPLOAD_PUBLIC_URL}
     volumes:
       - ./api:/app
       - /app/node_modules
-      - ./api/public/uploads:/app/public/uploads
+      - ${UPLOAD_STORAGE_PATH:-./api/uploads}:/app/uploads
     networks:
       - extension-network
     env_file:
@@ -36,6 +40,7 @@ services:
       - "3682:3682"
     environment:
       - BACKEND_URL=${BACKEND_URL}
+      - VITE_API_BASE_URL=${BACKEND_URL:-http://localhost:5573}
     volumes:
       - ./dashboard:/app
       - /app/node_modules
