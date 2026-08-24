@@ -1806,10 +1806,18 @@ router.delete('/:id/images', protect, async (req, res) => {
 
         let deletedCount = 0;
 
-        urlsToDelete.forEach(url => {
+        const extractPath = (u) => {
+            try { return new URL(u).pathname; }
+            catch(e) { return u.startsWith('/') ? u : '/' + u; }
+        };
+
+        const targetPaths = urlsToDelete.map(extractPath);
+
+        targetPaths.forEach(targetPath => {
             let removed = false;
+            
             // Remove from images
-            const originalIndex = vehicle.images.indexOf(url);
+            const originalIndex = vehicle.images.findIndex(u => extractPath(u) === targetPath);
             if (originalIndex > -1) {
                 vehicle.images.splice(originalIndex, 1);
                 removed = true;
@@ -1817,7 +1825,7 @@ router.delete('/:id/images', protect, async (req, res) => {
 
             // Remove from aiImages
             if (vehicle.aiImages && Array.isArray(vehicle.aiImages)) {
-                const aiIndex = vehicle.aiImages.indexOf(url);
+                const aiIndex = vehicle.aiImages.findIndex(u => extractPath(u) === targetPath);
                 if (aiIndex > -1) {
                     vehicle.aiImages.splice(aiIndex, 1);
                     removed = true;

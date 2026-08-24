@@ -2943,7 +2943,7 @@ async function showVehicleImages(vehicleId) {
     // Add prepared images first (marketplace-ready)
     if (vehicle.preparedImages && Array.isArray(vehicle.preparedImages) && vehicle.preparedImages.length > 0) {
       vehicle.preparedImages.forEach(url => {
-        allVehicleImages.push({ url, type: 'prepared' });
+        allVehicleImages.push({ rawUrl: url, type: 'prepared' });
       });
     }
 
@@ -2951,7 +2951,7 @@ async function showVehicleImages(vehicleId) {
       const aiImagesSet = new Set(vehicle.aiImages || []);
       vehicle.images.forEach(url => {
         if (!aiImagesSet.has(url)) {
-          allVehicleImages.push({ url, type: 'original' });
+          allVehicleImages.push({ rawUrl: url, type: 'original' });
         }
       });
     }
@@ -2959,17 +2959,38 @@ async function showVehicleImages(vehicleId) {
 
     if (vehicle.aiImages && Array.isArray(vehicle.aiImages)) {
       vehicle.aiImages.forEach(url => {
-        allVehicleImages.push({ url, type: 'ai' });
+        allVehicleImages.push({ rawUrl: url, type: 'ai' });
       });
     }
 
-    // STRICT DEDUPLICATION to fix any dirty database arrays showing double images
-    const seenUrls = new Set();
+    // NORMALIZATION & STRICT DEDUPLICATION
+    const seenPaths = new Set();
     const uniqueImages = [];
+    const baseHost = API_CONFIG.baseUrl.replace(/\/api\/?$/, '');
+
     for (const img of allVehicleImages) {
-      if (!seenUrls.has(img.url)) {
-        seenUrls.add(img.url);
-        uniqueImages.push(img);
+      let fullUrl = img.rawUrl;
+      let pathKey = img.rawUrl; // fallback
+
+      try {
+        if (img.rawUrl.startsWith('/')) {
+          fullUrl = `${baseHost}${img.rawUrl}`;
+          pathKey = img.rawUrl;
+        } else {
+          const urlObj = new URL(img.rawUrl);
+          pathKey = urlObj.pathname;
+          
+          if (img.rawUrl.includes('localhost') || img.rawUrl.includes('127.0.0.1')) {
+            fullUrl = `${baseHost}${urlObj.pathname}${urlObj.search}`;
+          }
+        }
+      } catch (e) {
+        // Invalid URL, just use raw
+      }
+
+      if (!seenPaths.has(pathKey)) {
+        seenPaths.add(pathKey);
+        uniqueImages.push({ url: fullUrl, rawUrl: img.rawUrl, type: img.type });
       }
     }
     allVehicleImages = uniqueImages;
@@ -3065,28 +3086,14 @@ function displayImagesGallery(images) {
     return;
   }
 
-  images.forEach((imageUrl, index) => {
-    // FIX: Ensure URL is absolute and uses remote server (not localhost)
-    let fullUrl = imageUrl;
-    const baseHost = API_CONFIG.baseUrl.replace(/\/api\/?$/, '');
-
-    if (imageUrl) {
-      if (imageUrl.startsWith('/')) {
-        fullUrl = `${baseHost}${imageUrl}`;
-      } else if (imageUrl.includes('localhost') || imageUrl.includes('127.0.0.1')) {
-        // Replace localhost origin with remote origin for AI generated images
-        try {
-          const urlObj = new URL(imageUrl);
-          fullUrl = `${baseHost}${urlObj.pathname}${urlObj.search}`;
-        } catch (e) {
-          console.error('Invalid URL replacement:', imageUrl);
-        }
-      }
-    }
+  images.forEach((img, index) => {
+    // URL is already normalized during deduplication
+    const fullUrl = img.url;
 
     const item = document.createElement('div');
     item.className = 'gallery-item';
     item.dataset.url = fullUrl;
+    item.dataset.rawUrl = img.rawUrl; // Store exact database string for deletion
 
     // Checkbox for bulk selection
     const checkbox = document.createElement('div');
@@ -3095,7 +3102,8 @@ function displayImagesGallery(images) {
     // Click on checkbox toggles selection
     checkbox.addEventListener('click', (e) => {
       e.stopPropagation();
-      toggleImageSelection(fullUrl, item, checkbox);
+      // Use rawUrl for selection/deletion to ensure exact match with backend DB
+      toggleImageSelection(img.rawUrl, item, checkbox);
     });
 
     // Create image element programmatically to avoid CSP issues with inline onerror
@@ -3128,7 +3136,7 @@ function displayImagesGallery(images) {
     item.addEventListener('click', (e) => {
       // If clicking button, don't toggle selection
       if (e.target.closest('button')) return;
-      toggleImageSelection(fullUrl, item, checkbox);
+      toggleImageSelection(img.rawUrl, item, checkbox);
     });
 
     // Handle view button usage
