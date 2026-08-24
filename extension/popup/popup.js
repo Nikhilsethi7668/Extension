@@ -2980,7 +2980,7 @@ async function showVehicleImages(vehicleId) {
           const urlObj = new URL(img.rawUrl);
           pathKey = urlObj.pathname;
           
-          if (img.rawUrl.includes('localhost') || img.rawUrl.includes('127.0.0.1')) {
+          if (img.rawUrl.includes('localhost') || img.rawUrl.includes('127.0.0.1') || img.rawUrl.includes('66.94.120.78')) {
             fullUrl = `${baseHost}${urlObj.pathname}${urlObj.search}`;
           }
         }
@@ -3111,7 +3111,9 @@ function displayImagesGallery(images) {
     img.src = fullUrl;
     img.alt = `Vehicle Image ${index + 1}`;
     img.addEventListener('error', function () {
-      this.src = 'icons/icon48.png'; // Fallback icon
+      this.onerror = null; // Prevent infinite loops
+      this.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk8A8AAWMASR+4L2MAAAAASUVORK5CYII='; // 1x1 grey pixel
+      this.style.opacity = '0.5';
     });
 
     const overlay = document.createElement('div');
