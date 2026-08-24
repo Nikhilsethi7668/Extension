@@ -3086,14 +3086,14 @@ function displayImagesGallery(images) {
     return;
   }
 
-  images.forEach((img, index) => {
+  images.forEach((imageObj, index) => {
     // URL is already normalized during deduplication
-    const fullUrl = img.url;
+    const fullUrl = imageObj.url;
 
     const item = document.createElement('div');
     item.className = 'gallery-item';
     item.dataset.url = fullUrl;
-    item.dataset.rawUrl = img.rawUrl; // Store exact database string for deletion
+    item.dataset.rawUrl = imageObj.rawUrl; // Store exact database string for deletion
 
     // Checkbox for bulk selection
     const checkbox = document.createElement('div');
@@ -3103,7 +3103,7 @@ function displayImagesGallery(images) {
     checkbox.addEventListener('click', (e) => {
       e.stopPropagation();
       // Use rawUrl for selection/deletion to ensure exact match with backend DB
-      toggleImageSelection(img.rawUrl, item, checkbox);
+      toggleImageSelection(imageObj.rawUrl, item, checkbox);
     });
 
     // Create image element programmatically to avoid CSP issues with inline onerror
@@ -3136,7 +3136,7 @@ function displayImagesGallery(images) {
     item.addEventListener('click', (e) => {
       // If clicking button, don't toggle selection
       if (e.target.closest('button')) return;
-      toggleImageSelection(img.rawUrl, item, checkbox);
+      toggleImageSelection(imageObj.rawUrl, item, checkbox);
     });
 
     // Handle view button usage
