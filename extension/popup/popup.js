@@ -2973,13 +2973,17 @@ async function showVehicleImages(vehicleId) {
       let pathKey = img.rawUrl; // fallback
 
       try {
-        if (img.rawUrl.startsWith('/')) {
-          fullUrl = `${baseHost}${img.rawUrl}`;
-          pathKey = img.rawUrl;
+        if (!img.rawUrl.startsWith('http')) {
+          // It's a relative path (e.g. /uploads/... or uploads/...)
+          const cleanPath = img.rawUrl.startsWith('/') ? img.rawUrl : `/${img.rawUrl}`;
+          fullUrl = `${baseHost}${cleanPath}`;
+          pathKey = cleanPath;
         } else {
+          // It's an absolute URL
           const urlObj = new URL(img.rawUrl);
           pathKey = urlObj.pathname;
           
+          // Rewrite localhost or old IPs to the current server IP
           if (img.rawUrl.includes('localhost') || img.rawUrl.includes('127.0.0.1') || img.rawUrl.includes('66.94.120.78')) {
             fullUrl = `${baseHost}${urlObj.pathname}${urlObj.search}`;
           }
