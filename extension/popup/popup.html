@@ -140,10 +140,16 @@
       <!-- Floating Bottom Action Bar -->
       <div id="galleryBottomBar" class="gallery-bottom-bar" style="display: none;">
         <span id="selectedCountText">0 selected</span>
-        <button class="btn btn-primary" id="processBatchBtn">
-          <span>✨</span>
-          <span>Process Selected</span>
-        </button>
+        <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" id="deleteSelectedBtn" style="background: #dc2626; color: white; border: none; padding: 4px 12px;">
+                <span>🗑️</span>
+                <span>Delete</span>
+            </button>
+            <button class="btn btn-primary" id="processBatchBtn">
+                <span>✨</span>
+                <span>Process Selected</span>
+            </button>
+        </div>
       </div>
     </div>
 

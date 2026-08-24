@@ -2948,8 +2948,11 @@ async function showVehicleImages(vehicleId) {
     }
 
     if (vehicle.images && Array.isArray(vehicle.images)) {
+      const aiImagesSet = new Set(vehicle.aiImages || []);
       vehicle.images.forEach(url => {
-        allVehicleImages.push({ url, type: 'original' });
+        if (!aiImagesSet.has(url)) {
+          allVehicleImages.push({ url, type: 'original' });
+        }
       });
     }
 
@@ -3037,6 +3040,13 @@ function displayImagesGallery(images) {
   if (processBtn && !processBtn.hasAttribute('data-listener')) {
     processBtn.addEventListener('click', processBatchImages);
     processBtn.setAttribute('data-listener', 'true');
+  }
+
+  // Add event listener for delete button
+  const deleteBtn = document.getElementById('deleteSelectedBtn');
+  if (deleteBtn && !deleteBtn.hasAttribute('data-listener')) {
+    deleteBtn.addEventListener('click', deleteSelectedImages);
+    deleteBtn.setAttribute('data-listener', 'true');
   }
 
   if (images.length === 0) {
@@ -3167,6 +3177,52 @@ function updateBatchUI() {
   }
 }
 
+async function deleteSelectedImages() {
+  if (selectedImages.size === 0) return;
+  
+  if (!confirm(`Are you sure you want to delete ${selectedImages.size} image(s)? This action cannot be undone.`)) {
+    return;
+  }
+
+  if (!window.currentVehicleId) {
+    showNotification('Vehicle ID missing', 'error');
+    return;
+  }
+
+  const imagesArray = Array.from(selectedImages);
+  showGlobalLoader('Deleting Images', `Deleting ${imagesArray.length} image(s)...`);
+
+  try {
+    const response = await fetch(`${API_CONFIG.baseUrl}/vehicles/${window.currentVehicleId}/images`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': currentUser.apiKey
+      },
+      body: JSON.stringify({ imageUrls: imagesArray })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server error: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    if (result.success) {
+      showNotification(`✅ ${result.message}`, 'success');
+      selectedImages.clear();
+      updateBatchUI();
+      // Reload gallery to reflect changes
+      await showVehicleImages(window.currentVehicleId);
+    } else {
+      throw new Error(result.message || 'Failed to delete images');
+    }
+  } catch (error) {
+    showNotification(`Error deleting images: ${error.message}`, 'error');
+  } finally {
+    hideGlobalLoader();
+  }
+}
+
 async function processBatchImages() {
   const promptInput = document.getElementById('bulkAiPrompt');
   const prompt = promptInput.value.trim();
@@ -3231,7 +3287,38 @@ async function processBatchImages() {
       throw new Error(`Server error: ${response.statusText}`);
     }
 
-    const result = await response.json();
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+    let result = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // Keep incomplete line
+      
+      for (const line of lines) {
+        if (line.trim()) {
+          try {
+            const data = JSON.parse(line);
+            if (data.type === 'progress') {
+               showGlobalLoader('Processing Images', data.message);
+            } else if (data.type === 'complete') {
+               result = data.data;
+            }
+          } catch (e) {
+            console.error('Failed to parse chunk:', line, e);
+          }
+        }
+      }
+    }
+
+    if (!result) {
+        throw new Error('Did not receive complete status from server');
+    }
 
     if (result.success) {
       // Update progress using actual results
@@ -3289,7 +3376,13 @@ async function processBatchImages() {
     if (error.name === 'AbortError') {
       console.log('Batch processing stopped by user');
       hideGlobalLoader();
-      showNotification('Processing stopped by user', 'warning');
+      showNotification('Stopping...', 'warning');
+      
+      // Wait for backend to safely finish saving any successfully completed images
+      setTimeout(async () => {
+         await showVehicleImages(window.currentVehicleId);
+         showNotification('Stopped! Saved completed images.', 'info');
+      }, 2500);
       return;
     }
 

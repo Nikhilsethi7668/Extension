@@ -1772,12 +1772,14 @@ router.delete('/', protect, async (req, res) => {
 // @access  Protected
 router.delete('/:id/images', protect, async (req, res) => {
     try {
-        const { imageUrl } = req.body;
+        const { imageUrl, imageUrls } = req.body;
         const vehicleId = req.params.id;
 
-        if (!imageUrl) {
+        const urlsToDelete = imageUrls || (imageUrl ? [imageUrl] : []);
+
+        if (urlsToDelete.length === 0) {
             res.status(400);
-            throw new Error('Image URL is required');
+            throw new Error('Image URL(s) required');
         }
 
         const vehicle = await Vehicle.findById(vehicleId);
@@ -1802,26 +1804,30 @@ router.delete('/:id/images', protect, async (req, res) => {
             throw new Error('Not authorized to access this vehicle');
         }
 
-        let deleted = false;
+        let deletedCount = 0;
 
-        // Remove from images
-        const originalIndex = vehicle.images.indexOf(imageUrl);
-        if (originalIndex > -1) {
-            vehicle.images.splice(originalIndex, 1);
-            deleted = true;
-        }
-
-        // Remove from aiImages
-        // aiImages might be undefined if not populated yet
-        if (vehicle.aiImages && Array.isArray(vehicle.aiImages)) {
-            const aiIndex = vehicle.aiImages.indexOf(imageUrl);
-            if (aiIndex > -1) {
-                vehicle.aiImages.splice(aiIndex, 1);
-                deleted = true;
+        urlsToDelete.forEach(url => {
+            let removed = false;
+            // Remove from images
+            const originalIndex = vehicle.images.indexOf(url);
+            if (originalIndex > -1) {
+                vehicle.images.splice(originalIndex, 1);
+                removed = true;
             }
-        }
 
-        if (deleted) {
+            // Remove from aiImages
+            if (vehicle.aiImages && Array.isArray(vehicle.aiImages)) {
+                const aiIndex = vehicle.aiImages.indexOf(url);
+                if (aiIndex > -1) {
+                    vehicle.aiImages.splice(aiIndex, 1);
+                    removed = true;
+                }
+            }
+            
+            if (removed) deletedCount++;
+        });
+
+        if (deletedCount > 0) {
             await vehicle.save();
 
             // Audit Log
@@ -1831,12 +1837,12 @@ router.delete('/:id/images', protect, async (req, res) => {
                 entityId: vehicle._id,
                 user: req.user._id,
                 organization: req.user.organization._id,
-                details: { imageUrl },
+                details: { imageUrls: urlsToDelete },
                 ipAddress: req.ip,
                 userAgent: req.get('User-Agent'),
             });
 
-            res.json({ success: true, message: 'Image deleted successfully', vehicle });
+            res.json({ success: true, message: `Deleted ${deletedCount} images successfully`, vehicle });
         } else {
             res.status(404).json({ success: false, message: 'Image not found in vehicle records' });
         }
@@ -2157,12 +2163,20 @@ router.get('/camera-models', protect, (req, res) => {
 router.post('/:id/batch-edit-images', protect, async (req, res) => {
     const { images, prompt, promptId } = req.body;
 
+    const abortController = new AbortController();
+    req.on('close', () => {
+        console.log('[Batch Edit] Client disconnected (Stop clicked). Aborting ongoing AI tasks.');
+        abortController.abort();
+    });
+
     // Set headers for streaming IMMEDIATELY because we want to send progress
     res.setHeader('Content-Type', 'text/plain');
     res.setHeader('Transfer-Encoding', 'chunked');
 
     const sendProgress = (message, percent, details = {}) => {
-        res.write(JSON.stringify({ type: 'progress', message, percent, ...details }) + '\n');
+        if (!req.closed && !res.writableEnded) {
+            res.write(JSON.stringify({ type: 'progress', message, percent, ...details }) + '\n');
+        }
     };
 
     try {
@@ -2170,20 +2184,20 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
 
         if (!vehicle) {
             sendProgress('Vehicle not found', 0, { error: true });
-            res.end();
+            if (!res.writableEnded) res.end();
             return;
         }
 
         // Authorization Check
         if (req.user.role === 'agent' && (!vehicle.assignedUsers || !vehicle.assignedUsers.some(id => id.toString() === req.user._id.toString()))) {
             sendProgress('Not authorized', 0, { error: true });
-            res.end();
+            if (!res.writableEnded) res.end();
             return;
         }
 
         if (!images || !Array.isArray(images) || images.length === 0) {
            sendProgress('No images provided', 0, { error: true });
-           res.end();
+           if (!res.writableEnded) res.end();
            return;
         }
 
@@ -2197,7 +2211,7 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
         const editPromises = images.map(async (imageUrl) => {
             try {
                 // processImageWithAI handles promptId lookup if provided
-                const aiResult = await processImageWithAI(imageUrl, prompt, promptId, req.user);
+                const aiResult = await processImageWithAI(imageUrl, prompt, promptId, req.user, abortController.signal);
                 
                 completedOperations++;
                 const currentPercent = 5 + Math.round((completedOperations / totalOperations) * 90); // Scale 5-95%
@@ -2291,18 +2305,20 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
             finalMessage = `Complete: ${processedCount} OK, ${failedCount} Failed`;
         }
 
-        // Final Success Message with Data
-        res.write(JSON.stringify({
-            type: 'complete',
-            message: finalMessage,
-            percent: 100,
-            data: {
-                success: processedCount > 0,
-                processedCount,
-                failedCount,
-                results
-            }
-        }) + '\n');
+        if (!req.closed && !res.writableEnded) {
+            res.write(JSON.stringify({
+                type: 'complete',
+                message: finalMessage,
+                percent: 100,
+                data: {
+                    success: processedCount > 0,
+                    processedCount,
+                    failedCount,
+                    results
+                }
+            }) + '\n');
+            res.end();
+        }
 
         // Emit socket event for Dashboard notification
         const io = req.app.get('io');
@@ -2314,13 +2330,13 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
             results,
             error: failedCount > 0 ? 'Some images failed' : null
         });
-        
-        res.end();
 
     } catch (error) {
         console.error('Batch Edit Error:', error);
-        res.write(JSON.stringify({ type: 'error', message: error.message }) + '\n');
-        res.end();
+        if (!req.closed && !res.writableEnded) {
+            res.write(JSON.stringify({ type: 'error', message: error.message }) + '\n');
+            res.end();
+        }
     }
 });
 

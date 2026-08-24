@@ -101,7 +101,7 @@ import { prepareImage } from './image-processor.service.js';
 
 const FAL_GENERATE_URL = 'https://fal.run/fal-ai/flux-lora';
 
-export const processImageWithAI = async (imageUrl, prompt = 'Remove background', promptId, reqUser = null) => {
+export const processImageWithAI = async (imageUrl, prompt = 'Remove background', promptId, reqUser = null, abortSignal = null) => {
     try {
         console.log(`[AI Service] Processing image request. Prompt: "${prompt}"`);
 
@@ -127,6 +127,18 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
 4. *No Bleed:* Ensure no "environmental blending" occurs on the car's surface. The car should look as if it was professionally cut out and placed into the new setting without any digital alteration to the original pixels of the vehicle.`;
 
         // 2. Call Fal AI Generate API
+        const axiosOptions = {
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Key ${process.env.FAL_KEY}`,
+            },
+            timeout: 120000,
+        };
+
+        if (abortSignal) {
+            axiosOptions.signal = abortSignal;
+        }
+
         const generateResponse = await axios.post(
             FAL_GENERATE_URL,
             {
@@ -137,13 +149,7 @@ export const processImageWithAI = async (imageUrl, prompt = 'Remove background',
                 steps: 40,
                 cfg_scale: 7,
             },
-            {
-                timeout: 120000,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Key ${process.env.FAL_KEY}`,
-                },
-            }
+            axiosOptions
         );
 
         const data = generateResponse.data;
