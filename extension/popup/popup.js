@@ -2963,6 +2963,17 @@ async function showVehicleImages(vehicleId) {
       });
     }
 
+    // STRICT DEDUPLICATION to fix any dirty database arrays showing double images
+    const seenUrls = new Set();
+    const uniqueImages = [];
+    for (const img of allVehicleImages) {
+      if (!seenUrls.has(img.url)) {
+        seenUrls.add(img.url);
+        uniqueImages.push(img);
+      }
+    }
+    allVehicleImages = uniqueImages;
+
     if (allVehicleImages.length === 0) {
       gallery.innerHTML = '<div class="empty-state"><h3>No images found</h3></div>';
       return;
