@@ -35,6 +35,13 @@
             "x64",
             "arm64"
           ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
         }
       ],
       "category": "public.app-category.business",
@@ -49,6 +56,7 @@
     "dmg": {
       "title": "Flash Fender Auto-Poster ${version}",
       "icon": "icon.png",
+      "background": null,
       "window": {
         "width": 540,
         "height": 380
