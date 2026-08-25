@@ -1,0 +1,112 @@
+{
+    "manifest_version": 3,
+    "name": "Flash Fender",
+    "version": "1.0.1",
+    "description": "Scrape vehicle data and auto-post to Facebook Marketplace",
+    "permissions": [
+        "storage",
+        "activeTab",
+        "scripting",
+        "tabs",
+        "cookies",
+        "notifications",
+        "sidePanel",
+        "contextMenus",
+        "alarms"
+    ],
+    "host_permissions": [
+        "https://www.autotrader.com/*",
+        "https://www.cars.com/*",
+        "https://www.cargurus.com/*",
+        "https://www.facebook.com/*",
+        "https://marketplace.facebook.com/*",
+        "https://autobridge-backend.dchatpar.workers.dev/*",
+        "https://api.flashfender.com/*",
+        "http://45.137.194.145:5000/*",
+        "https://api.flashfender.com/*",
+        "http://66.94.120.78:5573/*",
+        "http://45.137.194.145/*",
+        "http://45.137.194.145:5573/*",
+        "http://localhost:5573/*"
+    ],
+    "action": {
+        "default_title": "Flash Fender"
+    },
+    "side_panel": {
+        "default_path": "popup/popup.html"
+    },
+    "background": {
+        "service_worker": "background/service-worker.js",
+        "type": "module"
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "https://www.autotrader.com/cars-for-sale/vehicledetails.xhtml*",
+                "https://www.autotrader.com/vehicledetails/*"
+            ],
+            "js": [
+                "content/scrapers/autotrader-scraper.js"
+            ],
+            "run_at": "document_idle"
+        },
+        {
+            "matches": [
+                "https://www.cars.com/vehicledetail/*"
+            ],
+            "js": [
+                "content/scrapers/cars-scraper.js"
+            ],
+            "run_at": "document_idle"
+        },
+        {
+            "matches": [
+                "https://www.cargurus.com/Cars/inventorylisting/viewDetailsFilterViewInventoryListing.action*"
+            ],
+            "js": [
+                "content/scrapers/cargurus-scraper.js"
+            ],
+            "run_at": "document_idle"
+        },
+        {
+            "matches": [
+                "https://www.facebook.com/marketplace/create/vehicle*",
+                "https://www.facebook.com/marketplace/create/*"
+            ],
+            "js": [
+                "content/facebook-autofill.js"
+            ],
+            "run_at": "document_idle",
+            "all_frames": true
+        },
+        {
+            "matches": [
+                "https://www.facebook.com/*"
+            ],
+            "js": [
+                "content/facebook-profile-extractor.js"
+            ],
+            "run_at": "document_idle"
+        },
+        {
+            "matches": [
+                "*://*.brownboysauto.com/*",
+                "*://brownboysauto.com/*"
+            ],
+            "js": [
+                "content/scrapers/brownboys-scraper.js"
+            ],
+            "run_at": "document_idle"
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": [
+                "content/injected-script.js"
+            ],
+            "matches": [
+                "<all_urls>"
+            ]
+        }
+    ]
+}

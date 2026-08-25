@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flash Fender</title>
+  <link rel="stylesheet" href="popup.css">
+  <link rel="stylesheet" href="loader-styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+  <!-- Internet Status Warning (Fixed at Top Right) -->
+  <div id="internet-warning" class="internet-warning hidden">
+    <span class="warning-icon">⚠️</span>
+    <span class="warning-text">Unstable Internet - Please use a stable connection</span>
+  </div>
+
+  <div class="container">
+    <!-- Header Section -->
+    <div class="header">
+      <h1>🚗 Flash Fender</h1>
+    </div>
+
+    <!-- Login Section (shown by default) -->
+    <div id="loginSection">
+      <div class="login-form">
+        <h3>🔐 Agent Login</h3>
+        <div class="form-group">
+          <label>API Key</label>
+          <input type="password" id="apiToken" class="input-field" placeholder="Enter your API key"
+            autocomplete="off" />
+        </div>
+        <button class="btn btn-primary" id="loginBtn">
+          <span>Login</span>
+        </button>
+        <p class="hint">
+          Enter your API Key to login as an agent. You can find your Key in the Dashboard under Agents.
+        </p>
+      </div>
+    </div>
+
+    <!-- Vehicle Listing View (Hidden by default) -->
+    <div id="vehicleListingView" style="display: none;">
+      <div class="vehicle-listing-header">
+        <button class="btn btn-secondary btn-small" id="backToMainBtn">
+          <span>←</span>
+        </button>
+        <h3>Available Vehicles</h3>
+
+      </div>
+
+      <div class="vehicle-listing-controls">
+        <div class="input-with-icon ai-input-wrapper">
+          <span class="input-icon">✨</span>
+          <input type="text" id="globalAiPrompt" class="input-field"
+            placeholder="Make it urgent, emphasize low miles..." />
+        </div>
+
+        <!-- AI Prompt Recommendations -->
+        <div class="ai-recommendations">
+          <button class="ai-rec-btn"
+            data-prompt="Write an attractive, calm description under 60 words. Include 3-4 emojis.">Attractive &
+            Calm</button>
+          <button class="ai-rec-btn"
+            data-prompt="Write an energetic, exciting description under 60 words. Include 3-4 emojis.">Energetic</button>
+          <button class="ai-rec-btn"
+            data-prompt="Write a minimalist, professional description under 60 words. Include 3-4 emojis.">Minimalist</button>
+          <button class="ai-rec-btn"
+            data-prompt="Write a unique custom description under 60 words. Include 3-4 emojis.">Custom</button>
+        </div>
+
+        <div class="input-with-icon search-input-wrapper">
+          <span class="input-icon">🔍</span>
+          <input type="text" id="vehicleSearch" class="input-field" placeholder="Search vehicles..." />
+        </div>
+
+        <div class="input-with-icon status-input-wrapper">
+          <span class="input-icon">🏷️</span>
+          <select id="vehicleStatusFilter" class="input-field">
+            <option value="">All Status</option>
+            <option value="available">Available</option>
+            <option value="posted">Posted</option>
+            <option value="sold_pending_removal">Sold (Pending Removal)</option>
+            <option value="sold">Sold</option>
+          </select>
+        </div>
+      </div>
+
+      <div id="vehiclesContainer" class="vehicles-container">
+        <div class="loading-state">Loading vehicles...</div>
+      </div>
+
+      <div class="pagination-controls" id="paginationControls" style="display: none;">
+        <button class="btn btn-secondary" id="prevPageBtn" disabled>Previous</button>
+        <span id="pageInfo">Page 1 of 1</span>
+        <button class="btn btn-secondary" id="nextPageBtn" disabled>Next</button>
+      </div>
+    </div>
+
+    <!-- Vehicle Images View (Hidden by default) -->
+    <div id="vehicleImagesView" style="display: none;">
+      <div class="vehicle-listing-header">
+        <button class="btn btn-secondary btn-small" id="backToListFromImagesBtn">
+          <span>←</span>
+        </button>
+        <h3>Vehicle Images</h3>
+      </div>
+
+      <!-- Bulk Edit Controls -->
+      <div class="gallery-controls">
+        <div class="gallery-controls-top">
+          <div class="input-with-icon ai-input-wrapper">
+            <span class="input-icon">✨</span>
+            <input type="text" id="bulkAiPrompt" width="100%" class="input-field"
+              placeholder="Select images and type AI prompt..." />
+            <div id="promptSuggestions" class="prompt-suggestions" style="display: none;">
+              <!-- Suggestions will be injected here -->
+            </div>
+          </div>
+        </div>
+        <div class="image-filters">
+          <button class="filter-btn active" data-filter="all">All</button>
+          <button class="filter-btn" data-filter="original">Original</button>
+          <button class="filter-btn" data-filter="ai">AI Generated</button>
+        </div>
+        <button id="bulkUploadBtn" class="btn btn-secondary"
+          style="background: #2563eb; color: white; padding: 6px 12px; font-size: 12px; margin-top: 8px; width: 100%;">
+          <span>☁️</span> Upload All Images
+        </button>
+      </div>
+
+      <div id="imagesGallery" class="images-gallery">
+        <div class="loading-state">Loading images...</div>
+      </div>
+
+      <!-- Floating Bottom Action Bar -->
+      <div id="galleryBottomBar" class="gallery-bottom-bar" style="display: none;">
+        <span id="selectedCountText">0 selected</span>
+        <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" id="deleteSelectedBtn" style="background: #dc2626; color: white; border: none; padding: 4px 12px;">
+                <span>🗑️</span>
+                <span>Delete</span>
+            </button>
+            <button class="btn btn-primary" id="processBatchBtn">
+                <span>✨</span>
+                <span>Process Selected</span>
+            </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Controls (Hidden until logged in) -->
+    <div id="mainControls" class="main-controls" style="display: none;">
+
+      <!-- Account Status Header -->
+      <div class="account-header">
+        <span id="statusText">Logged In</span>
+        <button class="btn btn-secondary btn-small" id="logoutBtn">Logout</button>
+      </div>
+
+      <div class="profile-section" style="padding: 12px 16px; border-bottom: 1px solid #eee;">
+        <label style="display: block; font-size: 12px; color: #666; margin-bottom: 4px;">Select Chrome Profile</label>
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <select id="profileSelect" class="input-field"
+            style="flex: 1; padding: 8px; border-radius: 6px; border: 1px solid #ddd; height: 35px; box-sizing: border-box;">
+            <option value="">Loading profiles...</option>
+          </select>
+          <button id="refreshProfilesBtn" class="btn btn-secondary btn-small" title="Refresh profiles list"
+            style="padding: 8px 12px; height: 35px; width: 40px; display: flex; align-items: center; justify-content: center; margin: 0; box-sizing: border-box;">
+            🔄
+          </button>
+        </div>
+      </div>
+
+      <!-- Connection Test -->
+      <div class="config-section">
+        <button class="btn btn-secondary" id="viewVehiclesBtn" style="width: 100%; margin-top: 12px;">
+          <span>🚗</span>
+          <span>View Vehicles</span>
+        </button>
+        <button class="btn btn-secondary" id="postToInstaAdBtn"
+          style="width: 100%; margin-top: 12px; background-color: #E1306C; color: white;">
+          <span>📸</span>
+          <span>Post to Insta Ad</span>
+        </button>
+      </div>
+      <!-- Activity Log -->
+      <div class="log-section">
+        <h3>📊 Activity</h3>
+        <div id="activityLog" class="activity-log"></div>
+      </div>
+
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+      <p>Version 1.0.0</p>
+    </div>
+  </div>
+
+  <!-- Duplicate Post Warning Modal -->
+  <div id="duplicatePostModal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>⚠️ Duplicate Post Warning</h3>
+      </div>
+      <div class="modal-body">
+        <p id="duplicateWarningText"></p>
+        <p class="modal-subtext">Facebook may flag or remove duplicate listings posted too often.</p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancelPostBtn">Cancel</button>
+        <button class="btn btn-primary" id="confirmPostBtn">Post Anyway</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Global Loader Overlay -->
+  <div id="globalLoaderOverlay">
+    <div class="loader-container">
+      <div class="loader-spinner"></div>
+      <div class="loader-title">Processing Images</div>
+      <div class="loader-message">Please wait while we generate your AI-enhanced images...</div>
+
+      <div class="loader-progress">
+        <div class="loader-progress-bar">
+          <div class="loader-progress-fill" style="width: 0%"></div>
+        </div>
+        <div class="loader-progress-text">0 of 0 complete</div>
+      </div>
+
+      <div class="loader-status-list" id="loaderStatusList">
+        <!-- Status items will be added here dynamically -->
+      </div>
+
+      <div class="loader-error-state" id="loaderErrorState" style="display: none;">
+        <div class="loader-error-title">
+          <span>⚠️</span>
+          <span>Error Processing Images</span>
+        </div>
+        <div class="loader-error-message" id="loaderErrorMessage"></div>
+        <div class="loader-actions">
+          <button class="loader-btn loader-btn-secondary" onclick="hideGlobalLoader()">Cancel</button>
+          <button class="loader-btn loader-btn-primary" onclick="retryBatchProcessing()">Retry</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="imageLargeView" class="modal-overlay"
+    style="display: none; align-items: center; justify-content: center; z-index: 1000;">
+    <div class="large-image-container" style="position: relative; max-width: 90%; max-height: 90%;">
+      <span id="closeLargeViewBtn"
+        style="position: absolute; top: -30px; right: -10px; color: white; font-size: 24px; cursor: pointer;">&times;</span>
+      <img id="largeImage" src="" alt="Full View"
+        style="max-width: 100%; max-height: 80vh; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
+    </div>
+  </div>
+
+  <script src="loader-functions.js"></script>
+  <script src="../env.js"></script>
+  <script src="../utils/config.js"></script>
+  <script src="../utils/internet-monitor.js"></script>
+  <script src="popup.js"></script>
+</body>
+
+</html>

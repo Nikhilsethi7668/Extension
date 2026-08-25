@@ -241,7 +241,7 @@ const autoPrepareStealth = async (vehicle, reqUser) => {
     const orgName = reqUser?.organization?.slug || reqUser?.organization?.name || 'default_org';
     const sanitizedOrgName = orgName.toString().replace(/[^a-zA-Z0-9_-]/g, '_');
     const userId = reqUser?._id || 'default_user';
-    const folder = `${sanitizedOrgName}/${userId}/prepared`;
+    const folder = `${sanitizedOrgName}/${userId}/generated`;
 
     try {
         console.log(`[Auto-Stealth] Processing vehicle ${vehicle._id} with GPS: ${JSON.stringify(gps)} into folder: ${folder}`);
@@ -1827,12 +1827,34 @@ router.delete('/:id/images', protect, async (req, res) => {
                 removed = true;
             }
 
-            // Remove from aiImages
+            // Remove from aiImages (legacy top-level array)
             if (vehicle.aiImages && Array.isArray(vehicle.aiImages)) {
                 const aiIndex = vehicle.aiImages.findIndex(u => extractPath(u) === targetPath);
                 if (aiIndex > -1) {
                     vehicle.aiImages.splice(aiIndex, 1);
                     removed = true;
+                }
+            }
+
+            // Remove from preparedImages
+            if (vehicle.preparedImages && Array.isArray(vehicle.preparedImages)) {
+                const prepIndex = vehicle.preparedImages.findIndex(u => extractPath(u) === targetPath);
+                if (prepIndex > -1) {
+                    vehicle.preparedImages.splice(prepIndex, 1);
+                    removed = true;
+                }
+            }
+
+            // Remove from userAIContent[].aiImages (per-user AI images)
+            if (vehicle.userAIContent && Array.isArray(vehicle.userAIContent)) {
+                for (const uc of vehicle.userAIContent) {
+                    if (uc.aiImages && Array.isArray(uc.aiImages)) {
+                        const ucIndex = uc.aiImages.findIndex(u => extractPath(u) === targetPath);
+                        if (ucIndex > -1) {
+                            uc.aiImages.splice(ucIndex, 1);
+                            removed = true;
+                        }
+                    }
                 }
             }
             
@@ -2169,111 +2191,64 @@ router.get('/camera-models', protect, (req, res) => {
     });
 });
 
-// @desc    Batch edit images with AI
-// @route   POST /api/vehicles/:id/batch-edit-images
-// @access  Protected
-router.post('/:id/batch-edit-images', protect, async (req, res) => {
-    const { images, prompt, promptId } = req.body;
+// ============ In-memory store for batch AI jobs ============
+const batchJobs = new Map();
 
-    const abortController = new AbortController();
-    req.on('close', () => {
-        console.log('[Batch Edit] Client disconnected (Stop clicked). Aborting ongoing AI tasks.');
-        abortController.abort();
-    });
-
-    // Set headers for streaming IMMEDIATELY because we want to send progress
-    res.setHeader('Content-Type', 'text/plain');
-    res.setHeader('Transfer-Encoding', 'chunked');
-
-    const sendProgress = (message, percent, details = {}) => {
-        if (!req.closed && !res.writableEnded) {
-            res.write(JSON.stringify({ type: 'progress', message, percent, ...details }) + '\n');
-        }
-    };
+// Background processor — runs after the HTTP response is sent
+async function runBatchJob(jobId, vehicleId, images, prompt, promptId, user, io, ipAddress, userAgent) {
+    const job = batchJobs.get(jobId);
+    if (!job) return;
 
     try {
-        const vehicle = await Vehicle.findById(req.params.id);
-
+        const vehicle = await Vehicle.findById(vehicleId);
         if (!vehicle) {
-            sendProgress('Vehicle not found', 0, { error: true });
-            if (!res.writableEnded) res.end();
+            job.status = 'error';
+            job.message = 'Vehicle not found';
             return;
         }
 
-        // Authorization Check
-        if (req.user.role === 'agent' && (!vehicle.assignedUsers || !vehicle.assignedUsers.some(id => id.toString() === req.user._id.toString()))) {
-            sendProgress('Not authorized', 0, { error: true });
-            if (!res.writableEnded) res.end();
-            return;
-        }
-
-        if (!images || !Array.isArray(images) || images.length === 0) {
-           sendProgress('No images provided', 0, { error: true });
-           if (!res.writableEnded) res.end();
-           return;
-        }
-
-        sendProgress(`Starting AI enhancement for ${images.length} images...`, 5);
+        job.message = `Starting AI enhancement for ${images.length} images...`;
+        job.percent = 5;
 
         let processedCount = 0;
-        let completedOperations = 0;
-        const totalOperations = images.length;
+        const results = [];
 
-        // Process in parallel with progress tracking
-        const editPromises = images.map(async (imageUrl) => {
-            try {
-                // processImageWithAI handles promptId lookup if provided
-                const aiResult = await processImageWithAI(imageUrl, prompt, promptId, req.user, abortController.signal);
-                
-                completedOperations++;
-                const currentPercent = 5 + Math.round((completedOperations / totalOperations) * 90); // Scale 5-95%
-                sendProgress(`Enhanced image ${completedOperations}/${totalOperations}`, currentPercent);
-
-                return {
-                    success: true,
-                    original: imageUrl,
-                    processed: aiResult.processedUrl
-                };
-            } catch (err) {
-                console.error(`Batch processing failed for image ${imageUrl}:`, err);
-                 completedOperations++;
-                 // Still report progress even on fail
-                return {
-                    success: false,
-                    original: imageUrl,
-                    error: err.message
-                };
+        // Process SEQUENTIALLY so progress is meaningful
+        for (let i = 0; i < images.length; i++) {
+            if (job.cancelled) {
+                job.status = 'complete';
+                job.message = 'Cancelled by user';
+                break;
             }
-        });
 
-        const results = await Promise.all(editPromises);
+            const imageUrl = images[i];
+            job.message = `Processing image ${i + 1}/${images.length}...`;
+            job.percent = 5 + Math.round((i / images.length) * 90);
 
-        // Update Vehicle with results
-        // Update Vehicle with results (User-Specific Isolation)
-        let userContent = vehicle.userAIContent.find(c => c.userId && c.userId.toString() === req.user._id.toString());
+            try {
+                const aiResult = await processImageWithAI(imageUrl, prompt, promptId, user, job.abortController.signal);
+                processedCount++;
+                results.push({ success: true, original: imageUrl, processed: aiResult.processedUrl });
+            } catch (err) {
+                console.error(`Batch processing failed for image ${imageUrl}:`, err.message);
+                results.push({ success: false, original: imageUrl, error: err.message });
+            }
 
+            job.completed = i + 1;
+            job.percent = 5 + Math.round(((i + 1) / images.length) * 90);
+            job.message = `Enhanced image ${job.completed}/${images.length}`;
+        }
+
+        // Save results to vehicle
+        let userContent = vehicle.userAIContent.find(c => c.userId && c.userId.toString() === user._id.toString());
         if (!userContent) {
-            vehicle.userAIContent.push({
-                userId: req.user._id,
-                aiImages: [],
-                imageMappings: [],
-                aiContent: {}
-            });
-            // Get the reference to the newly added subdocument
+            vehicle.userAIContent.push({ userId: user._id, aiImages: [], imageMappings: [], aiContent: {} });
             userContent = vehicle.userAIContent[vehicle.userAIContent.length - 1];
         }
 
-        for (const res of results) {
-            if (res.success) {
-                    // OLD: vehicle.images.push(res.processed);
-                    
-                    // NEW: Store in User Content
-                    userContent.aiImages.push(res.processed);
-                    
-                    // REMOVED mapping push to prevent replacement. We want to Append.
-                    // userContent.imageMappings.push(...)
-
-                processedCount++;
+        for (const r of results) {
+            if (r.success) {
+                userContent.aiImages.push(r.processed);
             }
         }
 
@@ -2282,13 +2257,9 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
 
             // Record Usage if promptId was used
             if (promptId) {
-                const existing = await promptUsed.findOne({ vin: vehicle.vin, userId: req.user._id, promptId });
+                const existing = await promptUsed.findOne({ vin: vehicle.vin, userId: user._id, promptId });
                 if (!existing) {
-                    await promptUsed.create({
-                        promptId,
-                        vin: vehicle.vin,
-                        userId: req.user._id
-                    });
+                    await promptUsed.create({ promptId, vin: vehicle.vin, userId: user._id });
                 }
             }
 
@@ -2297,59 +2268,131 @@ router.post('/:id/batch-edit-images', protect, async (req, res) => {
                 action: 'Batch AI Edit',
                 entityType: 'Vehicle',
                 entityId: vehicle._id,
-                user: req.user._id,
-                organization: req.user.organization._id,
-                details: {
-                    processedCount,
-                    totalRequested: images.length,
-                    prompt: prompt || 'Prompt ID: ' + promptId
-                },
-                ipAddress: req.ip,
-                userAgent: req.get('User-Agent'),
+                user: user._id,
+                organization: user.organization._id || user.organization,
+                details: { processedCount, totalRequested: images.length, prompt: prompt || 'Prompt ID: ' + promptId },
+                ipAddress,
+                userAgent,
             }).catch(e => console.error('Audit Log Error:', e));
         }
 
         const failedCount = results.length - processedCount;
-        let finalMessage = 'AI Enhancement Complete!';
-        if (processedCount === 0 && failedCount > 0) {
-            finalMessage = `Failed (${failedCount} images)`;
-        } else if (failedCount > 0) {
-            finalMessage = `Complete: ${processedCount} OK, ${failedCount} Failed`;
-        }
 
-        if (!req.closed && !res.writableEnded) {
-            res.write(JSON.stringify({
-                type: 'complete',
-                message: finalMessage,
-                percent: 100,
-                data: {
-                    success: processedCount > 0,
-                    processedCount,
-                    failedCount,
-                    results
-                }
-            }) + '\n');
-            res.end();
-        }
+        // Mark job as complete
+        job.status = 'complete';
+        job.percent = 100;
+        job.message = processedCount === 0 && failedCount > 0
+            ? `Failed (${failedCount} images)`
+            : failedCount > 0
+            ? `Complete: ${processedCount} OK, ${failedCount} Failed`
+            : 'AI Enhancement Complete!';
+        job.results = { success: processedCount > 0, processedCount, failedCount, results };
 
         // Emit socket event for Dashboard notification
-        const io = req.app.get('io');
-        // Emit to the specific user's dashboard room
-        io.to(`user:${req.user._id}:dashboard`).emit('image-generation-complete', {
-            success: processedCount > 0,
-            vehicleId: vehicle._id,
-            count: processedCount,
-            results,
-            error: failedCount > 0 ? 'Some images failed' : null
-        });
+        if (io) {
+            io.to(`user:${user._id}:dashboard`).emit('image-generation-complete', {
+                success: processedCount > 0,
+                vehicleId: vehicle._id,
+                count: processedCount,
+                results,
+                error: failedCount > 0 ? 'Some images failed' : null
+            });
+        }
 
     } catch (error) {
-        console.error('Batch Edit Error:', error);
-        if (!req.closed && !res.writableEnded) {
-            res.write(JSON.stringify({ type: 'error', message: error.message }) + '\n');
-            res.end();
-        }
+        console.error('Batch Edit Background Error:', error);
+        job.status = 'error';
+        job.message = error.message;
     }
+
+    // Auto-cleanup job after 5 minutes
+    setTimeout(() => batchJobs.delete(jobId), 300000);
+}
+
+// @desc    Batch edit images with AI (starts background job, returns jobId)
+// @route   POST /api/vehicles/:id/batch-edit-images
+// @access  Protected
+router.post('/:id/batch-edit-images', protect, async (req, res) => {
+    const { images, prompt, promptId } = req.body;
+
+    try {
+        const vehicle = await Vehicle.findById(req.params.id);
+        if (!vehicle) {
+            return res.status(404).json({ success: false, message: 'Vehicle not found' });
+        }
+
+        // Authorization Check
+        if (req.user.role === 'agent' && (!vehicle.assignedUsers || !vehicle.assignedUsers.some(id => id.toString() === req.user._id.toString()))) {
+            return res.status(403).json({ success: false, message: 'Not authorized' });
+        }
+
+        if (!images || !Array.isArray(images) || images.length === 0) {
+            return res.status(400).json({ success: false, message: 'No images provided' });
+        }
+
+        // Generate a simple unique job ID
+        const jobId = `job_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+        // Initialize job state
+        batchJobs.set(jobId, {
+            status: 'processing',
+            total: images.length,
+            completed: 0,
+            message: 'Starting...',
+            percent: 0,
+            results: null,
+            cancelled: false,
+            abortController: new AbortController()
+        });
+
+        // Extract everything we need from req before returning the response
+        const user = req.user;
+        const io = req.app.get('io');
+        const ipAddress = req.ip;
+        const userAgent = req.get('User-Agent');
+        const vehicleId = req.params.id;
+
+        // Return jobId immediately — the client will poll for progress
+        res.json({ success: true, jobId, total: images.length });
+
+        // Start processing in background (don't await)
+        runBatchJob(jobId, vehicleId, images, prompt, promptId, user, io, ipAddress, userAgent);
+
+    } catch (error) {
+        console.error('Batch Edit Start Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+// @desc    Get batch processing job status (polling endpoint)
+// @route   GET /api/vehicles/:id/batch-edit-images/status/:jobId
+// @access  Protected
+router.get('/:id/batch-edit-images/status/:jobId', protect, (req, res) => {
+    const job = batchJobs.get(req.params.jobId);
+    if (!job) {
+        return res.json({ status: 'not_found', message: 'Job not found or expired' });
+    }
+    res.json({
+        status: job.status,
+        total: job.total,
+        completed: job.completed,
+        message: job.message,
+        percent: job.percent,
+        results: job.results
+    });
+});
+
+// @desc    Cancel a batch processing job
+// @route   POST /api/vehicles/:id/batch-edit-images/cancel/:jobId
+// @access  Protected
+router.post('/:id/batch-edit-images/cancel/:jobId', protect, (req, res) => {
+    const job = batchJobs.get(req.params.jobId);
+    if (!job) {
+        return res.json({ success: false, message: 'Job not found' });
+    }
+    job.cancelled = true;
+    if (job.abortController) job.abortController.abort();
+    res.json({ success: true, message: 'Cancellation requested' });
 });
 
 // @desc    Check for active scheduled postings for a vehicle and profile(s)
