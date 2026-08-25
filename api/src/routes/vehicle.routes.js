@@ -2058,6 +2058,60 @@ router.post('/:id/prepare-for-marketplace', protect, async (req, res) => {
     }
 });
 
+// @desc    Prepare fresh stealth images for a specific profile posting on-the-fly
+// @route   POST /api/vehicles/:id/prepare-for-posting
+// @access  Protected
+router.post('/:id/prepare-for-posting', protect, async (req, res) => {
+    try {
+        const vehicleId = req.params.id;
+        const { profileId } = req.body;
+
+        const vehicle = await Vehicle.findById(vehicleId);
+        if (!vehicle) {
+            return res.status(404).json({ success: false, message: 'Vehicle not found' });
+        }
+
+        // Get images to process (prefer original images)
+        const imagesToProcess = vehicle.images || [];
+        if (imagesToProcess.length === 0) {
+            return res.status(400).json({ success: false, message: 'No images found for this vehicle' });
+        }
+
+        const gps = (req.user.organization && req.user.organization.settings && req.user.organization.settings.gpsLocation)
+            ? req.user.organization.settings.gpsLocation
+            : DEFAULT_GPS;
+
+        const orgName = req.user?.organization?.slug || req.user?.organization?.name || 'default_org';
+        const sanitizedOrgName = orgName.toString().replace(/[^a-zA-Z0-9_-]/g, '_');
+        const userId = req.user?._id || 'default_user';
+        
+        // Save in a profile-specific subfolder to guarantee uniqueness
+        const folder = `${sanitizedOrgName}/${userId}/stealth/${profileId || 'default'}`;
+
+        const result = await prepareImageBatch(imagesToProcess, {
+            gps: gps,
+            folder: folder
+        });
+
+        const baseUrl = getBaseUrl(req);
+        const fullPreparedImages = result.results.map(r => toFullUrl(r.relativePath || r.preparedUrl, baseUrl));
+
+        res.json({
+            success: true,
+            preparedImages: fullPreparedImages,
+            metadata: {
+                camera: result.batchMetadata?.camera || 'Unknown Camera',
+                folder: folder
+            }
+        });
+
+    } catch (error) {
+        console.error('[Prepare for Posting] Error:', error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+});
+
+
 // @desc    Batch prepare multiple vehicles for Facebook Marketplace
 // @route   POST /api/vehicles/batch-prepare
 // @access  Protected
