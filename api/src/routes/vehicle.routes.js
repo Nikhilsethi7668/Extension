@@ -228,7 +228,7 @@ const toFullUrl = (relativeUrl, baseUrl) => {
 };
 
 // Helper function to automatically process stealth images
-const autoPrepareStealth = async (vehicle, customGps = null) => {
+const autoPrepareStealth = async (vehicle, reqUser) => {
     if (!vehicle.images || vehicle.images.length === 0) return vehicle;
 
     const imagesToProcess = vehicle.images.filter(img => !img.includes('16487202666893896-12.png'));
@@ -236,14 +236,20 @@ const autoPrepareStealth = async (vehicle, customGps = null) => {
     if (imagesToProcess.length === 0) return vehicle;
 
     // Use Custom GPS (from Org) or Default
-    const gps = customGps || DEFAULT_GPS;
+    const gps = reqUser?.organization?.settings?.gpsLocation || DEFAULT_GPS;
+    
+    const orgName = reqUser?.organization?.slug || reqUser?.organization?.name || 'default_org';
+    const sanitizedOrgName = orgName.toString().replace(/[^a-zA-Z0-9_-]/g, '_');
+    const userId = reqUser?._id || 'default_user';
+    const folder = `${sanitizedOrgName}/${userId}/prepared`;
 
     try {
-        console.log(`[Auto-Stealth] Processing vehicle ${vehicle._id} with GPS: ${JSON.stringify(gps)}...`);
+        console.log(`[Auto-Stealth] Processing vehicle ${vehicle._id} with GPS: ${JSON.stringify(gps)} into folder: ${folder}`);
 
         const result = await prepareImageBatch(imagesToProcess, {
             gps: gps,
-            camera: null // Random
+            camera: null, // Random
+            folder: folder
         });
 
         if (result.success || result.successCount > 0) {
@@ -857,8 +863,7 @@ router.post('/scrape', protect, async (req, res) => {
         // Auto-Stealth Processing (Async - don't block response too long, or do? User said "save them as original and also apply stealth")
         // Since this is manual single add, we can await it for better UX.
         // Get GPS from Organization Settings
-        const orgGps = req.user.organization?.settings?.gpsLocation || null;
-        await autoPrepareStealth(vehicle, orgGps);
+        await autoPrepareStealth(vehicle, req.user);
 
         res.status(201).json(vehicle);
     } catch (error) {
@@ -1255,11 +1260,10 @@ router.post('/scrape-bulk', protect, async (req, res) => {
 
     const flushPreparationBuffer = async () => {
         if (preparationBuffer.length === 0) return;
-        const orgGps = req.user.organization?.settings?.gpsLocation || null;
 
         // Process sequentially to ensure UI updates 1-by-1 instead of all at once
         for (const vehicle of preparationBuffer) {
-            await autoPrepareStealth(vehicle, orgGps);
+            await autoPrepareStealth(vehicle, req.user);
             totalPreparedCount++;
             if (io && organizationId) {
             if (io && organizationId) {
