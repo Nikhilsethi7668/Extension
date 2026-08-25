@@ -67,7 +67,9 @@ const AddVehicleDialog = ({ open, onClose, onSuccess }) => {
                 const formDataUpload = new FormData();
                 formDataUpload.append('image', file);
 
-                const { data } = await apiClient.post('/upload', formDataUpload);
+                const { data } = await apiClient.post('/upload', formDataUpload, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
+                });
 
                 if (data.success && data.url) {
                     uploadedUrls.push(data.url);
