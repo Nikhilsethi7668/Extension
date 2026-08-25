@@ -2975,7 +2975,10 @@ async function showVehicleImages(vehicleId) {
       try {
         if (!img.rawUrl.startsWith('http')) {
           // It's a relative path (e.g. /uploads/... or uploads/...)
-          const cleanPath = img.rawUrl.startsWith('/') ? img.rawUrl : `/${img.rawUrl}`;
+          let cleanPath = img.rawUrl.startsWith('/') ? img.rawUrl : `/${img.rawUrl}`;
+          if (!cleanPath.startsWith('/uploads/')) {
+            cleanPath = `/uploads${cleanPath}`;
+          }
           fullUrl = `${baseHost}${cleanPath}`;
           pathKey = cleanPath;
         } else {
