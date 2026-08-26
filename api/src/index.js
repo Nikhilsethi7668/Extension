@@ -291,3 +291,14 @@ const server = httpServer.listen(PORT, () => {
 server.timeout = 600000; 
 server.keepAliveTimeout = 610000;
 server.headersTimeout = 620000;
+
+// Global Unhandled Crash Protection
+process.on('uncaughtException', (err) => {
+    console.error('[CRITICAL] Uncaught Exception:', err.message);
+    console.error(err.stack);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[CRITICAL] Unhandled Promise Rejection at:', promise, 'reason:', reason);
+});
+

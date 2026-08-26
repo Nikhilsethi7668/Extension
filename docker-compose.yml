@@ -33,6 +33,7 @@ services:
       - extension-network
     env_file:
       - .env
+    restart: unless-stopped
 
   dashboard:
     build: ./dashboard
@@ -50,6 +51,7 @@ services:
       - extension-network
     env_file:
       - .env
+    restart: unless-stopped
 
 networks:
   extension-network:
