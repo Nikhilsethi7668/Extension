@@ -12,7 +12,7 @@ echo [2/4] Cleaning old builds...
 if exist dist rmdir /s /q dist
 
 echo [3/4] Building new version...
-call npm run build
+call npm run build:win
 if %ERRORLEVEL% NEQ 0 (
     echo BUILD FAILED! Please check the errors above.
     pause

@@ -87,7 +87,7 @@ The app runs in your system tray when minimized:
 ### Install Dependencies
 
 ```bash
-cd desktop-app
+cd desktop-app-windows
 npm install
 ```
 
@@ -105,7 +105,7 @@ Create Windows installer:
 npm run build
 ```
 
-The installer will be created in `desktop-app/dist/`
+The installer will be created in `desktop-app-windows/dist/`
 
 ## Troubleshooting
 

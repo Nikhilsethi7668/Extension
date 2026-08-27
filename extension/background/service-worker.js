@@ -678,7 +678,7 @@ async function handlePostingResult(data) {
 
     try {
         const stored = await chrome.storage.local.get(['userSession']);
-        const apiKey = stored.userSession?.apiKey;
+        const apiKey = stored.userSession?.apiKey || sessionData.apiKey;
         
         if (!apiKey) throw new Error('No API key found');
 

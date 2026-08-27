@@ -4,7 +4,7 @@
 
 1. **Navigate to the app directory:**
    ```bash
-   cd desktop-app
+   cd desktop-app-windows
    ```
 
 2. **Install dependencies:**
@@ -47,7 +47,7 @@ To create a Windows installer for distribution:
 npm run build
 ```
 
-The installer will be created in `desktop-app/dist/`
+The installer will be created in `desktop-app-windows/dist/`
 
 ## Troubleshooting
 

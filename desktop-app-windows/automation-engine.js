@@ -224,7 +224,7 @@ class AutomationEngine extends EventEmitter {
       // Fetch formatted vehicle data from API
       const vehicleData = await this.fetchVehicleData(vehicle._id);
 
-      // ⭐ Override with freshly generated images if available
+      //  Override with freshly generated images if available
       if (freshPreparedImages && freshPreparedImages.length > 0) {
         vehicleData.data.preparedImages = freshPreparedImages;
         console.log(`[Posting] Using ${freshPreparedImages.length} freshly stealthed images`);
@@ -353,8 +353,13 @@ class AutomationEngine extends EventEmitter {
     // Resolve extension path
     let extensionPath = this.config.extensionPath;
     if (!extensionPath) {
-      // Default to parent directory's extension folder
-      extensionPath = path.join(__dirname, '..', 'extension');
+      const { app } = require('electron');
+      if (app.isPackaged) {
+        extensionPath = path.join(process.resourcesPath, 'extension');
+      } else {
+        // Default to parent directory's extension folder in dev
+        extensionPath = path.join(__dirname, '..', 'extension');
+      }
     }
 
     if (!fs.existsSync(extensionPath)) {
@@ -366,7 +371,8 @@ class AutomationEngine extends EventEmitter {
     // Get user data directory based on platform
     let userDataDir;
     if (process.platform === 'win32') {
-      userDataDir = path.join(process.env.LOCALAPPDATA, 'Google', 'Chrome', 'User Data');
+      const localAppData = process.env.LOCALAPPDATA || (process.env.USERPROFILE ? path.join(process.env.USERPROFILE, 'AppData', 'Local') : 'C:\\Users\\Default\\AppData\\Local');
+      userDataDir = path.join(localAppData, 'Google', 'Chrome', 'User Data');
     } else if (process.platform === 'darwin') {
       userDataDir = path.join(process.env.HOME, 'Library', 'Application Support', 'Google', 'Chrome');
     } else if (process.platform === 'linux') {
