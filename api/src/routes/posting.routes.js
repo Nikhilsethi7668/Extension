@@ -214,6 +214,7 @@ router.post('/:id/complete', protect, async (req, res) => {
         // 4. Update posting status with validation
         const io = req.app.get('io');
         const currentAttempt = posting.retryCount || 0;
+        const previousStatus = posting.status;
 
         if (status === 'completed') {
             posting.status = 'completed';
