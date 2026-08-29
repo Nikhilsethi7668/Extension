@@ -200,6 +200,248 @@
     startErrorCheck();
   }
 
+  function findNextButton() {
+    const buttons = Array.from(document.querySelectorAll('[aria-label="Next"], button, [role="button"]'));
+    return buttons.find(b => {
+      const text = (b.innerText || b.textContent || '').toLowerCase().trim();
+      return text === 'next' || b.getAttribute('aria-label') === 'Next';
+    });
+  }
+
+  function isButtonEnabled(button) {
+    if (!button) return false;
+    if (button.disabled || button.hasAttribute('disabled')) return false;
+    if (button.getAttribute('aria-disabled') === 'true') return false;
+    const classList = button.className ? String(button.className).toLowerCase() : '';
+    if (classList.includes('disabled')) return false;
+    return true;
+  }
+
+  function getInputValue(selectors) {
+    for (const selector of selectors) {
+      const el = document.querySelector(selector);
+      if (el && isVisible(el)) {
+        return el.value || '';
+      }
+    }
+    return '';
+  }
+
+  function findDropdownElement(keywords) {
+    // Strategy 1: check labels with combobox role
+    const allLabels = document.querySelectorAll('label[role="combobox"][aria-haspopup="listbox"], div[role="combobox"][aria-haspopup="listbox"]');
+    for (const label of allLabels) {
+      const text = (label.textContent || '').toLowerCase();
+      const matches = keywords.every(kw => text.includes(kw.toLowerCase()));
+      if (matches && isVisible(label)) {
+        return label;
+      }
+    }
+    // Strategy 2: find span containing keywords and walk up
+    for (const keyword of keywords) {
+      const spans = Array.from(document.querySelectorAll('span')).filter(s => (s.textContent || '').toLowerCase().includes(keyword.toLowerCase()));
+      for (const span of spans) {
+        const parent = span.closest('label, div');
+        if (parent) {
+          const combobox = parent.querySelector('[role="combobox"]');
+          if (combobox && isVisible(combobox)) return combobox;
+        }
+      }
+    }
+    return null;
+  }
+
+  async function checkAndFillMissingFields() {
+    console.log('🔍 Checking for missing or invalid required fields...');
+    const postData = pendingPost;
+    if (!postData) return;
+
+    // 1. Year
+    const yearDropdown = findDropdownElement(['year']);
+    const yearText = yearDropdown ? (yearDropdown.textContent || '').trim().toLowerCase() : '';
+    if (yearText === 'year' || yearText === '') {
+      console.log('⚠️ Year is missing. Re-filling...');
+      filledFields.delete('year');
+      await fillYear();
+      await sleep(1000);
+    }
+
+    // 2. Make
+    const makeVal = getInputValue(['input[placeholder*="make" i]', 'input[aria-label*="make" i]', 'input[name*="make" i]']);
+    if (!makeVal || makeVal.trim() === '') {
+      console.log('⚠️ Make is missing. Re-filling...');
+      filledFields.delete('make');
+      await fillMake();
+      await sleep(1000);
+    }
+
+    // 3. Model
+    const modelVal = getInputValue(['input[placeholder*="model" i]', 'input[aria-label*="model" i]', 'input[name*="model" i]']);
+    if (!modelVal || modelVal.trim() === '') {
+      console.log('⚠️ Model is missing. Re-filling...');
+      filledFields.delete('model');
+      await fillModel();
+      await sleep(1000);
+    }
+
+    // 4. Mileage
+    const mileageVal = getInputValue(['input[placeholder*="mileage" i]', 'input[aria-label*="mileage" i]']);
+    if (!mileageVal || mileageVal.trim() === '') {
+      console.log('⚠️ Mileage is missing. Re-filling...');
+      filledFields.delete('mileage');
+      await fillMileage();
+      await sleep(1000);
+    }
+
+    // 5. Price
+    const priceVal = getInputValue(['input[placeholder*="price" i]', 'input[aria-label*="price" i]']);
+    if (!priceVal || priceVal.trim() === '') {
+      console.log('⚠️ Price is missing. Re-filling...');
+      filledFields.delete('price');
+      await fillPrice();
+      await sleep(1000);
+    }
+
+    // 6. Location
+    const locationVal = getInputValue(['input[placeholder*="location" i]', 'input[aria-label*="location" i]', 'input[placeholder*="address" i]']);
+    if (!locationVal || locationVal.trim() === '') {
+      console.log('⚠️ Location is missing. Re-filling...');
+      filledFields.delete('location');
+      await fillLocation();
+      await sleep(1000);
+    }
+
+    // 7. Body Style
+    const bodyStyleDropdown = findDropdownElement(['body', 'style']);
+    const bodyStyleText = bodyStyleDropdown ? (bodyStyleDropdown.textContent || '').trim().toLowerCase() : '';
+    if (bodyStyleText === 'body style' || bodyStyleText === '') {
+      console.log('⚠️ Body style is missing. Re-filling...');
+      filledFields.delete('bodyStyle');
+      await fillBodyStyle();
+      await sleep(1000);
+    }
+
+    // 8. Description
+    const descTextarea = document.querySelector('textarea[placeholder*="description" i], textarea[aria-label*="description" i]');
+    const descVal = descTextarea ? descTextarea.value : '';
+    if (!descVal || descVal.trim() === '') {
+      console.log('⚠️ Description is missing. Re-filling...');
+      filledFields.delete('description');
+      await fillDescription();
+      await sleep(1000);
+    }
+  }
+
+  async function robustNextAndPublish() {
+    console.log('=== Starting Robust Next & Publish Flow ===');
+    const postData = pendingPost;
+    if (!postData) return false;
+    
+    // 1. Wait for image uploads to settle
+    await sleep(2000);
+    
+    let nextBtn = findNextButton();
+    if (!nextBtn) {
+      console.error('❌ Next button not found on page');
+      return false;
+    }
+
+    // Check if next button is enabled
+    let isEnabled = isButtonEnabled(nextBtn);
+    console.log('Next button status - Enabled:', isEnabled);
+
+    if (!isEnabled) {
+      console.log('⚠️ Next button is disabled. Checking and filling missing fields...');
+      await checkAndFillMissingFields();
+      await sleep(1000);
+      
+      // Re-evaluate Next button
+      nextBtn = findNextButton();
+      if (nextBtn) {
+        isEnabled = isButtonEnabled(nextBtn);
+        console.log('Re-checked Next button status - Enabled:', isEnabled);
+      }
+    }
+
+    // Try to click Next button
+    console.log('Clicking Next button...');
+    if (nextBtn) {
+      nextBtn.scrollIntoView({ block: "center" });
+      await sleep(500);
+      nextBtn.click();
+    } else {
+      return false;
+    }
+
+    // Wait and poll for the "Publish" or "Post" button to appear.
+    console.log('Waiting for Publish button...');
+    let publishClicked = false;
+    
+    for (let i = 0; i < 15; i++) { // Poll for up to 15 seconds
+      await sleep(1000);
+      
+      // If we find the Publish button, click it!
+      publishClicked = await clickPublishButton();
+      if (publishClicked) {
+        sendProgressUpdate('Publish clicked! Waiting for Facebook to process...');
+        break;
+      }
+      
+      // If we still didn't find the Publish button after 4 seconds and the Next button is still visible,
+      // validation might have failed or Next button was disabled/ignored.
+      if (i >= 4 && !publishClicked) {
+        const currentNext = findNextButton();
+        if (currentNext && isVisible(currentNext)) {
+          console.log('⚠️ Still on listing page (Next button visible). Re-checking missing fields...');
+          await checkAndFillMissingFields();
+          await sleep(1000);
+          
+          if (isButtonEnabled(currentNext)) {
+            console.log('Re-clicking Next button...');
+            currentNext.click();
+          }
+        }
+      }
+    }
+
+    if (publishClicked) {
+      // Wait for URL to change to confirm successful post
+      let postSuccessful = false;
+      for (let i = 0; i < 30; i++) {
+        await sleep(1000);
+        if (!window.location.href.includes('/create/vehicle')) {
+          postSuccessful = true;
+          break;
+        }
+      }
+
+      if (postSuccessful) {
+        sendProgressUpdate('Post published successfully!');
+        if (postData.postingId) {
+          console.log('Reporting queue success...');
+          chrome.runtime.sendMessage({
+            action: 'posting_result',
+            data: {
+              postingId: postData.postingId,
+              jobId: postData.jobId,
+              vehicleId: postData._id || postData.vehicleId,
+              status: 'completed',
+              listingUrl: window.location.href
+            }
+          });
+        }
+        return true;
+      } else {
+        sendProgressUpdate('Error: Facebook timed out or failed to publish the post.');
+        console.error('Timeout waiting for Facebook redirect after Publish.');
+        return false;
+      }
+    } else {
+      sendProgressUpdate('Error: Publish button not found after clicking Next.');
+      return false;
+    }
+  }
+
   async function attemptAutoFill() {
     // Stop if extension context is invalidated
     if (!isExtensionContextValid()) {
@@ -430,64 +672,8 @@
         await handleImages();
         filledFields.add('images');
 
-        // Auto-Click NEXT after images
-        console.log('Auto-clicking "Next" button...');
-        await sleep(2000); // Wait for uploads to settle
-        const nextClicked = await clickNextButton();
-
-        if (nextClicked) {
-          console.log('Next button clicked. Waiting for Publish button...');
-          sendProgressUpdate('Next clicked. Waiting for Publish button to appear...');
-          
-          let publishClicked = false;
-          // Poll for publish button up to 10 times (10 seconds)
-          for (let i = 0; i < 10; i++) {
-             await sleep(1000);
-             publishClicked = await clickPublishButton();
-             if (publishClicked) {
-                 sendProgressUpdate('Publish clicked! Waiting for Facebook to process...');
-                 break;
-             }
-          }
-
-          if (publishClicked) {
-             // Wait for URL to change to confirm successful post
-             let postSuccessful = false;
-             for(let i = 0; i < 30; i++) {
-                 await sleep(1000);
-                 if (!window.location.href.includes('/create/vehicle')) {
-                     postSuccessful = true;
-                     break;
-                 }
-             }
-
-             if (postSuccessful) {
-                 sendProgressUpdate('Post published successfully!');
-                 // Report success for queue
-                 if (postData.postingId) {
-                     console.log('Reporting queue success...');
-                     chrome.runtime.sendMessage({
-                       action: 'posting_result',
-                       data: {
-                         postingId: postData.postingId,
-                         jobId: postData.jobId,
-                         vehicleId: postData._id || postData.vehicleId, // Pass vehicleId
-                         status: 'completed',
-                         listingUrl: window.location.href
-                       }
-                     });
-                 }
-             } else {
-                 sendProgressUpdate('Error: Facebook timed out or failed to publish the post.');
-                 console.error('Timeout waiting for Facebook redirect after Publish.');
-                 // Don't report completed if it failed
-             }
-          } else {
-             sendProgressUpdate('Error: Publish button not found after clicking Next.');
-          }
-        } else {
-          console.error('Could not find or click "Next" button');
-        }
+        // Auto-Click NEXT and Publish with validation check
+        await robustNextAndPublish();
       }
 
       // Notify user of progress
@@ -2666,15 +2852,19 @@
     locationInput.focus();
     await sleep(300);
 
+    // React native setter bypass descriptor
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+
     // Clear existing value
-    locationInput.value = '';
+    if (nativeInputValueSetter) {
+      nativeInputValueSetter.call(locationInput, '');
+    } else {
+      locationInput.value = '';
+    }
     locationInput.dispatchEvent(new Event('input', { bubbles: true }));
     locationInput.dispatchEvent(new Event('change', { bubbles: true }));
     await sleep(200);
 
-    // Type the location value character by character
-    // Clean the location value to help Facebook's autocomplete
-    // remove zip code (e.g. 70634) and "USA"
     // Type the location value character by character
     // Clean the location value to help Facebook's autocomplete
     // Use provided address or default
@@ -2683,15 +2873,20 @@
     // Remove Zip Code (5 digits at the end)
     locationValue = locationValue.replace(/\s+\d{5}(-\d{4})?$/, '');
 
-
     // Remove Country
     locationValue = locationValue.replace(/,\s*(USA|United States)$/i, '');
 
     locationValue = locationValue.trim();
 
     console.log(`Cleaned location value: "${pendingPost.dealerAddress}" -> "${locationValue}"`);
+    let typedLocation = '';
     for (let i = 0; i < locationValue.length; i++) {
-      locationInput.value += locationValue[i];
+      typedLocation += locationValue[i];
+      if (nativeInputValueSetter) {
+        nativeInputValueSetter.call(locationInput, typedLocation);
+      } else {
+        locationInput.value = typedLocation;
+      }
       locationInput.dispatchEvent(new Event('input', { bubbles: true }));
       await sleep(80 + Math.random() * 40);
     }
@@ -4022,6 +4217,9 @@
    * @returns {Promise<boolean>} - Returns true if selection was successful
    */
   async function selectBodyStyle(bodyStyleName) {
+    if (!bodyStyleName) {
+      bodyStyleName = 'Other';
+    }
     // First try exact match
     let index = BODY_STYLE_INDEX[bodyStyleName];
 
@@ -4043,7 +4241,6 @@
     if (index === undefined) {
       const bodyStyleLower = bodyStyleName.toLowerCase();
       const bodyStyleVariations = {
-        'coupe': 'Coupé',
         'coupe': 'Coupé',
         'sedan': 'Saloon',
         'saloon': 'Saloon',
@@ -4073,8 +4270,9 @@
     }
 
     if (index === undefined) {
-      console.error(`❌ Unknown body style: "${bodyStyleName}". Available styles:`, Object.keys(BODY_STYLE_INDEX));
-      return false;
+      console.warn(`❌ Unknown body style: "${bodyStyleName}". Defaulting to "Other".`);
+      index = BODY_STYLE_INDEX['Other']; // 9
+      bodyStyleName = 'Other';
     }
 
     console.log(`🚗 Selecting body style: "${bodyStyleName}" (index: ${index})`);
@@ -4082,12 +4280,11 @@
   }
 
   async function fillBodyStyle() {
-    if (!pendingPost || !pendingPost.bodyStyle) return false;
-
     console.log('=== Starting fillBodyStyle ===');
+    const targetStyle = (pendingPost && pendingPost.bodyStyle) ? pendingPost.bodyStyle : 'Other';
 
     // Try index-based selection first (dropdown approach)
-    const bodyStyleSelected = await selectBodyStyle(pendingPost.bodyStyle);
+    const bodyStyleSelected = await selectBodyStyle(targetStyle);
 
     if (bodyStyleSelected) {
       return true;
@@ -4095,7 +4292,7 @@
 
     // Fallback to text-based selection
     console.log('Dropdown selection failed, trying text-based selection...');
-    const element = findElementByText([pendingPost.bodyStyle]);
+    const element = findElementByText([targetStyle, 'Other']);
     if (element) {
       simulateClick(element);
       await sleep(500);
@@ -4241,6 +4438,7 @@
 
   /**
    * Human-like typing simulation to avoid bot detection
+   * Uses React 16+ setter descriptor bypass to ensure state is synchronized.
    * @param {HTMLElement} element - Target element
    * @param {string} text - Text to type
    * @param {boolean} isContentEditable - Whether element is contentEditable
@@ -4254,25 +4452,40 @@
       return;
     }
 
+    // React native setter bypass descriptor
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set ||
+                                   Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+
     // Clear existing content
     if (isContentEditable) {
       element.textContent = '';
       element.innerHTML = '';
     } else {
-      element.value = '';
+      if (nativeInputValueSetter) {
+        nativeInputValueSetter.call(element, '');
+      } else {
+        element.value = '';
+      }
+      element.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
     // Type character by character with random delays
+    let typedText = '';
     for (let i = 0; i < text.length; i++) {
       if (thisRunId !== currentRunId) return; // Stop if new run started
 
       const char = text[i];
+      typedText += char;
 
       if (isContentEditable) {
-        element.textContent += char;
+        element.textContent = typedText;
         element.innerHTML = element.textContent;
       } else {
-        element.value += char;
+        if (nativeInputValueSetter) {
+          nativeInputValueSetter.call(element, typedText);
+        } else {
+          element.value = typedText;
+        }
       }
 
       // Trigger input event for each character
